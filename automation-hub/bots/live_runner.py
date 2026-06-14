@@ -32,7 +32,8 @@ def _risk(rules) -> RiskManager:
 
 
 class LiveBotRunner:
-    def __init__(self, bot: Bot, feed: LiveFeed, on_update: Optional[UpdateHook] = None):
+    def __init__(self, bot: Bot, feed: LiveFeed, on_update: Optional[UpdateHook] = None,
+                 real_broker=None, alerts: bool = False, dry_run: bool = True):
         self.bot = bot
         self.feed = feed
         self.on_update = on_update
@@ -46,6 +47,17 @@ class LiveBotRunner:
             timeframe=cfg.timeframe, bus=self.bus,
         )
         self.engine.run_kind = "live"
+
+        # Phase 5: real order routing + alerts (event-driven, opt-in).
+        self.router = None
+        if real_broker is not None:
+            from execution.execution_engine import ExecutionEngine
+            from execution.live_bridge import RealOrderRouter
+            self.router = RealOrderRouter(ExecutionEngine(real_broker, dry_run=dry_run))
+            self.router.attach(self.bus)
+        if alerts:
+            from notifications import AlertDispatcher
+            AlertDispatcher(cfg.name).attach(self.bus)
 
     # ---------------------------------------------------------------- control
     def start(self) -> None:

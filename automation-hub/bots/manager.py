@@ -66,13 +66,15 @@ class BotManager:
         rt.halt_reason = trip.reason if trip else None
         return bot
 
-    def start_live(self, bot_id: str, feed=None) -> Bot:
-        """Phase 2: stream bars through the live runner on a background thread.
+    def start_live(self, bot_id: str, feed=None, real_broker=None,
+                   alerts: bool = False, dry_run: bool = True) -> Bot:
+        """Stream bars through the live runner on a background thread.
 
         With no ``feed`` supplied, replays recent market data as if live — a
         zero-config demo of the real-time path (the runner code is identical to
-        a genuine ``BrokerFeed``). Returns immediately; the runner updates the
-        bot's runtime as bars arrive.
+        a genuine ``BrokerFeed``). Pass ``real_broker`` to mirror orders to a
+        live venue (Phase 5) and ``alerts=True`` to fire notifications. Returns
+        immediately; the runner updates the bot's runtime as bars arrive.
         """
         from bots.live_runner import LiveBotRunner
         from data.market_data import get_bars
@@ -84,10 +86,15 @@ class BotManager:
         if feed is None:
             bars, _src = get_bars(bot.config.symbol, n=600, timeframe=bot.config.timeframe)
             feed = ReplayFeed(bars)
-        runner = LiveBotRunner(bot, feed)
+        runner = LiveBotRunner(bot, feed, real_broker=real_broker,
+                               alerts=alerts, dry_run=dry_run)
         self._runners[bot_id] = runner
         runner.start()
         return bot
+
+    def live_bots(self) -> list[Bot]:
+        """Bots that currently have an active live runner (multi-bot supervision)."""
+        return [b for bid, b in self._bots.items() if bid in self._runners]
 
     def pause(self, bot_id: str) -> Bot:
         bot = self._require(bot_id)

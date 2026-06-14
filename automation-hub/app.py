@@ -333,11 +333,47 @@ def logs_page(request: Request):
 
 @app.get("/live-trading", response_class=HTMLResponse)
 def live_page(request: Request):
-    inner = ('<div class="card"><h2>Live Trading</h2>'
-             '<p class="dim">Live order routing, real fills and multi-bot supervision land in '
-             'Phase 5. The execution/ and exchanges/ packages already expose the interfaces; '
-             'connect API keys in Settings to enable.</p></div>')
-    return _simple_page(request, "Live Trading", "live", inner)
+    from database.models import BotState
+    bots = manager.list()
+    cur = settings.currency
+    live = [b for b in bots if b.runtime.state in (BotState.RUNNING, BotState.PAPER)]
+    total_pnl = sum(b.runtime.pnl_today for b in bots)
+
+    if bots:
+        rows = "".join(
+            f"<tr><td><b>{w.esc(b.config.name)}</b></td>"
+            f"<td>{w.esc(exchange_label(b.config.exchange))}</td>"
+            f"<td>{w.esc(b.config.symbol)}</td>"
+            f"<td>{w.state_badge(b.runtime.state.value)}</td>"
+            f"<td>{b.runtime.metrics.get('num_trades',0)}</td>"
+            f"<td class='{'pos' if b.runtime.pnl_today>=0 else 'neg'}'>"
+            f"{cur}{b.runtime.pnl_today:,.2f}</td></tr>"
+            for b in bots
+        )
+        table = (f'<div class="card"><h2>Supervised Bots</h2><table><thead><tr>'
+                 f'<th>Bot</th><th>Exchange</th><th>Symbol</th><th>State</th>'
+                 f'<th>Trades</th><th>P&L today</th></tr></thead>'
+                 f'<tbody>{rows}</tbody></table>'
+                 '<form class="inline" method="post" action="/emergency-stop" style="margin-top:10px">'
+                 '<button class="btn btn-danger" type="submit">■ Stop All Bots</button></form></div>')
+    else:
+        table = ('<div class="card"><div class="empty">No bots. Create one, then '
+                 '“Go Live”.</div></div>')
+
+    kpis = ('<div class="kpis">'
+            + w.kpi("Live / Active", str(len(live)))
+            + w.kpi("Total bots", str(len(bots)))
+            + w.kpi("Aggregate P&L today", f"{cur}{total_pnl:,.2f}",
+                    "pos" if total_pnl >= 0 else "neg")
+            + w.kpi("Order routing", "dry-run (paper)")
+            + '</div>')
+
+    note = ('<div class="card"><h2>Real Order Routing</h2>'
+            '<p class="dim">Set venue API keys (env / .env) and the runner mirrors each '
+            'engine order to the exchange via execution/live_bridge.py as a bracket order; '
+            'AlertDispatcher fires Telegram/Discord/email on fills, halts and completion. '
+            'Defaults to dry-run until keys are supplied.</p></div>')
+    return _simple_page(request, "Live Trading", "live", kpis + table + note)
 
 
 @app.get("/notifications", response_class=HTMLResponse)
