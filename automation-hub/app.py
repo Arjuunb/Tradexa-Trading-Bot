@@ -310,26 +310,10 @@ def risk_page(request: Request):
 
 
 @app.get("/analytics", response_class=HTMLResponse)
-def analytics_page(request: Request):
-    bots = [b for b in manager.list() if b.runtime.equity_curve]
-    if not bots:
-        inner = '<div class="card"><div class="empty">Run a bot to see analytics.</div></div>'
-        return _simple_page(request, "Analytics", "analytics", inner)
-    b = bots[0]
-    m = b.runtime.metrics
-    eq = [v for _, v in b.runtime.equity_curve]
-    inner = (
-        f'<div class="card"><h2>{w.esc(b.config.name)} — Equity Curve</h2>'
-        f'<div class="chart">{w.line(eq)}</div></div>'
-        '<div class="card"><h2>Performance</h2>'
-        f'<div class="kpis">'
-        + w.kpi("Win rate", f"{m.get('win_rate',0)*100:.1f}%")
-        + w.kpi("Profit factor", f"{m.get('profit_factor',0):.2f}")
-        + w.kpi("Avg RR", f"{m.get('avg_r',0):.2f}")
-        + w.kpi("Trades", str(m.get('num_trades',0)))
-        + '</div></div>'
-    )
-    return _simple_page(request, "Analytics", "analytics", inner)
+def analytics_page(request: Request, bot: str = ""):
+    from dashboard.analytics import render_analytics
+    return _simple_page(request, "Analytics", "analytics",
+                        render_analytics(manager, bot_id=bot or None))
 
 
 @app.get("/logs", response_class=HTMLResponse)
