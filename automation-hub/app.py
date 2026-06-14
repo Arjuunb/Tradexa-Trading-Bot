@@ -35,9 +35,12 @@ from database.models import BotConfig, BotMode, RiskRules  # noqa: E402
 from database.store import SqliteStore  # noqa: E402
 
 app = FastAPI(title=settings.app_name)
-# Phase 6: persist bots across restarts (stdlib SQLite). Tests override
-# `manager` with an in-memory BotManager().
-manager = BotManager(store=SqliteStore(settings.db_path))
+# Phase 6/7: one SQLite store backs both bot persistence and user accounts.
+# The first admin is seeded from HUB_USERNAME/HUB_PASSWORD. Tests override
+# `manager` with an in-memory BotManager() but reuse `store` for auth.
+store = SqliteStore(settings.db_path)
+store.seed_admin(settings.username, settings.password)
+manager = BotManager(store=store)
 
 # token -> username (Phase 1 in-memory session store)
 _sessions: dict[str, str] = {}
@@ -73,7 +76,8 @@ def login_form(error: str = "") -> str:
 
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
-    if username == settings.username and password == settings.password:
+    # Phase 7: verify against hashed credentials in the user store.
+    if store.authenticate(username, password) is not None:
         token = secrets.token_urlsafe(24)
         _sessions[token] = username
         resp = RedirectResponse("/", status_code=303)
@@ -391,14 +395,66 @@ def notifications_page(request: Request):
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
+    u = _user(request)
+    me = store.get_user(u) if u else None
+    role = me.role if me else "operator"
     inner = (f'<div class="card"><h2>Settings</h2>'
-             f'<div>Operator: <b>{w.esc(settings.username)}</b></div>'
+             f'<div>Signed in as: <b>{w.esc(u or "")}</b> '
+             f'<span class="dim">({w.esc(role)})</span></div>'
              f'<div>Default exchange: <b>{w.esc(settings.default_exchange)}</b></div>'
              f'<div>Currency: <b>{w.esc(settings.currency)}</b></div>'
              f'<div>Starting cash: <b>{settings.currency}{settings.starting_cash:,.0f}</b></div>'
-             '<p class="dim" style="margin-top:10px">Configure via environment variables / .env '
-             '(HUB_USERNAME, HUB_PASSWORD, HUB_EXCHANGE, TELEGRAM_BOT_TOKEN, …).</p></div>')
+             '<p class="dim" style="margin-top:10px">Passwords are hashed (PBKDF2). '
+             'Manage accounts under <a class="pos" href="/users">Users</a>.</p></div>')
     return _simple_page(request, "Settings", "settings", inner)
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request, error: str = ""):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    me = store.get_user(u)
+    rows = "".join(
+        f"<tr><td><b>{w.esc(x.username)}</b></td>"
+        f"<td>{w.state_badge('Running' if x.role == 'admin' else 'Created')}</td>"
+        f"<td>{w.esc(x.role)}</td>"
+        f"<td class='dim'>{w.esc(x.created_at.strftime('%Y-%m-%d'))}</td></tr>"
+        for x in store.list_users()
+    )
+    table = (f'<div class="card"><h2>Users</h2><table><thead><tr><th>Username</th>'
+             f'<th></th><th>Role</th><th>Created</th></tr></thead>'
+             f'<tbody>{rows}</tbody></table></div>')
+    if me and me.is_admin:
+        err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+        form = ('<div class="card"><h2>Add User</h2>'
+                '<form method="post" action="/users"><div class="formgrid">'
+                '<div><label>Username</label><input name="username" required></div>'
+                '<div><label>Password</label><input name="password" type="password" required></div>'
+                '<div><label>Role</label><select name="role">'
+                '<option value="operator">operator</option>'
+                '<option value="admin">admin</option></select></div>'
+                '</div><div style="margin-top:12px">'
+                '<button class="btn" type="submit">Create User</button></div>'
+                f'{err}</form></div>')
+    else:
+        form = '<div class="card"><div class="dim">Only admins can add users.</div></div>'
+    return _simple_page(request, "Users", "settings", table + form)
+
+
+@app.post("/users")
+def create_user(request: Request, username: str = Form(...),
+                password: str = Form(...), role: str = Form("operator")):
+    u = _user(request)
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    me = store.get_user(u)
+    if not (me and me.is_admin):
+        return RedirectResponse("/users?error=Admin+only", status_code=303)
+    if store.get_user(username) is not None:
+        return RedirectResponse("/users?error=User+already+exists", status_code=303)
+    store.create_user(username, password, role="admin" if role == "admin" else "operator")
+    return RedirectResponse("/users", status_code=303)
 
 
 @app.get("/health")

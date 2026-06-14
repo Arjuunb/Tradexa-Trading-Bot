@@ -15,8 +15,9 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+import auth
 from database.models import (
-    Bot, BotConfig, BotMode, BotRuntime, BotState, RiskRules,
+    Bot, BotConfig, BotMode, BotRuntime, BotState, RiskRules, User,
 )
 
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
@@ -79,6 +80,48 @@ class SqliteStore:
                 state = BotState.STOPPED      # don't resurrect live threads
             out.append(Bot(config=cfg, runtime=BotRuntime(state=state)))
         return out
+
+    # ------------------------------------------------------------- users (P7)
+    def create_user(self, username: str, password: str, role: str = "operator") -> User:
+        salt, pw_hash = auth.hash_password(password)
+        user = User(username=username, password_hash=pw_hash, salt=salt, role=role)
+        self._conn.execute(
+            "INSERT OR REPLACE INTO users"
+            "(username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?)",
+            (user.username, user.password_hash, user.salt, user.role,
+             user.created_at.isoformat()),
+        )
+        self._conn.commit()
+        return user
+
+    def get_user(self, username: str) -> User | None:
+        r = self._conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if r is None:
+            return None
+        return User(username=r["username"], password_hash=r["password_hash"],
+                    salt=r["salt"], role=r["role"],
+                    created_at=datetime.fromisoformat(r["created_at"]))
+
+    def list_users(self) -> list[User]:
+        return [User(username=r["username"], password_hash=r["password_hash"],
+                     salt=r["salt"], role=r["role"],
+                     created_at=datetime.fromisoformat(r["created_at"]))
+                for r in self._conn.execute("SELECT * FROM users ORDER BY created_at")]
+
+    def count_users(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+
+    def authenticate(self, username: str, password: str) -> User | None:
+        user = self.get_user(username)
+        if user and auth.verify_password(password, user.salt, user.password_hash):
+            return user
+        return None
+
+    def seed_admin(self, username: str, password: str) -> None:
+        """Create the first admin from config if there are no users yet."""
+        if self.count_users() == 0:
+            self.create_user(username, password, role="admin")
 
     def close(self) -> None:
         self._conn.close()

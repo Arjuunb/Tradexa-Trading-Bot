@@ -52,9 +52,9 @@ def test_migrations_apply_once(tmp_path):
     db = tmp_path / "hub.db"
     SqliteStore(db).close()
     store = SqliteStore(db)               # second open: must not re-apply
-    rows = list(store._conn.execute("SELECT version FROM _migrations"))
-    assert len(rows) == 1
-    assert rows[0]["version"] == "0001_init"
+    versions = [r["version"] for r in
+                store._conn.execute("SELECT version FROM _migrations ORDER BY version")]
+    assert versions == ["0001_init", "0002_users"]   # applied once each
 
 
 def test_in_memory_manager_unchanged_without_store():

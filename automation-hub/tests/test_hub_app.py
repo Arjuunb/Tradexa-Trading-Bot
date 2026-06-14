@@ -91,8 +91,22 @@ def test_secondary_pages_render(client):
     _login(client)
     for path in ("/bots", "/bots/new", "/strategies", "/paper-trading",
                  "/risk-center", "/analytics", "/logs", "/live-trading",
-                 "/notifications", "/settings"):
+                 "/notifications", "/settings", "/users"):
         assert client.get(path).status_code == 200
+
+
+def test_admin_can_add_user(client):
+    import uuid
+    _login(client)
+    page = client.get("/users").text
+    assert "admin" in page and "Add User" in page  # seeded admin + admin form
+    uname = "op_" + uuid.uuid4().hex[:8]
+    r = client.post("/users", data={"username": uname, "password": "pw",
+                                    "role": "operator"})
+    assert r.status_code == 303
+    assert hub_app.store.get_user(uname) is not None
+    # New user can authenticate with the hashed password.
+    assert hub_app.store.authenticate(uname, "pw") is not None
 
 
 def test_health_open(client):

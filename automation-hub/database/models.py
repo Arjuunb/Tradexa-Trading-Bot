@@ -39,7 +39,14 @@ class BotState(str, Enum):
 @dataclass
 class User:
     username: str
-    # Phase 1 compares against config; no password hashes persisted yet.
+    password_hash: str = ""
+    salt: str = ""
+    role: str = "operator"          # "admin" | "operator"
+    created_at: datetime = field(default_factory=_now)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
 
 @dataclass
