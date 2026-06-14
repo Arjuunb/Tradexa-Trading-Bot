@@ -19,6 +19,8 @@ from datetime import datetime
 from typing import Optional
 
 from bot.brokers.paper import PaperBroker
+from bot.data.indicators import atr as compute_atr
+from bot.metrics import expand_metrics
 from bot.risk import RiskManager
 from bot.strategies.base import Strategy
 from bot.types import Bar, Fill, Order, OrderType, Side, SignalType
@@ -52,18 +54,76 @@ class BacktestResult:
     ending_equity: float
     metrics: dict = field(default_factory=dict)
 
-    def summary(self) -> str:
+    def summary(self, ascii_chart: bool = False, width: int = 60, height: int = 10) -> str:
         m = self.metrics
-        return "\n".join([
+        lines = [
             f"Start equity:   {self.starting_equity:,.2f}",
             f"End equity:     {self.ending_equity:,.2f}",
             f"Total return:   {m.get('total_return', 0):.2%}",
+            f"CAGR:           {m.get('cagr', 0):.2%}",
             f"Trades:         {m.get('num_trades', 0)}",
             f"Win rate:       {m.get('win_rate', 0):.2%}",
             f"Avg R:          {m.get('avg_r', 0):.2f}",
+            f"Profit factor:  {m.get('profit_factor', 0):.2f}",
+            f"Expectancy:     {m.get('expectancy', 0):,.4f}",
             f"Sharpe (ann.):  {m.get('sharpe', 0):.2f}",
+            f"Sortino (ann.): {m.get('sortino', 0):.2f}",
+            f"Calmar:         {m.get('calmar', 0):.2f}",
             f"Max drawdown:   {m.get('max_dd', 0):.2%}",
-        ])
+        ]
+        if ascii_chart and self.equity_curve:
+            lines.append("")
+            lines.append(self.ascii_equity_chart(width=width, height=height))
+        return "\n".join(lines)
+
+    def ascii_equity_chart(self, width: int = 60, height: int = 10) -> str:
+        """Tiny stdlib-only equity sparkline. Useful when running headless."""
+        eq = [v for _, v in self.equity_curve]
+        if not eq or width < 4 or height < 2:
+            return ""
+        n = len(eq)
+        if n <= width:
+            sample = eq
+        else:
+            step = n / width
+            sample = [eq[int(i * step)] for i in range(width)]
+        lo, hi = min(sample), max(sample)
+        if hi == lo:
+            hi = lo + 1.0
+        rows = []
+        for r in range(height, 0, -1):
+            threshold = lo + (hi - lo) * (r - 0.5) / height
+            row = "".join("#" if v >= threshold else " " for v in sample)
+            rows.append(f"{threshold:10.2f} │ {row}")
+        rows.append(" " * 10 + " └" + "─" * len(sample))
+        return "\n".join(rows)
+
+    def export_equity_csv(self, path: str) -> None:
+        """Write the equity curve as CSV (timestamp,equity)."""
+        import csv
+        from pathlib import Path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["timestamp", "equity"])
+            for ts, v in self.equity_curve:
+                w.writerow([ts.isoformat(), v])
+
+    def export_trades_jsonl(self, path: str) -> None:
+        """Write trades as JSONL."""
+        import json
+        from datetime import datetime as _dt
+        from pathlib import Path
+
+        def _default(o):
+            if isinstance(o, _dt):
+                return o.isoformat()
+            raise TypeError(f"not serialisable: {type(o)}")
+
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            for t in self.trades:
+                f.write(json.dumps(t, default=_default) + "\n")
 
 
 class Backtester:
@@ -101,9 +161,16 @@ class Backtester:
     def run(self) -> BacktestResult:
         starting = self.broker.get_account().equity
 
+        bar_history: list[Bar] = []
+        atr_period = self.risk.cfg.atr_period
+        atr_enabled = self.risk.cfg.atr_stop_mult > 0
+
         for bar in self.bars:
             # 0. Per-bar risk housekeeping (cooldown decrement, day rollover).
             self.risk.on_bar(self.broker.get_account().equity, bar.timestamp)
+            bar_history.append(bar)
+            if atr_enabled and len(bar_history) > atr_period:
+                self.risk.update_atr(compute_atr(bar_history, atr_period))
 
             # 1. Broker processes the bar (fills any pending orders + SL/TP).
             for fill in self.broker.on_bar(self.strategy.symbol, bar):
@@ -212,49 +279,6 @@ class Backtester:
                                      self.broker.get_account().equity)
 
     def _metrics(self, start: float, end: float) -> dict:
-        eq = [v for _, v in self.equity_curve]
-
-        max_dd = 0.0
-        if eq:
-            peak = eq[0]
-            for v in eq:
-                if v > peak:
-                    peak = v
-                if peak > 0:
-                    dd = (v - peak) / peak
-                    if dd < max_dd:
-                        max_dd = dd
-
-        rets = []
-        for i in range(1, len(eq)):
-            if eq[i - 1] > 0:
-                rets.append((eq[i] - eq[i - 1]) / eq[i - 1])
-        if rets:
-            mean = sum(rets) / len(rets)
-            var = sum((r - mean) ** 2 for r in rets) / len(rets)
-            std = math.sqrt(var) if var > 0 else 0.0
-            table = _BARS_PER_YEAR_RTH if self.market == "rth" else _BARS_PER_YEAR_24_7
-            ann = table.get(self.timeframe, 24 * 365)
-            sharpe = (mean / std) * math.sqrt(ann) if std > 0 else 0.0
-        else:
-            sharpe = 0.0
-
-        base = {
-            "total_return": (end - start) / start if start else 0.0,
-            "max_dd": max_dd,
-            "sharpe": sharpe,
-            "annualization_factor": (
-                _BARS_PER_YEAR_RTH if self.market == "rth" else _BARS_PER_YEAR_24_7
-            ).get(self.timeframe, 24 * 365),
-        }
-        if not self.trades:
-            return {**base, "num_trades": 0, "win_rate": 0.0, "avg_r": 0.0}
-
-        wins = [t for t in self.trades if t["pnl"] > 0]
-        num = len(self.trades)
-        return {
-            **base,
-            "num_trades": num,
-            "win_rate": len(wins) / num,
-            "avg_r": sum(t["r"] for t in self.trades) / num,
-        }
+        table = _BARS_PER_YEAR_RTH if self.market == "rth" else _BARS_PER_YEAR_24_7
+        ann = table.get(self.timeframe, 24 * 365)
+        return expand_metrics(start, end, self.equity_curve, self.trades, ann)

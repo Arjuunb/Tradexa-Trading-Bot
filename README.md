@@ -138,6 +138,114 @@ Pass a custom `RiskConfig` to `RiskManager` and inject it into the
 
 ---
 
+## Trailing stops
+
+The `PaperBroker` supports a percentage trailing stop on a per-symbol basis:
+
+```python
+broker.set_trail_pct("BTC/USDT", 0.02)   # next entry gets a 2% trail
+```
+
+Semantics (industry-standard, next-bar effect):
+
+- The stop only ever moves in the favourable direction — it ratchets, never
+  loosens.
+- A ratchet on bar N takes effect for the trigger check on bar N+1, so a
+  newly-tightened stop can't fire on the same bar it moved.
+- Works for longs and shorts.
+
+Combine with a fixed `stop_loss` on the order to enforce a maximum loss until
+the trail catches up.
+
+## ATR-based volatility sizing (opt-in)
+
+Set `atr_stop_mult` > 0 in `RiskConfig` to widen position sizing in choppy
+markets. The risk manager uses the wider of (signal stop, `atr_stop_mult * ATR`)
+as the per-unit risk — it can only ever make sizing more conservative:
+
+```python
+RiskConfig(risk_per_trade_pct=0.01, atr_stop_mult=2.0, atr_period=14)
+```
+
+The backtester computes ATR from its bar history and feeds it to the risk
+manager on every bar; live runners do the same.
+
+## Multi-symbol backtesting
+
+`bot/multi_backtester.py` runs N strategies against N symbols sharing one cash
+account and one risk budget. Bars are interleaved chronologically with a heap
+so ordering is correct even when symbols have different bar timestamps.
+
+```python
+from bot.multi_backtester import MultiSymbolBacktester
+
+mb = MultiSymbolBacktester(
+    strategies={"BTC/USDT": ..., "ETH/USDT": ...},
+    bars={"BTC/USDT": btc_bars, "ETH/USDT": eth_bars},
+    starting_cash=50_000,
+)
+result = mb.run()
+print(result.summary())   # also exposes result.per_symbol
+```
+
+See `examples/run_multi_backtest.py`.
+
+## Walk-forward validation
+
+Rolling (train, test) windows for catching overfitting:
+
+```python
+from bot.walkforward import walk_forward
+
+report = walk_forward(
+    bars=bars,
+    build_strategy=lambda train: SupportResistanceRejection("X"),
+    train_bars=2000, test_bars=500, step=500,
+)
+print(report.summary())
+assert report.is_robust(min_sharpe=0.5, max_dd=-0.20)
+```
+
+The `build_strategy` callable receives the train slice; the strategy is then
+backtested out-of-sample on the test slice. Any strategy whose Sharpe collapses
+between train and test windows is overfit.
+
+## Extended metrics
+
+Every `BacktestResult.metrics` dict now also includes:
+
+| Key | Definition |
+|---|---|
+| `cagr` | Compound annual growth rate |
+| `sortino` | Sharpe but using downside-only deviation |
+| `calmar` | CAGR / abs(max drawdown) |
+| `profit_factor` | sum(wins) / sum(abs(losses)) |
+| `expectancy` | Per-trade expected PnL: `wr*avg_win + (1-wr)*avg_loss` |
+
+All formulas live in `bot/metrics.py` as pure functions and are independently
+unit-tested.
+
+## CSV data loader
+
+Load OHLCV CSVs with the canonical or `time/date` header variants and ISO or
+epoch timestamps:
+
+```python
+from bot.data import load_csv_bars
+bars = load_csv_bars("data/btc_1h.csv")
+```
+
+## Exporting results
+
+```python
+result = bt.run()
+result.export_equity_csv("out/equity.csv")
+result.export_trades_jsonl("out/trades.jsonl")
+print(result.summary(ascii_chart=True))   # equity sparkline on stdout
+```
+
+---
+
 ## Trade PnL, fees, and the SL/TP straddle
 
 - **Trade PnL is reported net of fees.** Each trade dict carries `gross_pnl`

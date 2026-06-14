@@ -28,9 +28,18 @@ log = logging.getLogger("bot.paper")
 
 @dataclass
 class _Bracket:
-    """Tracks SL/TP and the role of an outstanding fill for trade bookkeeping."""
+    """Tracks SL/TP and an optional trailing stop.
+
+    A trailing stop is enabled when ``trail_pct`` > 0. On each bar AFTER the
+    entry bar, the stop is ratcheted toward price by at most ``trail_pct`` of
+    the most favourable extreme reached so far. Stops only move in the
+    favourable direction — never away.
+    """
     stop_loss: float = 0.0
     take_profit: float = 0.0
+    trail_pct: float = 0.0           # 0 = disabled
+    high_water: float = 0.0          # highest high since entry (long)
+    low_water: float = 1e18          # lowest low since entry (short)
 
 
 class PaperBroker(Broker):
@@ -40,16 +49,21 @@ class PaperBroker(Broker):
         fee_bps: float = 5.0,          # 5 bps = 0.05% per side
         slippage_bps: float = 2.0,
         sl_first: bool = True,         # when SL & TP both hit on one bar, SL wins
+        default_trail_pct: float = 0.0,  # default trailing-stop for new entries
     ):
         if starting_cash <= 0:
             raise ValueError("starting_cash must be > 0")
         if fee_bps < 0 or slippage_bps < 0:
             raise ValueError("fee_bps and slippage_bps must be >= 0")
+        if default_trail_pct < 0:
+            raise ValueError("default_trail_pct must be >= 0")
         self._cash = starting_cash
         self._equity = starting_cash
         self._fee_bps = fee_bps / 10_000
         self._slip_bps = slippage_bps / 10_000
         self._sl_first = sl_first
+        self._default_trail_pct = default_trail_pct
+        self._next_trail_pct: dict[str, float] = {}
         self._positions: dict[str, Position] = {}
         self._pending: list[Order] = []
         self._fills: list[Fill] = []
@@ -96,6 +110,15 @@ class PaperBroker(Broker):
         """Return 'entry' or 'exit' for a previously emitted fill."""
         return self._fill_roles.get(fill.order_id, "entry")
 
+    def set_trail_pct(self, symbol: str, trail_pct: float) -> None:
+        """Attach a trailing-stop fraction to the NEXT entry for ``symbol``.
+
+        Consumed when that entry fills. Use 0 to disable.
+        """
+        if trail_pct < 0:
+            raise ValueError("trail_pct must be >= 0")
+        self._next_trail_pct[symbol] = trail_pct
+
     @property
     def name(self) -> str:
         return "paper"
@@ -126,10 +149,14 @@ class PaperBroker(Broker):
                     else "entry"
                 fill = self._execute(order, px, bar.timestamp, role)
                 new_fills.append(fill)
-                if role == "entry" and (order.stop_loss or order.take_profit):
+                trail = self._next_trail_pct.pop(symbol, self._default_trail_pct)
+                if role == "entry" and (order.stop_loss or order.take_profit or trail > 0):
                     self._brackets[symbol] = _Bracket(
                         stop_loss=order.stop_loss or 0.0,
                         take_profit=order.take_profit or 0.0,
+                        trail_pct=trail,
+                        high_water=bar.high,
+                        low_water=bar.low,
                     )
 
             elif order.order_type == OrderType.LIMIT:
@@ -148,10 +175,14 @@ class PaperBroker(Broker):
                         else "entry"
                     fill = self._execute(order, lp, bar.timestamp, role)
                     new_fills.append(fill)
-                    if role == "entry" and (order.stop_loss or order.take_profit):
+                    trail = self._next_trail_pct.pop(symbol, self._default_trail_pct)
+                    if role == "entry" and (order.stop_loss or order.take_profit or trail > 0):
                         self._brackets[symbol] = _Bracket(
                             stop_loss=order.stop_loss or 0.0,
                             take_profit=order.take_profit or 0.0,
+                            trail_pct=trail,
+                            high_water=bar.high,
+                            low_water=bar.low,
                         )
                 else:
                     still_pending.append(order)
@@ -159,7 +190,9 @@ class PaperBroker(Broker):
                 still_pending.append(order)
         self._pending = still_pending
 
-        # SL / TP triggers — explicit, configurable same-bar tie-break.
+        # SL / TP triggers — use the stop level the bracket had BEFORE this bar.
+        # Trailing ratchets happen AFTER triggers so they can never fire on the
+        # same bar they moved to (next-bar effect, like a real broker).
         pos = self._positions.get(symbol)
         if pos and symbol in self._brackets:
             br = self._brackets[symbol]
@@ -191,6 +224,25 @@ class PaperBroker(Broker):
                 fill = self._execute(exit_order, fill_px, bar.timestamp, role="exit")
                 new_fills.append(fill)
                 self._brackets.pop(symbol, None)
+                pos = None  # position gone, skip the trail ratchet below
+
+        # Ratchet trailing stop AFTER triggers — changes only take effect on the
+        # NEXT bar's trigger check. (Industry-standard semantics.)
+        if pos and symbol in self._brackets:
+            br = self._brackets[symbol]
+            if br.trail_pct > 0:
+                if pos.qty > 0:
+                    if bar.high > br.high_water:
+                        br.high_water = bar.high
+                    new_stop = br.high_water * (1 - br.trail_pct)
+                    if new_stop > br.stop_loss:
+                        br.stop_loss = new_stop
+                else:
+                    if bar.low < br.low_water:
+                        br.low_water = bar.low
+                    new_stop = br.low_water * (1 + br.trail_pct)
+                    if br.stop_loss == 0.0 or new_stop < br.stop_loss:
+                        br.stop_loss = new_stop
 
         # mark-to-market
         self._last_price[symbol] = bar.close

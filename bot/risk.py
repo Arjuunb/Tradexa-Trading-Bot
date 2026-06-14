@@ -29,6 +29,11 @@ class RiskConfig:
     max_daily_loss_pct: float = 0.03        # halt for the day after -3%
     max_position_pct: float = 0.25          # cap notional at 25% of equity
     cooldown_bars_after_loss: int = 5
+    # ATR-based sizing (opt-in). When atr_stop_mult > 0, the risk manager will
+    # use an ATR-derived stop distance *if it is wider than* the signal's own
+    # stop — i.e. it can only make sizing MORE conservative, never less.
+    atr_stop_mult: float = 0.0
+    atr_period: int = 14
 
     def __post_init__(self) -> None:
         if not 0 < self.risk_per_trade_pct <= 1:
@@ -41,6 +46,10 @@ class RiskConfig:
             raise ValueError("max_position_pct must be in (0, 1]")
         if self.cooldown_bars_after_loss < 0:
             raise ValueError("cooldown_bars_after_loss must be >= 0")
+        if self.atr_stop_mult < 0:
+            raise ValueError("atr_stop_mult must be >= 0")
+        if self.atr_period < 1:
+            raise ValueError("atr_period must be >= 1")
 
 
 @dataclass
@@ -56,6 +65,18 @@ class RiskManager:
     def __init__(self, config: RiskConfig | None = None):
         self.cfg = config or RiskConfig()
         self.state = RiskState()
+        self._atr_cache: float = 0.0  # last ATR fed via update_atr()
+
+    def update_atr(self, atr_value: float) -> None:
+        """Feed the latest ATR (in price units) for ATR-based stop widening.
+
+        Callers (backtester / live runner) compute ATR from the bar history
+        they already hold and push it in here. Stays out of the hot path of
+        evaluate() which must remain side-effect-free.
+        """
+        if atr_value < 0:
+            raise ValueError("atr_value must be >= 0")
+        self._atr_cache = atr_value
 
     # ------------------------------------------------------ bar hook
     def on_bar(self, equity: float, bar_time: datetime) -> None:
@@ -108,6 +129,14 @@ class RiskManager:
         risk_per_unit = abs(signal.entry - signal.stop_loss)
         if risk_per_unit <= 0:
             return False, 0.0, "Invalid stop loss (zero distance to entry)"
+
+        # If ATR sizing is enabled and the implied ATR-stop is WIDER than the
+        # signal's stop, use it. This only ever reduces qty (more conservative).
+        if self.cfg.atr_stop_mult > 0 and self._atr_cache > 0:
+            atr_stop = self.cfg.atr_stop_mult * self._atr_cache
+            if atr_stop > risk_per_unit:
+                risk_per_unit = atr_stop
+
         qty = risk_dollars / risk_per_unit
 
         # Cap notional
