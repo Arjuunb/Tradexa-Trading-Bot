@@ -49,6 +49,10 @@ class Settings:
     max_daily_loss_pct: float = 0.03
     max_open_positions: int = 3
 
+    # --- persistence (Phase 6) ---
+    db_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_DB_PATH", str(BASE_DIR / "logs" / "hub.db")))
+
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.environ.get("TELEGRAM_CHAT_ID", ""))

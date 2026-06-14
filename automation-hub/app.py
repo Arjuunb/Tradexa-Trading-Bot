@@ -32,9 +32,12 @@ from bots.registry import EXCHANGES, STRATEGIES, exchange_label, strategy_label 
 from dashboard import widgets as w  # noqa: E402
 from dashboard.overview import render_overview  # noqa: E402
 from database.models import BotConfig, BotMode, RiskRules  # noqa: E402
+from database.store import SqliteStore  # noqa: E402
 
 app = FastAPI(title=settings.app_name)
-manager = BotManager()
+# Phase 6: persist bots across restarts (stdlib SQLite). Tests override
+# `manager` with an in-memory BotManager().
+manager = BotManager(store=SqliteStore(settings.db_path))
 
 # token -> username (Phase 1 in-memory session store)
 _sessions: dict[str, str] = {}

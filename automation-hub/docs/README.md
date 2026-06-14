@@ -59,6 +59,10 @@ logic was rewritten. `paper_trading.simulator` runs `bot.backtester.Backtester`;
   consecutive-loss protection (engine enforces; surfaced in Risk Center).
 - **Phase 4:** equity curve, win rate, profit factor, trade history (analytics).
 - **Phase 5:** real orders, Telegram alerts, multi-bot supervision.
+- **Phase 6:** durable storage — bots/configs persist across restarts via
+  stdlib SQLite (`database/store.py`) with a forward-only migration runner
+  (`database/migrations/*.sql`). `BotManager(store=...)` is opt-in; without a
+  store it stays pure in-memory. Set `HUB_DB_PATH` to relocate the database.
 
 To trade against a real exchange, follow the **[Go Live runbook](GO_LIVE.md)**
 (install extras, set keys, enable real routing, deploy on a persistent host).

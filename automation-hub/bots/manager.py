@@ -18,14 +18,23 @@ from paper_trading.simulator import run_paper
 
 
 class BotManager:
-    def __init__(self) -> None:
+    def __init__(self, store=None) -> None:
         self._bots: dict[str, Bot] = {}
         self._runners: dict[str, "object"] = {}   # bot_id -> LiveBotRunner
+        self._store = store                        # Phase 6: optional SqliteStore
+        if store is not None:
+            for bot in store.load_all():
+                self._bots[bot.id] = bot
+
+    def _persist(self, bot: Bot) -> None:
+        if self._store is not None:
+            self._store.save(bot)
 
     # -------------------------------------------------------------- CRUD
     def create(self, config: BotConfig) -> Bot:
         bot = Bot(config=config, runtime=BotRuntime())
         self._bots[bot.id] = bot
+        self._persist(bot)
         return bot
 
     def get(self, bot_id: str) -> Optional[Bot]:
@@ -35,7 +44,10 @@ class BotManager:
         return list(self._bots.values())
 
     def delete(self, bot_id: str) -> None:
+        self._stop_runner(bot_id)
         self._bots.pop(bot_id, None)
+        if self._store is not None:
+            self._store.delete(bot_id)
 
     # ---------------------------------------------------------- lifecycle
     def start(self, bot_id: str) -> Bot:
@@ -64,6 +76,7 @@ class BotManager:
             starting_equity=bot.config.starting_cash, rules=bot.config.risk,
         )
         rt.halt_reason = trip.reason if trip else None
+        self._persist(bot)
         return bot
 
     def start_live(self, bot_id: str, feed=None, real_broker=None,
@@ -90,6 +103,7 @@ class BotManager:
                                alerts=alerts, dry_run=dry_run)
         self._runners[bot_id] = runner
         runner.start()
+        self._persist(bot)
         return bot
 
     def live_bots(self) -> list[Bot]:
@@ -100,6 +114,7 @@ class BotManager:
         bot = self._require(bot_id)
         assert_transition(bot.runtime.state, BotState.PAUSED)
         bot.runtime.state = BotState.PAUSED
+        self._persist(bot)
         return bot
 
     def resume(self, bot_id: str) -> Bot:
@@ -107,6 +122,7 @@ class BotManager:
         target = BotState.RUNNING if bot.config.mode == BotMode.LIVE else BotState.PAPER
         assert_transition(bot.runtime.state, target)
         bot.runtime.state = target
+        self._persist(bot)
         return bot
 
     def stop(self, bot_id: str) -> Bot:
@@ -115,6 +131,7 @@ class BotManager:
         if bot.runtime.state != BotState.STOPPED:
             assert_transition(bot.runtime.state, BotState.STOPPED)
             bot.runtime.state = BotState.STOPPED
+        self._persist(bot)
         return bot
 
     def emergency_stop_all(self) -> int:
@@ -123,6 +140,7 @@ class BotManager:
             if bot.runtime.state in (BotState.RUNNING, BotState.PAPER, BotState.PAUSED):
                 self._stop_runner(bot.id)
                 bot.runtime.state = BotState.STOPPED
+                self._persist(bot)
                 n += 1
         return n
 
