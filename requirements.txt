@@ -1,0 +1,11 @@
+# Core (always required)
+# (the bot core uses only the Python stdlib)
+
+# Optional — install only the venues you actually use:
+ccxt>=4.3.0           # crypto exchanges
+alpaca-py>=0.30.0     # US stocks/options
+oandapyV20>=0.7.2     # forex/CFDs
+
+# Dev / testing
+pytest>=8.0
+pyyaml>=6.0
