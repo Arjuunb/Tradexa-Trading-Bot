@@ -60,6 +60,9 @@ logic was rewritten. `paper_trading.simulator` runs `bot.backtester.Backtester`;
 - **Phase 4:** equity curve, win rate, profit factor, trade history (analytics).
 - **Phase 5:** real orders, Telegram alerts, multi-bot supervision.
 
+To trade against a real exchange, follow the **[Go Live runbook](GO_LIVE.md)**
+(install extras, set keys, enable real routing, deploy on a persistent host).
+
 ## Deployment note
 
 The Hub is **stateful** (in-memory bot manager + sessions), so it needs a
