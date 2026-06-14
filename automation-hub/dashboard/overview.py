@@ -52,7 +52,10 @@ def render_overview(manager, user: str = "") -> str:
         rows = "".join(
             f"<tr><td><b>{w.esc(b.config.name)}</b><div class='dim'>"
             f"{w.esc(b.config.strategy.upper())} · {w.esc(b.config.symbol)} · "
-            f"{w.esc(b.config.timeframe)}</div></td>"
+            f"{w.esc(b.config.timeframe)}</div>"
+            + (f"<div class='neg' style='font-size:11px'>⛔ {w.esc(b.runtime.halt_reason)}</div>"
+               if b.runtime.halt_reason else "")
+            + "</td>"
             f"<td>{w.state_badge(b.runtime.state.value)}</td>"
             f"<td class='{'pos' if b.runtime.pnl_today >= 0 else 'neg'}'>"
             f"{cur}{b.runtime.pnl_today:,.2f}</td>"

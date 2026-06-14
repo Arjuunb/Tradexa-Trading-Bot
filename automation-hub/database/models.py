@@ -76,6 +76,7 @@ class BotRuntime:
     events: list = field(default_factory=list)
     pnl_today: float = 0.0
     last_error: Optional[str] = None
+    halt_reason: Optional[str] = None   # set when a risk circuit-breaker trips
 
 
 @dataclass

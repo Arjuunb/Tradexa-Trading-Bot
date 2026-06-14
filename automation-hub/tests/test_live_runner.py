@@ -43,6 +43,24 @@ def test_live_run_matches_batch_backtest():
     assert bot.runtime.equity_curve[-1][1] == batch.ending_equity
 
 
+def test_risk_breaker_halts_live_bot():
+    """A tight drawdown/consecutive-loss cap must trip and auto-halt the bot."""
+    from database.models import RiskRules
+    bars = generate_bars(500, "1h", seed=4)
+    m = BotManager()
+    cfg = BotConfig(name="EMA Live", strategy="ema", exchange="binance",
+                    symbol="BTCUSDT", timeframe="1h", mode=BotMode.LIVE,
+                    risk=RiskRules(max_drawdown_pct=0.0005, max_consecutive_losses=1))
+    bot = m.create(cfg)
+    m.start_live(bot.id, feed=ReplayFeed(bars))
+    m.runner(bot.id).wait(timeout=15)
+
+    assert bot.runtime.state == BotState.STOPPED
+    assert bot.runtime.halt_reason          # a breaker tripped
+    # Halted early, before consuming all 500 bars.
+    assert len(bot.runtime.equity_curve) < len(bars)
+
+
 def test_stop_halts_runner():
     bars = generate_bars(2000, "1h", seed=9)
     m = BotManager()

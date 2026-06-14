@@ -52,6 +52,7 @@ class LiveBotRunner:
         self.bot.runtime.state = BotState.RUNNING
         self.bot.runtime.started_at = datetime.now(timezone.utc)
         self.bot.runtime.last_error = None
+        self.bot.runtime.halt_reason = None
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -74,11 +75,38 @@ class LiveBotRunner:
                 self.engine.bars.append(bar)
                 self.engine.step(bar)
                 self._sync(self.engine.current_metrics())
+                trip = self._check_guards()
+                if trip is not None:
+                    self._halt(trip)
+                    return
             result = self.engine.finalize()
             self._sync(result.metrics, state=BotState.STOPPED)
         except Exception as e:  # noqa: BLE001 - surface as bot error, keep hub alive
             self.bot.runtime.last_error = str(e)
             self._sync(self.engine.current_metrics(), state=BotState.ERROR)
+
+    # --------------------------------------------------------- circuit breaker
+    def _check_guards(self):
+        import risk.guards as guards
+        return guards.evaluate(
+            equity_curve=self.engine.equity_curve,
+            trades=self.engine.trades,
+            pnl_today=self.bot.runtime.pnl_today,
+            starting_equity=self.engine.starting_cash,
+            rules=self.bot.config.risk,
+        )
+
+    def _halt(self, trip) -> None:
+        """A risk breaker tripped: close out, mark STOPPED, alert."""
+        result = self.engine.finalize()
+        self.bot.runtime.halt_reason = trip.reason
+        self._sync(result.metrics, state=BotState.STOPPED)
+        try:
+            from notifications import notify
+            notify(f"🛑 {self.bot.config.name} HALTED — {trip.reason}",
+                   subject="Automation Hub risk halt")
+        except Exception:  # noqa: BLE001 - alerting must never crash the runner
+            pass
 
     def _sync(self, metrics: dict, state: Optional[BotState] = None) -> None:
         rt = self.bot.runtime

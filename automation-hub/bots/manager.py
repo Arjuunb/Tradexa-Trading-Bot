@@ -57,6 +57,13 @@ class BotManager:
         rt.events = res.events
         rt.pnl_today = _today_pnl(res.trades)
         rt.last_error = None
+        # Informational: would a live circuit breaker have tripped on this run?
+        import risk.guards as guards
+        trip = guards.evaluate(
+            equity_curve=rt.equity_curve, trades=rt.trades, pnl_today=rt.pnl_today,
+            starting_equity=bot.config.starting_cash, rules=bot.config.risk,
+        )
+        rt.halt_reason = trip.reason if trip else None
         return bot
 
     def start_live(self, bot_id: str, feed=None) -> Bot:

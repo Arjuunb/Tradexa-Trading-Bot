@@ -273,14 +273,38 @@ def risk_page(request: Request):
     daily_loss = -sum(min(0.0, b.runtime.pnl_today) for b in bots)
     limit = settings.max_daily_loss_pct * settings.starting_cash
     worst_dd = min((b.runtime.metrics.get("max_dd", 0.0) for b in bots), default=0.0)
+    summary = manager.summary()
+
+    halted = [b for b in bots if b.runtime.halt_reason]
+    if halted:
+        rows = "".join(
+            f"<tr><td><b>{w.esc(b.config.name)}</b></td>"
+            f"<td class='neg'>⛔ {w.esc(b.runtime.halt_reason)}</td></tr>"
+            for b in halted
+        )
+        halts = (f'<div class="card"><h2>Tripped Circuit Breakers</h2>'
+                 f'<table><tbody>{rows}</tbody></table></div>')
+    else:
+        halts = ('<div class="card"><h2>Tripped Circuit Breakers</h2>'
+                 '<div class="empty">None — all bots within risk limits.</div></div>')
+
     inner = (
         '<div class="card"><h2>Risk Center</h2>'
         f'<div>Daily loss: <b>{cur}{daily_loss:,.0f}</b> / {cur}{limit:,.0f}</div>'
         f'<div style="margin-top:8px">Worst bot drawdown: <b class="neg">{worst_dd*100:.2f}%</b></div>'
-        f'<div style="margin-top:8px">Active bots: <b>{manager.summary()["running"] + manager.summary()["paper"]}</b></div>'
-        '<p class="dim" style="margin-top:12px">Daily-loss limits, max-drawdown guard, '
-        'consecutive-loss protection and emergency stop are enforced by the risk/ package '
-        'and the engine during every run.</p></div>'
+        f'<div style="margin-top:8px">Active bots: <b>{summary["running"] + summary["paper"]}</b></div>'
+        '</div>'
+        '<div class="card"><h2>Live Circuit Breakers</h2>'
+        '<table><thead><tr><th>Breaker</th><th>Action</th></tr></thead><tbody>'
+        f'<tr><td>Daily loss &gt; {settings.max_daily_loss_pct*100:.0f}% of equity</td>'
+        '<td>Halt bot + alert</td></tr>'
+        '<tr><td>Max drawdown breach</td><td>Halt bot + alert</td></tr>'
+        '<tr><td>Consecutive-loss streak</td><td>Halt bot + alert</td></tr>'
+        '<tr><td>Emergency stop (manual)</td><td>Halt all bots immediately</td></tr>'
+        '</tbody></table>'
+        '<p class="dim" style="margin-top:10px">Enforced live by risk/guards.py after every '
+        'bar; the engine also applies the daily-loss kill switch + post-loss cooldown during runs.</p></div>'
+        + halts
     )
     return _simple_page(request, "Risk Center", "risk", inner)
 
