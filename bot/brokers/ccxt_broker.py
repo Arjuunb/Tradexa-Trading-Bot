@@ -4,11 +4,14 @@ Install:  pip install ccxt
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from bot.brokers.base import Broker
 from bot.types import AccountSnapshot, Bar, Fill, Order, OrderType, Position, Side
+
+log = logging.getLogger("bot.ccxt")
 
 
 _TIMEFRAME_MS = {
@@ -121,8 +124,9 @@ class CCXTBroker(Broker):
                     "sell" if order.side == Side.BUY else "buy",
                     order.qty, None, {"stopPrice": order.stop_loss},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Failed to attach stop-loss on %s (%s): %s",
+                            order.symbol, self._exchange_id, e)
         if order.take_profit:
             try:
                 self._x.create_order(
@@ -130,8 +134,9 @@ class CCXTBroker(Broker):
                     "sell" if order.side == Side.BUY else "buy",
                     order.qty, None, {"stopPrice": order.take_profit},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Failed to attach take-profit on %s (%s): %s",
+                            order.symbol, self._exchange_id, e)
         return oid
 
     def cancel_order(self, order_id: str) -> None:

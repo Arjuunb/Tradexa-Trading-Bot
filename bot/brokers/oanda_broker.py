@@ -69,11 +69,18 @@ class OandaBroker(Broker):
         for p in d.get("positions", []):
             long_units = float(p["long"]["units"])
             short_units = float(p["short"]["units"])
-            qty = long_units + short_units
-            if qty == 0:
-                continue
-            avg = float(p["long"]["averagePrice"]) if long_units else float(p["short"]["averagePrice"])
-            positions.append(Position(symbol=p["instrument"], qty=qty, avg_price=avg))
+            # Report long and short legs separately so a hedged book
+            # (e.g. +100 / -100) does not net to zero exposure.
+            if long_units > 0:
+                positions.append(Position(
+                    symbol=p["instrument"], qty=long_units,
+                    avg_price=float(p["long"]["averagePrice"]),
+                ))
+            if short_units < 0:
+                positions.append(Position(
+                    symbol=p["instrument"], qty=short_units,
+                    avg_price=float(p["short"]["averagePrice"]),
+                ))
         return AccountSnapshot(cash=float(d["balance"]), equity=float(d["NAV"]), positions=positions)
 
     def get_position(self, symbol):

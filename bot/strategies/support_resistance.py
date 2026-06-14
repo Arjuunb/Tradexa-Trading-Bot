@@ -101,34 +101,36 @@ class SupportResistanceRejection(Strategy):
     def _update_zones(self) -> None:
         if len(self.bars) < self.params["pivot"] * 2 + 2:
             return
-        i = len(self.bars) - self.params["pivot"] - 1   # bar that just became a confirmed pivot
+        # The pivot at index i is only *confirmed* once `pivot` bars have closed
+        # to its right. Touch index is i, not len(bars)-1.
+        i = len(self.bars) - self.params["pivot"] - 1
         if i < 0:
             return
 
         cluster = self.params["cluster_pct"]
 
-        def merge(price: float, kind: str) -> None:
+        def merge(price: float, kind: str, touch_idx: int) -> None:
             for z in self.zones:
                 if z.kind != kind:
                     continue
                 mid = (z.low + z.high) / 2
-                if abs(price - mid) / mid <= cluster:
+                if mid > 0 and abs(price - mid) / mid <= cluster:
                     z.low = min(z.low, price * (1 - cluster / 2))
                     z.high = max(z.high, price * (1 + cluster / 2))
                     z.touches += 1
-                    z.last_touch_idx = len(self.bars) - 1
+                    z.last_touch_idx = touch_idx
                     return
             self.zones.append(Zone(
                 low=price * (1 - cluster / 2),
                 high=price * (1 + cluster / 2),
                 kind=kind,
-                last_touch_idx=len(self.bars) - 1,
+                last_touch_idx=touch_idx,
             ))
 
         if self._is_swing_high(i):
-            merge(self.bars[i].high, "resistance")
+            merge(self.bars[i].high, "resistance", i)
         if self._is_swing_low(i):
-            merge(self.bars[i].low, "support")
+            merge(self.bars[i].low, "support", i)
 
         # drop stale zones
         cutoff = len(self.bars) - self.params["max_zone_age"]
@@ -140,20 +142,34 @@ class SupportResistanceRejection(Strategy):
         return abs(b.close - b.open)
 
     def _bullish_pin(self, b: Bar) -> bool:
-        body = self._body(b)
-        if body <= 0:
+        rng = b.high - b.low
+        if rng <= 0:
             return False
+        body = self._body(b)
         lower_wick = min(b.open, b.close) - b.low
         upper_wick = b.high - max(b.open, b.close)
-        return lower_wick >= 2 * body and lower_wick > upper_wick * 2 and b.close > b.open
+        # Long lower wick relative to body AND short upper wick AND close
+        # in the upper third of the range (classic hammer shape).
+        close_position = (b.close - b.low) / rng
+        return (
+            lower_wick >= 2 * body
+            and lower_wick > upper_wick * 2
+            and close_position >= 0.6
+        )
 
     def _bearish_pin(self, b: Bar) -> bool:
-        body = self._body(b)
-        if body <= 0:
+        rng = b.high - b.low
+        if rng <= 0:
             return False
+        body = self._body(b)
         upper_wick = b.high - max(b.open, b.close)
         lower_wick = min(b.open, b.close) - b.low
-        return upper_wick >= 2 * body and upper_wick > lower_wick * 2 and b.close < b.open
+        close_position = (b.close - b.low) / rng
+        return (
+            upper_wick >= 2 * body
+            and upper_wick > lower_wick * 2
+            and close_position <= 0.4
+        )
 
     def _bullish_engulf(self) -> bool:
         if len(self.bars) < 2:

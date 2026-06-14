@@ -1,14 +1,16 @@
 """In-memory paper / backtest broker.
 
-Fills market orders at next bar's open (configurable slippage + fee).
-Tracks one position per symbol, supports SL/TP via attached child orders that
-are checked on every bar.
+Fills market orders at next bar's open (with slippage + fee).
+Tracks one position per symbol, supports SL/TP via attached brackets that are
+checked on every bar's high/low.
 """
 from __future__ import annotations
 
+import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Optional
 
 from bot.brokers.base import Broker
 from bot.types import (
@@ -21,6 +23,15 @@ from bot.types import (
     Side,
 )
 
+log = logging.getLogger("bot.paper")
+
+
+@dataclass
+class _Bracket:
+    """Tracks SL/TP and the role of an outstanding fill for trade bookkeeping."""
+    stop_loss: float = 0.0
+    take_profit: float = 0.0
+
 
 class PaperBroker(Broker):
     def __init__(
@@ -29,6 +40,8 @@ class PaperBroker(Broker):
         fee_bps: float = 5.0,          # 5 bps = 0.05% per side
         slippage_bps: float = 2.0,
     ):
+        if starting_cash <= 0:
+            raise ValueError("starting_cash must be > 0")
         self._cash = starting_cash
         self._equity = starting_cash
         self._fee_bps = fee_bps / 10_000
@@ -36,8 +49,10 @@ class PaperBroker(Broker):
         self._positions: dict[str, Position] = {}
         self._pending: list[Order] = []
         self._fills: list[Fill] = []
-        self._brackets: dict[str, tuple[float, float]] = {}   # symbol -> (sl, tp)
+        self._brackets: dict[str, _Bracket] = {}
         self._last_price: dict[str, float] = {}
+        # role tagging so the backtester knows entry vs exit
+        self._fill_roles: dict[str, str] = {}    # fill order_id -> "entry"|"exit"
 
     # ------------------------------------------------------------------ data
     def get_historical_bars(self, symbol, timeframe, start, end=None, limit=None):
@@ -59,6 +74,8 @@ class PaperBroker(Broker):
 
     # ----------------------------------------------------------------- orders
     def submit_order(self, order: Order) -> str:
+        if order.qty <= 0:
+            raise ValueError(f"Order qty must be > 0, got {order.qty}")
         order.client_id = order.client_id or str(uuid.uuid4())
         self._pending.append(order)
         return order.client_id
@@ -71,6 +88,10 @@ class PaperBroker(Broker):
             return list(self._fills)
         return [f for f in self._fills if f.timestamp >= since]
 
+    def fill_role(self, fill: Fill) -> str:
+        """Return 'entry' or 'exit' for a previously emitted fill."""
+        return self._fill_roles.get(fill.order_id, "entry")
+
     @property
     def name(self) -> str:
         return "paper"
@@ -79,70 +100,91 @@ class PaperBroker(Broker):
     def on_bar(self, symbol: str, bar: Bar) -> list[Fill]:
         """Called by the backtester for each new bar.
 
-        1. Fills any pending market orders at bar.open with slippage.
-        2. Checks active SL/TP brackets against bar high/low.
-        3. Updates mark-to-market equity.
+        1. Fills pending market orders at bar.open (with slippage).
+        2. Fills pending limit orders if their price was touched.
+        3. Triggers SL/TP brackets against bar high/low (also with slippage).
+        4. Updates mark-to-market equity.
         """
         new_fills: list[Fill] = []
 
-        # 1. fill pending market orders at open
         still_pending = []
         for order in self._pending:
             if order.symbol != symbol:
                 still_pending.append(order)
                 continue
+
             if order.order_type == OrderType.MARKET:
                 px = self._apply_slippage(bar.open, order.side)
-                fill = self._execute(order, px, bar.timestamp)
+                # Was there an existing position? -> this is an exit
+                role = "exit" if symbol in self._positions and \
+                    ((self._positions[symbol].qty > 0 and order.side == Side.SELL)
+                     or (self._positions[symbol].qty < 0 and order.side == Side.BUY)) \
+                    else "entry"
+                fill = self._execute(order, px, bar.timestamp, role)
                 new_fills.append(fill)
-                if order.stop_loss or order.take_profit:
-                    self._brackets[symbol] = (
-                        order.stop_loss or 0.0,
-                        order.take_profit or 0.0,
+                if role == "entry" and (order.stop_loss or order.take_profit):
+                    self._brackets[symbol] = _Bracket(
+                        stop_loss=order.stop_loss or 0.0,
+                        take_profit=order.take_profit or 0.0,
                     )
+
             elif order.order_type == OrderType.LIMIT:
                 lp = order.limit_price
                 if lp is None:
+                    log.warning("Limit order with no limit_price; dropping")
                     continue
                 hit = (
                     (order.side == Side.BUY and bar.low <= lp)
                     or (order.side == Side.SELL and bar.high >= lp)
                 )
                 if hit:
-                    fill = self._execute(order, lp, bar.timestamp)
+                    role = "exit" if symbol in self._positions and \
+                        ((self._positions[symbol].qty > 0 and order.side == Side.SELL)
+                         or (self._positions[symbol].qty < 0 and order.side == Side.BUY)) \
+                        else "entry"
+                    fill = self._execute(order, lp, bar.timestamp, role)
                     new_fills.append(fill)
+                    if role == "entry" and (order.stop_loss or order.take_profit):
+                        self._brackets[symbol] = _Bracket(
+                            stop_loss=order.stop_loss or 0.0,
+                            take_profit=order.take_profit or 0.0,
+                        )
                 else:
                     still_pending.append(order)
+            else:
+                still_pending.append(order)
         self._pending = still_pending
 
-        # 2. SL / TP
+        # SL / TP triggers
         pos = self._positions.get(symbol)
         if pos and symbol in self._brackets:
-            sl, tp = self._brackets[symbol]
+            br = self._brackets[symbol]
+            sl, tp = br.stop_loss, br.take_profit
             exit_side = Side.SELL if pos.qty > 0 else Side.BUY
-            exit_price = None
-            if pos.qty > 0:        # long
+            trigger_price = None
+            if pos.qty > 0:
                 if sl and bar.low <= sl:
-                    exit_price = sl
+                    trigger_price = sl
                 elif tp and bar.high >= tp:
-                    exit_price = tp
-            else:                  # short
+                    trigger_price = tp
+            else:
                 if sl and bar.high >= sl:
-                    exit_price = sl
+                    trigger_price = sl
                 elif tp and bar.low <= tp:
-                    exit_price = tp
-            if exit_price is not None:
+                    trigger_price = tp
+            if trigger_price is not None:
+                # Slippage on stops/takes too (real markets always slip on stops).
+                fill_px = self._apply_slippage(trigger_price, exit_side)
                 exit_order = Order(
-                    symbol=symbol,
-                    side=exit_side,
-                    qty=abs(pos.qty),
-                    order_type=OrderType.MARKET,
+                    symbol=symbol, side=exit_side,
+                    qty=abs(pos.qty), order_type=OrderType.MARKET,
                 )
-                fill = self._execute(exit_order, exit_price, bar.timestamp)
+                exit_order.client_id = str(uuid.uuid4())
+                fill = self._execute(exit_order, fill_px, bar.timestamp, role="exit")
                 new_fills.append(fill)
                 self._brackets.pop(symbol, None)
 
-        # 3. mark-to-market
+        # mark-to-market
         self._last_price[symbol] = bar.close
         self._recompute_equity()
         return new_fills
@@ -151,7 +193,14 @@ class PaperBroker(Broker):
     def _apply_slippage(self, px: float, side: Side) -> float:
         return px * (1 + self._slip_bps) if side == Side.BUY else px * (1 - self._slip_bps)
 
-    def _execute(self, order: Order, price: float, ts: datetime) -> Fill:
+    def _execute(self, order: Order, price: float, ts: datetime, role: str) -> Fill:
+        """Execute a fill and update cash + position correctly.
+
+        Cash accounting (consistent for long, short, partial, and flips):
+            cash -= signed_qty * price        # buying lowers cash, selling raises it
+            cash -= fee                       # always a debit
+        Realized PnL is implicit in cash deltas — no double counting.
+        """
         notional = price * order.qty
         fee = notional * self._fee_bps
         signed_qty = order.qty if order.side == Side.BUY else -order.qty
@@ -161,39 +210,39 @@ class PaperBroker(Broker):
             self._positions[order.symbol] = Position(
                 symbol=order.symbol, qty=signed_qty, avg_price=price
             )
-            self._cash -= signed_qty * price + fee
         else:
             new_qty = pos.qty + signed_qty
-            if pos.qty * new_qty < 0 or new_qty == 0:
-                # closing / flipping: realize PnL on closed portion
-                closed_qty = min(abs(pos.qty), abs(signed_qty)) * (1 if pos.qty > 0 else -1)
-                realized = (price - pos.avg_price) * closed_qty
-                self._cash += realized
-                self._cash -= signed_qty * price + fee - realized  # net cash effect
-                if new_qty == 0:
-                    del self._positions[order.symbol]
-                else:
-                    self._positions[order.symbol] = Position(
-                        symbol=order.symbol, qty=new_qty, avg_price=price
-                    )
+            if new_qty == 0:
+                # fully closed
+                del self._positions[order.symbol]
+            elif pos.qty * new_qty < 0:
+                # flipped through zero — leftover side opens at fill price
+                self._positions[order.symbol] = Position(
+                    symbol=order.symbol, qty=new_qty, avg_price=price
+                )
+            elif abs(new_qty) < abs(pos.qty):
+                # partial close — average price of remaining position is unchanged
+                self._positions[order.symbol] = Position(
+                    symbol=order.symbol, qty=new_qty, avg_price=pos.avg_price
+                )
             else:
-                # adding to existing position
+                # increasing existing position — VWAP the entries
                 total_cost = pos.avg_price * pos.qty + price * signed_qty
                 self._positions[order.symbol] = Position(
                     symbol=order.symbol, qty=new_qty, avg_price=total_cost / new_qty
                 )
-                self._cash -= signed_qty * price + fee
+
+        # Single, consistent cash update for every branch
+        self._cash -= signed_qty * price
+        self._cash -= fee
 
         fill = Fill(
             order_id=order.client_id or str(uuid.uuid4()),
-            symbol=order.symbol,
-            side=order.side,
-            qty=order.qty,
-            price=price,
-            timestamp=ts,
-            fee=fee,
+            symbol=order.symbol, side=order.side,
+            qty=order.qty, price=price, timestamp=ts, fee=fee,
         )
         self._fills.append(fill)
+        self._fill_roles[fill.order_id] = role
         return fill
 
     def _recompute_equity(self) -> None:

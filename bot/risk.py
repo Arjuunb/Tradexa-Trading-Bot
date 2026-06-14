@@ -27,7 +27,7 @@ class RiskConfig:
 
 @dataclass
 class RiskState:
-    day: date = field(default_factory=lambda: date.today())
+    day: Optional[date] = None              # set lazily from first bar time
     starting_equity_today: float = 0.0
     realized_pnl_today: float = 0.0
     last_loss_time: Optional[datetime] = None
@@ -42,10 +42,13 @@ class RiskManager:
     # ------------------------------------------------------ day rollover
     def _maybe_rollover(self, equity: float, now: datetime) -> None:
         today = now.date()
-        if today != self.state.day:
-            self.state = RiskState(day=today, starting_equity_today=equity)
-        elif self.state.starting_equity_today == 0:
+        if self.state.day is None:
+            # First call: anchor to bar's date and starting equity.
+            self.state.day = today
             self.state.starting_equity_today = equity
+        elif today != self.state.day:
+            # New day: reset all daily state.
+            self.state = RiskState(day=today, starting_equity_today=equity)
 
     # ---------------------------------------------------- pre-trade check
     def evaluate(
@@ -62,7 +65,7 @@ class RiskManager:
             if dd <= -self.cfg.max_daily_loss_pct:
                 return False, 0.0, f"Daily loss limit hit ({dd:.2%})"
 
-        # Cooldown
+        # Cooldown after a stop-out
         if self.state.cooldown_left > 0:
             self.state.cooldown_left -= 1
             return False, 0.0, f"Cooldown active ({self.state.cooldown_left} bars left)"
@@ -71,16 +74,16 @@ class RiskManager:
         if len(account.positions) >= self.cfg.max_open_positions:
             return False, 0.0, "Max open positions reached"
 
-        # Position sizing from risk distance
+        # Risk-based position sizing
         risk_dollars = account.equity * self.cfg.risk_per_trade_pct
         risk_per_unit = abs(signal.entry - signal.stop_loss)
         if risk_per_unit <= 0:
-            return False, 0.0, "Invalid stop loss (zero distance)"
+            return False, 0.0, "Invalid stop loss (zero distance to entry)"
         qty = risk_dollars / risk_per_unit
 
         # Cap notional
         max_notional = account.equity * self.cfg.max_position_pct
-        if qty * signal.entry > max_notional:
+        if signal.entry > 0 and qty * signal.entry > max_notional:
             qty = max_notional / signal.entry
 
         if qty <= 0:
