@@ -49,14 +49,37 @@ def _load_bars(symbol: str, n: int, seed: int):
     return generate_bars(n=n, timeframe="1h", seed=seed), "synthetic"
 
 
-def _run_report_html(symbol: str, n: int, seed: int) -> str:
+def _run(symbol: str, n: int, seed: int):
+    """Run a backtest capturing events; return (result, bars, events, risk, source)."""
     from bot.backtester import Backtester
-    from bot.reporting import render_report_html
+    from bot.events import EventBus
+    from bot.risk import RiskManager
     from bot.strategies import SupportResistanceRejection
 
     bars, source = _load_bars(symbol, n, seed)
-    bt = Backtester(SupportResistanceRejection(symbol=symbol), bars)
+    bus = EventBus()
+    risk = RiskManager()
+    bt = Backtester(SupportResistanceRejection(symbol=symbol), bars,
+                    risk=risk, bus=bus)
     result = bt.run()
+    return result, bars, bus.replay(), risk, source
+
+
+def _run_dashboard_html(symbol: str, n: int, seed: int) -> str:
+    from bot.dashboard_report import render_dashboard_html
+
+    result, bars, events, risk, source = _run(symbol, n, seed)
+    return render_dashboard_html(
+        result=result, bars=bars, events=events, symbol=symbol,
+        timeframe="1h", strategy_name="sr_rejection", risk_cfg=risk.cfg,
+        exchange=f"{source} data",
+    )
+
+
+def _run_report_html(symbol: str, n: int, seed: int) -> str:
+    from bot.reporting import render_report_html
+
+    result, bars, _events, _risk, source = _run(symbol, n, seed)
     title = f"Backtest — {symbol} · {len(bars)} 1h bars · {source} data"
     return render_report_html(result, title=title)
 
@@ -79,9 +102,13 @@ class handler(BaseHTTPRequestHandler):
         symbol = (q.get("symbol", ["BTC-USD"])[0] or "BTC-USD")[:32]
         n = _int_arg(q, "bars", 2000, 200, 20000)
         seed = _int_arg(q, "seed", 1, 0, 10_000_000)
+        view = (q.get("view", ["dashboard"])[0] or "dashboard").lower()
 
         try:
-            body = _run_report_html(symbol, n, seed).encode("utf-8")
+            if view == "report":
+                body = _run_report_html(symbol, n, seed).encode("utf-8")
+            else:
+                body = _run_dashboard_html(symbol, n, seed).encode("utf-8")
             self._send(200, "text/html; charset=utf-8", body)
         except Exception:
             tb = traceback.format_exc().replace("<", "&lt;")
