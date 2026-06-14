@@ -200,6 +200,12 @@ def start_bot(bot_id: str, request: Request):
     return _bot_action(request, lambda: manager.start(bot_id))
 
 
+@app.post("/bots/{bot_id}/go-live")
+def go_live_bot(bot_id: str, request: Request):
+    # Phase 2: stream bars through the live engine (replay-driven demo).
+    return _bot_action(request, lambda: manager.start_live(bot_id))
+
+
 @app.post("/bots/{bot_id}/pause")
 def pause_bot(bot_id: str, request: Request):
     return _bot_action(request, lambda: manager.pause(bot_id))

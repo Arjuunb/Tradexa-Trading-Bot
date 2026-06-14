@@ -20,6 +20,7 @@ from paper_trading.simulator import run_paper
 class BotManager:
     def __init__(self) -> None:
         self._bots: dict[str, Bot] = {}
+        self._runners: dict[str, "object"] = {}   # bot_id -> LiveBotRunner
 
     # -------------------------------------------------------------- CRUD
     def create(self, config: BotConfig) -> Bot:
@@ -58,6 +59,29 @@ class BotManager:
         rt.last_error = None
         return bot
 
+    def start_live(self, bot_id: str, feed=None) -> Bot:
+        """Phase 2: stream bars through the live runner on a background thread.
+
+        With no ``feed`` supplied, replays recent market data as if live — a
+        zero-config demo of the real-time path (the runner code is identical to
+        a genuine ``BrokerFeed``). Returns immediately; the runner updates the
+        bot's runtime as bars arrive.
+        """
+        from bots.live_runner import LiveBotRunner
+        from data.market_data import get_bars
+        from data.websocket import ReplayFeed
+
+        bot = self._require(bot_id)
+        assert_transition(bot.runtime.state, BotState.RUNNING)
+        self._stop_runner(bot_id)
+        if feed is None:
+            bars, _src = get_bars(bot.config.symbol, n=600, timeframe=bot.config.timeframe)
+            feed = ReplayFeed(bars)
+        runner = LiveBotRunner(bot, feed)
+        self._runners[bot_id] = runner
+        runner.start()
+        return bot
+
     def pause(self, bot_id: str) -> Bot:
         bot = self._require(bot_id)
         assert_transition(bot.runtime.state, BotState.PAUSED)
@@ -73,17 +97,29 @@ class BotManager:
 
     def stop(self, bot_id: str) -> Bot:
         bot = self._require(bot_id)
-        assert_transition(bot.runtime.state, BotState.STOPPED)
-        bot.runtime.state = BotState.STOPPED
+        self._stop_runner(bot_id)   # joins the live thread, which may self-stop
+        if bot.runtime.state != BotState.STOPPED:
+            assert_transition(bot.runtime.state, BotState.STOPPED)
+            bot.runtime.state = BotState.STOPPED
         return bot
 
     def emergency_stop_all(self) -> int:
         n = 0
         for bot in self._bots.values():
             if bot.runtime.state in (BotState.RUNNING, BotState.PAPER, BotState.PAUSED):
+                self._stop_runner(bot.id)
                 bot.runtime.state = BotState.STOPPED
                 n += 1
         return n
+
+    def runner(self, bot_id: str):
+        """Return the live runner for a bot (if any) — used by tests/monitoring."""
+        return self._runners.get(bot_id)
+
+    def _stop_runner(self, bot_id: str) -> None:
+        runner = self._runners.pop(bot_id, None)
+        if runner is not None:
+            runner.stop()
 
     # ----------------------------------------------------------- aggregate
     def summary(self) -> dict:

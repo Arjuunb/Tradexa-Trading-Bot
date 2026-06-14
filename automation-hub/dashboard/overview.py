@@ -117,7 +117,8 @@ def _row_controls(bot) -> str:
     bid = bot.id
     btns = []
     if st in (BotState.CREATED, BotState.STOPPED, BotState.PAUSED):
-        btns.append(_form(f"/bots/{bid}/start", "Start", "btn"))
+        btns.append(_form(f"/bots/{bid}/start", "Paper", "btn"))
+        btns.append(_form(f"/bots/{bid}/go-live", "Go Live", "btn btn-warn"))
     if st in (BotState.RUNNING, BotState.PAPER):
         btns.append(_form(f"/bots/{bid}/pause", "Pause", "btn btn-warn"))
     btns.append(_form(f"/bots/{bid}/stop", "Stop", "btn btn-ghost"))
