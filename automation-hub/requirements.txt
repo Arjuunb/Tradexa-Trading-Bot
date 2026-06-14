@@ -1,0 +1,10 @@
+# Automation Hub web app (Phase 1)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9   # form handling for login / create-bot
+
+# The trading engine itself is the parent package (pure stdlib):
+#   pip install -e ..            # installs the `bot` package
+# Optional live venues:
+#   pip install -e "..[crypto]"  # ccxt (Binance/Bybit)
+#   pip install -e "..[stocks]"  # alpaca-py
