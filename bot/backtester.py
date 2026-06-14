@@ -187,6 +187,12 @@ class Backtester:
         self._partial_done: bool = False
         self._breakeven_done: bool = False
         self._bars_held: int = 0
+        # Incremental-engine state (shared by batch run() and the live runner).
+        self._bar_history: list[Bar] = []
+        self._atr_enabled: bool = self.risk.cfg.atr_stop_mult > 0
+        self._started: bool = False
+        self._starting_equity: float = starting_cash
+        self.run_kind: str = "backtest"
 
     # ------------------------------------------------------------------- run
     def _emit(self, ev: dict) -> None:
@@ -194,78 +200,105 @@ class Backtester:
             self.bus.publish(ev)
 
     def run(self) -> BacktestResult:
+        """Batch backtest: feed every bar through step(), then finalize."""
         starting = self.broker.get_account().equity
-        self._emit(ev_run_started(
-            self.run_id, "backtest", [self.strategy.symbol], starting,
-        ))
-
-        bar_history: list[Bar] = []
-        atr_period = self.risk.cfg.atr_period
-        atr_enabled = self.risk.cfg.atr_stop_mult > 0
-
+        self._begin(starting)
         for bar in self.bars:
-            # 0. Per-bar risk housekeeping (cooldown decrement, day rollover).
-            self.risk.on_bar(self.broker.get_account().equity, bar.timestamp)
-            bar_history.append(bar)
-            if atr_enabled and len(bar_history) > atr_period:
-                self.risk.update_atr(compute_atr(bar_history, atr_period))
+            self.step(bar)
+        return self.finalize(starting)
 
-            # 1. Broker processes the bar (fills any pending orders + SL/TP).
-            for fill in self.broker.on_bar(self.strategy.symbol, bar):
-                self._handle_fill(fill, bar)
+    # ----------- incremental engine (shared by run() and live runner) -------
+    def _begin(self, starting: Optional[float] = None) -> None:
+        if self._started:
+            return
+        if starting is None:
+            starting = self.broker.get_account().equity
+        self._starting_equity = starting
+        self._emit(ev_run_started(
+            self.run_id, self.run_kind, [self.strategy.symbol], starting,
+        ))
+        self._started = True
 
-            # 1b. Trade management (T3 breakeven + partial TP, T4 time exit).
-            self._manage_open_trade(bar)
+    def step(self, bar: Bar) -> float:
+        """Process exactly one bar and return current equity.
 
-            # 2. Strategy signal.
-            signal = self.strategy.on_bar(bar)
-            if signal and signal.type in (SignalType.LONG, SignalType.SHORT):
-                side_str = "buy" if signal.type == SignalType.LONG else "sell"
-                self._emit(ev_signal(
-                    signal.symbol, side_str, signal.entry,
-                    signal.stop_loss, signal.take_profit,
-                    signal.reason, bar.timestamp,
-                ))
-                in_pos = self.broker.get_position(self.strategy.symbol) is not None
-                if not in_pos and self._pending_trade is None and self._open_trade is None:
-                    account = self.broker.get_account()
-                    allow, qty, block_reason = self.risk.evaluate(signal, account, bar.timestamp)
-                    if allow and qty > 0:
-                        side = Side.BUY if signal.type == SignalType.LONG else Side.SELL
-                        order = Order(
-                            symbol=signal.symbol, side=side, qty=qty,
-                            order_type=OrderType.MARKET,
-                            stop_loss=signal.stop_loss, take_profit=signal.take_profit,
-                        )
-                        order_id = self.broker.submit_order(order)
-                        self._emit(ev_order(
-                            str(order_id), signal.symbol, side.value, qty,
-                        ))
-                        self._pending_trade = {
-                            "signal_time": bar.timestamp,
-                            "side": side.value,
-                            "planned_entry": signal.entry,
-                            "planned_sl": signal.stop_loss,
-                            "planned_tp": signal.take_profit,
-                            "reason": signal.reason,
-                            "qty": qty,
-                            "symbol": signal.symbol,
-                        }
-                    else:
-                        self._emit(ev_risk_block(
-                            signal.symbol,
-                            block_reason or "qty<=0",
-                            bar.timestamp,
-                        ))
+        This is the single source of truth for per-bar behaviour, so a strategy
+        behaves identically whether backtested (run loops over step) or driven
+        live (the runner calls step on each new closed bar).
+        """
+        if not self._started:
+            self._begin()
 
-            # 3. Equity snapshot.
-            eq_now = self.broker.get_account().equity
-            self.equity_curve.append((bar.timestamp, eq_now))
-            self._emit(ev_bar(self.strategy.symbol, bar.timestamp, bar.close, eq_now))
+        # 0. Per-bar risk housekeeping (cooldown decrement, day rollover).
+        self.risk.on_bar(self.broker.get_account().equity, bar.timestamp)
+        self._bar_history.append(bar)
+        if self._atr_enabled and len(self._bar_history) > self.risk.cfg.atr_period:
+            self.risk.update_atr(compute_atr(self._bar_history, self.risk.cfg.atr_period))
 
-        # End-of-run: force close any still-open trade at last close.
+        # 1. Broker processes the bar (fills any pending orders + SL/TP).
+        for fill in self.broker.on_bar(self.strategy.symbol, bar):
+            self._handle_fill(fill, bar)
+
+        # 1b. Trade management (T3 breakeven + partial TP, T4 time exit).
+        self._manage_open_trade(bar)
+
+        # 2. Strategy signal.
+        signal = self.strategy.on_bar(bar)
+        if signal and signal.type in (SignalType.LONG, SignalType.SHORT):
+            side_str = "buy" if signal.type == SignalType.LONG else "sell"
+            self._emit(ev_signal(
+                signal.symbol, side_str, signal.entry,
+                signal.stop_loss, signal.take_profit,
+                signal.reason, bar.timestamp,
+            ))
+            in_pos = self.broker.get_position(self.strategy.symbol) is not None
+            if not in_pos and self._pending_trade is None and self._open_trade is None:
+                account = self.broker.get_account()
+                allow, qty, block_reason = self.risk.evaluate(signal, account, bar.timestamp)
+                if allow and qty > 0:
+                    side = Side.BUY if signal.type == SignalType.LONG else Side.SELL
+                    order = Order(
+                        symbol=signal.symbol, side=side, qty=qty,
+                        order_type=OrderType.MARKET,
+                        stop_loss=signal.stop_loss, take_profit=signal.take_profit,
+                    )
+                    order_id = self.broker.submit_order(order)
+                    self._emit(ev_order(
+                        str(order_id), signal.symbol, side.value, qty,
+                    ))
+                    self._pending_trade = {
+                        "signal_time": bar.timestamp,
+                        "side": side.value,
+                        "planned_entry": signal.entry,
+                        "planned_sl": signal.stop_loss,
+                        "planned_tp": signal.take_profit,
+                        "reason": signal.reason,
+                        "qty": qty,
+                        "symbol": signal.symbol,
+                    }
+                else:
+                    self._emit(ev_risk_block(
+                        signal.symbol,
+                        block_reason or "qty<=0",
+                        bar.timestamp,
+                    ))
+
+        # 3. Equity snapshot.
+        eq_now = self.broker.get_account().equity
+        self.equity_curve.append((bar.timestamp, eq_now))
+        self._emit(ev_bar(self.strategy.symbol, bar.timestamp, bar.close, eq_now))
+        return eq_now
+
+    def current_metrics(self) -> dict:
+        """Metrics snapshot mid-run (for a live dashboard); does not finalize."""
+        starting = getattr(self, "_starting_equity", self.starting_cash)
+        return self._metrics(starting, self.broker.get_account().equity)
+
+    def finalize(self, starting: Optional[float] = None) -> BacktestResult:
+        """Force-close any still-open trade and build the final result."""
+        if starting is None:
+            starting = getattr(self, "_starting_equity", self.starting_cash)
         self._force_close_at_end()
-
         ending = self.broker.get_account().equity
         result = BacktestResult(
             equity_curve=self.equity_curve,

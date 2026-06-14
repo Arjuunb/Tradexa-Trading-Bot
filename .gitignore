@@ -14,3 +14,7 @@ report.html
 build/
 dist/
 .vercel/
+
+# Automation Hub local state
+*.db
+automation-hub/logs/*.json
