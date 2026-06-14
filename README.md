@@ -7,6 +7,43 @@ runs on crypto (Binance / Coinbase / Kraken / Bybit / 100+ exchanges via
 strategy, an event-driven **backtester**, a **risk manager**, and a **live
 runner** that works against paper and real accounts with the same code.
 
+## v0.3 quick start
+
+The core is stdlib-only. No install needed for backtests, the CLI, the
+HTML reporter, or the live web dashboard.
+
+```bash
+# Run a built-in demo backtest (synthetic data) and write an HTML report
+python -m bot demo
+
+# Backtest a CSV with default S/R strategy
+python -m bot backtest --csv data/samples/BTC-USD.csv --report report.html
+
+# Multi-asset portfolio backtest
+python -m bot multi --csv data/samples/BTC-USD.csv --csv data/samples/ETH-USD.csv
+
+# Walk-forward validation
+python -m bot walkforward --csv data/samples/BTC-USD.csv --train 400 --test 100
+
+# Live web dashboard with SSE event stream (stdlib http.server)
+python -m bot dashboard --demo            # opens http://localhost:8765
+```
+
+### New v0.3 strategy switches (all default OFF, safe to opt-in)
+
+- `trend_filter=True` + `atr_floor_pct` — block trades when EMA slope is flat or ATR is too small (T1)
+- `vol_confirm=True` + `vol_sma_n`, `vol_mult` — require volume above N-bar average × multiplier (T2)
+- `breakeven_at_r`, `partial_tp_r`, `partial_tp_frac` — move stop to BE and scale out at +R (T3)
+- `max_hold_bars` — time-based exit (T4)
+- `longs_only_in_uptrend=True` — directional bias filter (T5)
+
+### Event bus + HTML reports
+
+- `bot/events.py` — pub/sub `EventBus` with replay; wired into both backtester and multi_backtester
+- `bot/reporting.py` — `render_report(result, output_path)` → self-contained HTML with embedded SVG equity curve
+- `bot/dashboard.py` — ThreadingHTTPServer + Server-Sent Events for live monitoring
+
+
 > ⚠️ This is educational software. Markets carry real risk. Always test with
 > paper accounts first. The author and Perplexity assume no liability for
 > trading losses.

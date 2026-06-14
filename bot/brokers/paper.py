@@ -110,6 +110,57 @@ class PaperBroker(Broker):
         """Return 'entry' or 'exit' for a previously emitted fill."""
         return self._fill_roles.get(fill.order_id, "entry")
 
+    def modify_stop(self, symbol: str, new_stop: float) -> bool:
+        """Move the stop on an open bracket. Returns True if changed.
+
+        Used by strategy-level controls (breakeven-stop, manual override).
+        Refuses to widen the stop in the unfavorable direction (safety:
+        we never weaken a stop loss).
+        """
+        if new_stop <= 0:
+            return False
+        pos = self._positions.get(symbol)
+        if pos is None or symbol not in self._brackets:
+            return False
+        br = self._brackets[symbol]
+        if pos.qty > 0:
+            # long: only allow raising the stop
+            if new_stop > br.stop_loss:
+                br.stop_loss = new_stop
+                return True
+        else:
+            # short: only allow lowering the stop
+            if br.stop_loss == 0.0 or new_stop < br.stop_loss:
+                br.stop_loss = new_stop
+                return True
+        return False
+
+    def partial_close(self, symbol: str, qty: float, bar: Bar) -> Optional[Fill]:
+        """Immediately close part of an open position at bar.close.
+
+        Returns a Fill tagged with role='partial_exit' so the engine knows
+        not to close the trade record. Pass exactly the qty to close (must
+        be less than current position size). If qty >= current size, this
+        is rejected (use the bracket exits for full closes).
+        """
+        if qty <= 0:
+            return None
+        pos = self._positions.get(symbol)
+        if pos is None:
+            return None
+        if qty >= abs(pos.qty):
+            return None
+        exit_side = Side.SELL if pos.qty > 0 else Side.BUY
+        fill_px = self._apply_slippage(bar.close, exit_side)
+        order = Order(symbol=symbol, side=exit_side, qty=qty,
+                      order_type=OrderType.MARKET)
+        order.client_id = str(uuid.uuid4())
+        fill = self._execute(order, fill_px, bar.timestamp, role="partial_exit")
+        # Mark-to-market refresh
+        self._last_price[symbol] = bar.close
+        self._recompute_equity()
+        return fill
+
     def set_trail_pct(self, symbol: str, trail_pct: float) -> None:
         """Attach a trailing-stop fraction to the NEXT entry for ``symbol``.
 

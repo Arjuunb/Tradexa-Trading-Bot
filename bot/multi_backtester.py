@@ -18,12 +18,17 @@ Design notes
 from __future__ import annotations
 
 import heapq
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
 from bot.brokers.paper import PaperBroker
 from bot.data.indicators import atr as compute_atr
+from bot.events import (
+    EventBus, ev_bar, ev_fill, ev_order, ev_risk_block, ev_run_finished,
+    ev_run_started, ev_signal, ev_trade_closed,
+)
 from bot.metrics import expand_metrics
 from bot.risk import RiskManager
 from bot.strategies.base import Strategy
@@ -93,6 +98,8 @@ class MultiSymbolBacktester:
         timeframe: str = "1h",
         market: str = "24_7",
         sl_first: bool = True,
+        bus: EventBus | None = None,
+        run_id: str | None = None,
     ):
         if starting_cash <= 0:
             raise ValueError("starting_cash must be > 0")
@@ -109,6 +116,9 @@ class MultiSymbolBacktester:
         self.risk = risk or RiskManager()
         self.timeframe = timeframe
         self.market = market
+        self.bus = bus
+        self.run_id = run_id or uuid.uuid4().hex[:12]
+        self.starting_cash = starting_cash
         self.equity_curve: list[tuple[datetime, float]] = []
         self.trades: list[dict] = []
         # bookkeeping per symbol
@@ -117,8 +127,15 @@ class MultiSymbolBacktester:
         self._history: dict[str, list[Bar]] = {s: [] for s in strategies}
 
     # ------------------------------------------------------------------- run
+    def _emit(self, ev: dict) -> None:
+        if self.bus is not None:
+            self.bus.publish(ev)
+
     def run(self) -> MultiBacktestResult:
         starting = self.broker.get_account().equity
+        self._emit(ev_run_started(
+            self.run_id, "multi", list(self.strategies.keys()), starting,
+        ))
 
         # Interleave bars chronologically with a heap. Use (timestamp, idx, symbol, bar)
         # to keep insertion stable when timestamps tie.
@@ -152,10 +169,15 @@ class MultiSymbolBacktester:
             # 2. strategy signal
             signal = self.strategies[sym].on_bar(bar)
             if signal and signal.type in (SignalType.LONG, SignalType.SHORT):
+                side_str = "buy" if signal.type == SignalType.LONG else "sell"
+                self._emit(ev_signal(
+                    sym, side_str, signal.entry, signal.stop_loss,
+                    signal.take_profit, signal.reason, ts,
+                ))
                 in_pos = self.broker.get_position(sym) is not None
                 if not in_pos and self._pending[sym] is None and self._open[sym] is None:
                     account = self.broker.get_account()
-                    allow, qty, _ = self.risk.evaluate(signal, account, ts)
+                    allow, qty, block_reason = self.risk.evaluate(signal, account, ts)
                     if allow and qty > 0:
                         side = Side.BUY if signal.type == SignalType.LONG else Side.SELL
                         order = Order(
@@ -163,7 +185,8 @@ class MultiSymbolBacktester:
                             order_type=OrderType.MARKET,
                             stop_loss=signal.stop_loss, take_profit=signal.take_profit,
                         )
-                        self.broker.submit_order(order)
+                        order_id = self.broker.submit_order(order)
+                        self._emit(ev_order(str(order_id), sym, side.value, qty))
                         self._pending[sym] = {
                             "symbol": sym,
                             "signal_time": ts, "side": side.value,
@@ -172,9 +195,15 @@ class MultiSymbolBacktester:
                             "planned_tp": signal.take_profit,
                             "reason": signal.reason, "qty": qty,
                         }
+                    else:
+                        self._emit(ev_risk_block(
+                            sym, block_reason or "qty<=0", ts,
+                        ))
 
             # 3. snapshot equity (one point per wall-clock bar advance)
-            self.equity_curve.append((ts, self.broker.get_account().equity))
+            eq_now = self.broker.get_account().equity
+            self.equity_curve.append((ts, eq_now))
+            self._emit(ev_bar(sym, ts, bar.close, eq_now))
 
             # advance cursor and push next bar from that symbol
             cursors[sym] += 1
@@ -199,16 +228,23 @@ class MultiSymbolBacktester:
                 "pnl": sum(t["pnl"] for t in ts_),
             }
 
-        return MultiBacktestResult(
+        result = MultiBacktestResult(
             equity_curve=self.equity_curve,
             trades=self.trades,
             starting_equity=starting, ending_equity=ending,
             metrics=metrics, per_symbol=per_sym,
         )
+        self._emit(ev_run_finished(self.run_id, ending, metrics))
+        return result
 
     # --------------------------------------------------------------- helpers
     def _handle_fill(self, sym: str, fill: Fill) -> None:
         role = self.broker.fill_role(fill)
+        self._emit(ev_fill(
+            getattr(fill, "order_id", ""), fill.symbol,
+            fill.side.value if hasattr(fill.side, "value") else str(fill.side),
+            fill.qty, fill.price, fill.fee, role, fill.timestamp,
+        ))
         if role == "entry":
             if self._pending[sym] is None:
                 return
@@ -230,13 +266,17 @@ class MultiSymbolBacktester:
         net = gross - op["entry_fee"] - fill.fee
         risk_dollars = abs(entry_px - op["planned_sl"]) * qty
         r = net / risk_dollars if risk_dollars > 0 else 0.0
-        self.trades.append({
+        trade = {
             **op,
             "exit_time": fill.timestamp,
             "exit_price": fill.price,
             "exit_fee": fill.fee,
             "gross_pnl": gross, "pnl": net, "r": r,
-        })
+        }
+        self.trades.append(trade)
+        self._emit(ev_trade_closed(
+            sym, side, entry_px, fill.price, qty, net, r, fill.timestamp,
+        ))
         self.risk.on_trade_closed(net, fill.timestamp)
         self._open[sym] = None
 

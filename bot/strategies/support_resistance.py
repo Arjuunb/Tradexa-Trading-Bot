@@ -64,6 +64,16 @@ class SupportResistanceRejection(Strategy):
         rr_target: float = 2.0,
         sl_buffer_pct: float = 0.0005,  # 5 bps buffer beyond wick
         min_touches: int = 2,
+        # ----- v0.3 filters (all default to OFF to preserve old behavior) -----
+        trend_filter: bool = False,         # T1: EMA-slope trend filter
+        trend_ema_period: int = 50,
+        trend_min_slope_bps: float = 0.0,   # require |slope| >= this many bps/bar
+        atr_floor_pct: float = 0.0,         # T1: skip if ATR/price < this fraction
+        atr_floor_period: int = 14,
+        vol_confirm: bool = False,          # T2: require vol > vol_sma_n SMA
+        vol_sma_n: int = 20,
+        vol_mult: float = 1.2,              # bar.volume must exceed mult * SMA(vol)
+        longs_only_in_uptrend: bool = False,  # T5: skip shorts if EMA slope > 0
     ):
         if pivot < 1:
             raise ValueError("pivot must be >= 1")
@@ -79,13 +89,32 @@ class SupportResistanceRejection(Strategy):
             raise ValueError("sl_buffer_pct must be >= 0")
         if min_touches < 1:
             raise ValueError("min_touches must be >= 1")
+        if trend_ema_period < 2:
+            raise ValueError("trend_ema_period must be >= 2")
+        if trend_min_slope_bps < 0:
+            raise ValueError("trend_min_slope_bps must be >= 0")
+        if atr_floor_pct < 0:
+            raise ValueError("atr_floor_pct must be >= 0")
+        if atr_floor_period < 2:
+            raise ValueError("atr_floor_period must be >= 2")
+        if vol_sma_n < 2:
+            raise ValueError("vol_sma_n must be >= 2")
+        if vol_mult <= 0:
+            raise ValueError("vol_mult must be > 0")
         super().__init__(
             symbol,
             pivot=pivot, lookback=lookback, cluster_pct=cluster_pct,
             max_zone_age=max_zone_age, rr_target=rr_target,
             sl_buffer_pct=sl_buffer_pct, min_touches=min_touches,
+            trend_filter=trend_filter, trend_ema_period=trend_ema_period,
+            trend_min_slope_bps=trend_min_slope_bps,
+            atr_floor_pct=atr_floor_pct, atr_floor_period=atr_floor_period,
+            vol_confirm=vol_confirm, vol_sma_n=vol_sma_n, vol_mult=vol_mult,
+            longs_only_in_uptrend=longs_only_in_uptrend,
         )
         self.zones: list[Zone] = []
+        self._ema_prev: Optional[float] = None
+        self._ema_curr: Optional[float] = None
 
     # --------------------------------------------------------------- pivots
     def _is_swing_high(self, i: int) -> bool:
@@ -209,10 +238,75 @@ class SupportResistanceRejection(Strategy):
             and cur.close <= prev.open
         )
 
+    # ------------------------------------------------------------ filters
+    def _update_ema(self, price: float) -> None:
+        """Wilder/standard EMA, kept inline so we stay stdlib-only."""
+        n = self.params["trend_ema_period"]
+        k = 2.0 / (n + 1)
+        self._ema_prev = self._ema_curr
+        if self._ema_curr is None:
+            self._ema_curr = price
+        else:
+            self._ema_curr = price * k + self._ema_curr * (1 - k)
+
+    def _ema_slope_bps(self) -> Optional[float]:
+        """Per-bar EMA slope expressed in basis points of price."""
+        if self._ema_prev is None or self._ema_curr is None or self._ema_prev == 0:
+            return None
+        return ((self._ema_curr - self._ema_prev) / self._ema_prev) * 10_000
+
+    def _atr_pct(self) -> Optional[float]:
+        """Simple ATR as a fraction of current close. Stdlib-only."""
+        n = self.params["atr_floor_period"]
+        if len(self.bars) < n + 1:
+            return None
+        trs: list[float] = []
+        for i in range(len(self.bars) - n, len(self.bars)):
+            cur = self.bars[i]
+            prev_close = self.bars[i - 1].close
+            tr = max(
+                cur.high - cur.low,
+                abs(cur.high - prev_close),
+                abs(cur.low - prev_close),
+            )
+            trs.append(tr)
+        atr = sum(trs) / n
+        last_close = self.bars[-1].close
+        return atr / last_close if last_close > 0 else None
+
+    def _vol_ok(self) -> bool:
+        n = self.params["vol_sma_n"]
+        if len(self.bars) < n + 1:
+            return False
+        # average prior n bars (excludes current to avoid trivial self-confirm)
+        recent = self.bars[-(n + 1):-1]
+        sma = sum(b.volume for b in recent) / n
+        if sma <= 0:
+            # No volume info available -> treat filter as not satisfied so we
+            # don't accidentally trade in symbols without volume data.
+            return False
+        return self.bars[-1].volume >= self.params["vol_mult"] * sma
+
     # ------------------------------------------------------------ generate
     def generate(self, bar: Bar) -> Optional[Signal]:
+        # Keep trend EMA in sync even when filter is OFF (cheap, useful for tests).
+        self._update_ema(bar.close)
         self._update_zones()
         if not self.zones:
+            return None
+
+        # ---- T1: trend / ATR-floor filters -------------------------------
+        slope = self._ema_slope_bps()
+        if self.params["trend_filter"]:
+            if slope is None or abs(slope) < self.params["trend_min_slope_bps"]:
+                return None
+        if self.params["atr_floor_pct"] > 0:
+            atr_pct = self._atr_pct()
+            if atr_pct is None or atr_pct < self.params["atr_floor_pct"]:
+                return None
+
+        # ---- T2: volume confirmation -------------------------------------
+        if self.params["vol_confirm"] and not self._vol_ok():
             return None
 
         min_touches = self.params["min_touches"]
@@ -238,6 +332,10 @@ class SupportResistanceRejection(Strategy):
                         entry=entry, stop_loss=stop, take_profit=tp,
                         reason=f"Bullish rejection at support {z.low:.4f}-{z.high:.4f} (touches={z.touches})",
                     )
+
+        # ---- T5: skip shorts when in clear uptrend ----------------------
+        if self.params["longs_only_in_uptrend"] and slope is not None and slope > 0:
+            return None
 
         # SHORT setup
         for z in self.zones:
