@@ -1,11 +1,12 @@
-# Core (always required)
-# (the bot core uses only the Python stdlib)
-
-# Optional — install only the venues you actually use:
-ccxt>=4.3.0           # crypto exchanges
-alpaca-py>=0.30.0     # US stocks/options
-oandapyV20>=0.7.2     # forex/CFDs
-
-# Dev / testing
-pytest>=8.0
-pyyaml>=6.0
+# The runtime core is pure Python stdlib — nothing here is required to run the
+# backtester, risk engine, metrics, HTML reports, the CLI, or the Vercel web
+# function. This file is intentionally dependency-free so lean deploy targets
+# (e.g. Vercel) install nothing.
+#
+# Install optional extras via the package instead:
+#   pip install -e ".[crypto]"   # ccxt          (crypto venues)
+#   pip install -e ".[stocks]"   # alpaca-py      (US stocks/options)
+#   pip install -e ".[forex]"    # oandapyV20     (FX/CFDs)
+#   pip install -e ".[config]"   # pyyaml         (YAML config loader)
+#   pip install -e ".[dev]"      # pytest + pyyaml (run the test suite)
+#   pip install -e ".[live]"     # every venue SDK + pyyaml

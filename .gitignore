@@ -8,3 +8,9 @@ venv/
 .DS_Store
 .pytest_cache/
 report.html
+
+# Python build artifacts
+*.egg-info/
+build/
+dist/
+.vercel/
