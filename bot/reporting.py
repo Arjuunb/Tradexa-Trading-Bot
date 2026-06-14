@@ -74,14 +74,10 @@ text-anchor="end" fill="#888">{end_lbl}</text>
 
 # ----------------------- public API -----------------------
 
-def render_report(
-    result,
-    title: str = "Backtest Report",
-    output_path: str = "report.html",
-) -> str:
-    """Render a BacktestResult / MultiBacktestResult to a single HTML file.
-
-    Returns the absolute path to the written file.
+def render_report_html(result, title: str = "Backtest Report") -> str:
+    """Render a BacktestResult / MultiBacktestResult to a self-contained HTML
+    string (no file I/O). Used by the file writer below and by the web
+    function, which streams the document straight into an HTTP response.
     """
     metrics = getattr(result, "metrics", {}) or {}
     curve = getattr(result, "equity_curve", []) or []
@@ -203,6 +199,18 @@ th { background: #fafafa; }
 </body>
 </html>
 """
+    return html_doc
+
+
+def render_report(
+    result,
+    title: str = "Backtest Report",
+    output_path: str = "report.html",
+) -> str:
+    """Render a BacktestResult / MultiBacktestResult to a single self-contained
+    HTML file. Returns the absolute path to the written file.
+    """
+    html_doc = render_report_html(result, title=title)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html_doc, encoding="utf-8")

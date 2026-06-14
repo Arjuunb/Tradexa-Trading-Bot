@@ -50,6 +50,45 @@ python -m bot dashboard --demo            # opens http://localhost:8765
 
 ---
 
+## Install
+
+The core is pure Python stdlib, so the base install pulls **no** third-party
+packages. Venue SDKs and the YAML loader are optional extras:
+
+```bash
+pip install -e .            # core only (backtester, risk, metrics, reporting, CLI, dashboard)
+pip install -e ".[dev]"     # + pytest + pyyaml (run the test suite)
+pip install -e ".[crypto]"  # + ccxt        (crypto venues)
+pip install -e ".[stocks]"  # + alpaca-py   (US stocks/options)
+pip install -e ".[forex]"   # + oandapyV20  (FX/CFDs)
+pip install -e ".[live]"    # every venue SDK + pyyaml
+```
+
+Installing exposes a `bot` console script (equivalent to `python -m bot`).
+CI runs the suite on Python 3.10–3.12 (`.github/workflows/ci.yml`).
+
+## Deploy to Vercel
+
+The live SSE dashboard needs a long-running server, which Vercel's serverless
+model can't host — but the self-contained HTML report is a perfect fit. The
+repo ships a Python serverless function (`api/index.py`) that runs a backtest
+per request and returns the report page:
+
+```bash
+npm i -g vercel        # or use the Vercel dashboard "Import Project"
+vercel                 # preview deploy
+vercel --prod          # production deploy
+```
+
+- `vercel.json` routes all traffic to `api/index.py` and bundles the `bot`
+  package + sample data via `includeFiles`.
+- `requirements.txt` is intentionally empty, so the build installs nothing.
+- Query params: `GET /?symbol=BTC-USD&bars=2000&seed=1` — uses the bundled
+  sample CSV when one exists for the symbol, otherwise deterministic synthetic
+  data. `GET /health` returns `ok`.
+
+---
+
 ## Architecture
 
 ```

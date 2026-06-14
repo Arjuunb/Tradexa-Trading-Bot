@@ -46,6 +46,36 @@ def test_multi_symbol_chronological_interleave():
     assert "A" in res.per_symbol and "B" in res.per_symbol
 
 
+def test_equity_curve_has_one_point_per_timestamp():
+    """Regression: with K symbols sharing timestamps, the portfolio equity
+    curve must collapse to one point per distinct timestamp. Otherwise the
+    per-bar return series is polluted with spurious intra-instant steps that
+    inflate Sharpe/Sortino and break the annualization factor."""
+    from bot.metrics import sharpe as sharpe_fn
+    from bot.multi_backtester import _BARS_PER_YEAR_24_7
+
+    barsA = [_bar(i, 100 + i) for i in range(15)]
+    barsB = [_bar(i, 200 + i) for i in range(15)]  # identical timestamps to A
+    mb = MultiSymbolBacktester(
+        strategies={"A": _OneShotPerSymbol("A"),
+                    "B": _OneShotPerSymbol("B")},
+        bars={"A": barsA, "B": barsB},
+        starting_cash=50_000, fee_bps=0, slippage_bps=0,
+    )
+    res = mb.run()
+
+    timestamps = [t for t, _ in res.equity_curve]
+    # No duplicate timestamps -> exactly one portfolio mark per instant.
+    assert len(timestamps) == len(set(timestamps))
+    assert timestamps == sorted(timestamps)
+
+    # Reported Sharpe must be derived from the same (deduped) curve, not an
+    # inflated K-points-per-bar version.
+    ann = _BARS_PER_YEAR_24_7["1h"]
+    expected = sharpe_fn([v for _, v in res.equity_curve], ann)
+    assert abs(res.metrics["sharpe"] - expected) < 1e-9
+
+
 def test_multi_symbol_shares_risk_budget():
     """If a stop-out on A triggers a cooldown, B is also blocked during it."""
     from bot.risk import RiskConfig, RiskManager

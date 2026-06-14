@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-asset-trading-bot"
+version = "0.3.0"
+description = "Stdlib-only multi-asset trading bot: event-driven backtester, risk engine, live runner, HTML reports, and a live dashboard."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Arjun Bhatta" }]
+keywords = ["trading", "backtesting", "quant", "crypto", "stocks", "forex"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+# The core (backtester, risk, metrics, reporting, dashboard, CLI) is pure
+# stdlib. Third-party packages are only needed for live venues / config / tests.
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["ccxt>=4.3.0"]
+stocks = ["alpaca-py>=0.30.0"]
+forex = ["oandapyV20>=0.7.2"]
+config = ["pyyaml>=6.0"]
+live = ["ccxt>=4.3.0", "alpaca-py>=0.30.0", "oandapyV20>=0.7.2", "pyyaml>=6.0"]
+dev = ["pytest>=8.0", "pyyaml>=6.0"]
+
+[project.scripts]
+bot = "bot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Arjuunb/multi-asset-trading-bot"
+Repository = "https://github.com/Arjuunb/multi-asset-trading-bot"
+
+[tool.setuptools.packages.find]
+include = ["bot*"]

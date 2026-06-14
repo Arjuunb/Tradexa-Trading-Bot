@@ -159,8 +159,14 @@ class MultiSymbolBacktester:
                 last_seen_ts = ts
 
             self._history[sym].append(bar)
-            if atr_enabled and len(self._history[sym]) > atr_period:
-                self.risk.update_atr(compute_atr(self._history[sym], atr_period))
+            if atr_enabled:
+                # Refresh the shared ATR cache for THIS symbol. If the symbol is
+                # not warm yet, zero it out rather than letting evaluate() size
+                # this symbol off another symbol's (different price-scale) ATR.
+                if len(self._history[sym]) > atr_period:
+                    self.risk.update_atr(compute_atr(self._history[sym], atr_period))
+                else:
+                    self.risk.update_atr(0.0)
 
             # 1. broker processes the bar
             for fill in self.broker.on_bar(sym, bar):
@@ -200,9 +206,18 @@ class MultiSymbolBacktester:
                             sym, block_reason or "qty<=0", ts,
                         ))
 
-            # 3. snapshot equity (one point per wall-clock bar advance)
+            # 3. snapshot equity. Collapse to ONE portfolio point per distinct
+            # timestamp: many symbols can share a timestamp, and appending one
+            # point per (symbol, ts) injects spurious intra-instant "returns"
+            # that deflate stdev and inflate Sharpe/Sortino (the K return
+            # observations per bar also break the annualization factor, which
+            # assumes one bar per period). Heap pops are non-decreasing in ts,
+            # so equal timestamps are consecutive — update the last point.
             eq_now = self.broker.get_account().equity
-            self.equity_curve.append((ts, eq_now))
+            if self.equity_curve and self.equity_curve[-1][0] == ts:
+                self.equity_curve[-1] = (ts, eq_now)
+            else:
+                self.equity_curve.append((ts, eq_now))
             self._emit(ev_bar(sym, ts, bar.close, eq_now))
 
             # advance cursor and push next bar from that symbol
