@@ -1,0 +1,12 @@
+# Keep the serverless bundle small: ship only what the function imports at
+# runtime (the `bot` package + bundled sample data). Everything below is
+# dev-only and safe to exclude.
+tests/
+examples/
+.github/
+.pytest_cache/
+__pycache__/
+*.egg-info/
+build/
+dist/
+report.html
