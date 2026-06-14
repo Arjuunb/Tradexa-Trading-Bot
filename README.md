@@ -128,10 +128,51 @@ Before doing this, **strongly recommended**:
 | `max_open_positions` | 3 | Cap concurrent exposure |
 | `max_daily_loss_pct` | 3% | Halt for the day when breached |
 | `max_position_pct` | 25% | Cap notional per trade |
-| `cooldown_bars_after_loss` | 5 | Pause after a stop-out |
+| `cooldown_bars_after_loss` | 5 | Pause after a stop-out (counts **bars**, not signals — strict wall-clock cooldown) |
+
+The daily-loss kill switch anchors at the **first bar of each new UTC day**,
+not at the first signal — losses incurred before any signal still count.
 
 Pass a custom `RiskConfig` to `RiskManager` and inject it into the
 `Backtester` / `LiveRunner`.
+
+---
+
+## Trade PnL, fees, and the SL/TP straddle
+
+- **Trade PnL is reported net of fees.** Each trade dict carries `gross_pnl`
+  (price-only) and `pnl` (gross − entry_fee − exit_fee). Metrics like total
+  return, win rate, R-multiple and Sharpe all use the **net** value.
+- **Same-bar SL/TP straddle resolution** — if a single bar's range contains
+  both the stop and the target, the paper/backtest engine resolves it via
+  `sl_first` (default `True`, the conservative choice: stop wins). Flip to
+  `False` to model optimistic fills (target wins). Configurable per
+  `PaperBroker` instance and exposed in YAML.
+
+## Timeframe-aware Sharpe annualization
+
+The backtester takes two extra kwargs that drive the annualization factor:
+
+| Param | Values | Effect |
+|---|---|---|
+| `timeframe` | `"1m"`, `"5m"`, `"15m"`, `"1h"`, `"4h"`, `"1d"` | Bars per year |
+| `market`    | `"24_7"` (crypto/FX) or `"rth"` (US equities) | 365 vs 252 trading days |
+
+The computed annualization factor is also returned in the metrics dict as
+`annualization_factor` for transparency.
+
+---
+
+## Config-driven runs (YAML)
+
+Everything above can be driven from a YAML file via `bot/config.py` and
+`examples/run_from_config.py`. Environment variables are interpolated with
+`${VAR}` syntax so secrets stay out of the file. See
+[`configs/example.yaml`](configs/example.yaml).
+
+```bash
+python -m examples.run_from_config configs/example.yaml
+```
 
 ---
 

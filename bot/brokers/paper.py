@@ -39,13 +39,17 @@ class PaperBroker(Broker):
         starting_cash: float = 10_000.0,
         fee_bps: float = 5.0,          # 5 bps = 0.05% per side
         slippage_bps: float = 2.0,
+        sl_first: bool = True,         # when SL & TP both hit on one bar, SL wins
     ):
         if starting_cash <= 0:
             raise ValueError("starting_cash must be > 0")
+        if fee_bps < 0 or slippage_bps < 0:
+            raise ValueError("fee_bps and slippage_bps must be >= 0")
         self._cash = starting_cash
         self._equity = starting_cash
         self._fee_bps = fee_bps / 10_000
         self._slip_bps = slippage_bps / 10_000
+        self._sl_first = sl_first
         self._positions: dict[str, Position] = {}
         self._pending: list[Order] = []
         self._fills: list[Fill] = []
@@ -155,23 +159,27 @@ class PaperBroker(Broker):
                 still_pending.append(order)
         self._pending = still_pending
 
-        # SL / TP triggers
+        # SL / TP triggers — explicit, configurable same-bar tie-break.
         pos = self._positions.get(symbol)
         if pos and symbol in self._brackets:
             br = self._brackets[symbol]
             sl, tp = br.stop_loss, br.take_profit
             exit_side = Side.SELL if pos.qty > 0 else Side.BUY
-            trigger_price = None
+            # Determine which levels were touched on this bar.
             if pos.qty > 0:
-                if sl and bar.low <= sl:
-                    trigger_price = sl
-                elif tp and bar.high >= tp:
-                    trigger_price = tp
+                sl_hit = bool(sl) and bar.low <= sl
+                tp_hit = bool(tp) and bar.high >= tp
             else:
-                if sl and bar.high >= sl:
-                    trigger_price = sl
-                elif tp and bar.low <= tp:
-                    trigger_price = tp
+                sl_hit = bool(sl) and bar.high >= sl
+                tp_hit = bool(tp) and bar.low <= tp
+            trigger_price = None
+            if sl_hit and tp_hit:
+                # Conservative default: stop wins. Configurable via sl_first.
+                trigger_price = sl if self._sl_first else tp
+            elif sl_hit:
+                trigger_price = sl
+            elif tp_hit:
+                trigger_price = tp
             if trigger_price is not None:
                 # Slippage on stops/takes too (real markets always slip on stops).
                 fill_px = self._apply_slippage(trigger_price, exit_side)

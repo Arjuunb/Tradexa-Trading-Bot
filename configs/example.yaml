@@ -1,16 +1,25 @@
-# Example config — adapt and load in your own runner script if you prefer
-# config-driven setup over the Python examples in examples/.
+# Example config — runs a backtest against the paper broker on synthetic bars
+# unless you switch to a real venue.
+#
+# Tip: any "${VAR}" string is replaced at load time with that env var.
+
+mode: backtest                 # backtest | paper | live
+backtest_days: 60
+starting_cash: 10_000.0
 
 broker:
-  venue: ccxt          # paper | ccxt | alpaca | oanda
-  exchange_id: binance
-  sandbox: true        # use testnet
-  # api_key:    set via env var BINANCE_TESTNET_KEY
-  # api_secret: set via env var BINANCE_TESTNET_SECRET
+  venue: paper                 # paper | ccxt | alpaca | oanda
+  # For ccxt / alpaca / oanda, add their constructor args here. E.g.:
+  # venue: ccxt
+  # exchange_id: binance
+  # api_key: ${BINANCE_TESTNET_KEY}
+  # api_secret: ${BINANCE_TESTNET_SECRET}
+  # sandbox: true
 
 symbol: BTC/USDT
 timeframe: 1h
 warmup_bars: 300
+market: 24_7                   # 24_7 (crypto/fx) | rth (equities)
 
 strategy:
   name: support_resistance_rejection
@@ -25,10 +34,9 @@ strategy:
 
 risk:
   risk_per_trade_pct: 0.01
-  max_open_positions: 3
+  max_open_positions: 1
   max_daily_loss_pct: 0.03
   max_position_pct: 0.25
   cooldown_bars_after_loss: 5
 
-mode: paper            # paper | live | backtest
 dry_run: false

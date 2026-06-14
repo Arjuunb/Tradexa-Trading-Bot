@@ -114,5 +114,43 @@ class OandaBroker(Broker):
         self._client.request(OrderCancel(self._account_id, orderID=order_id))
 
     def get_fills(self, since=None):
-        # Simplified: not implemented for brevity.
-        return []
+        """Read ORDER_FILL transactions from the v20 transactions endpoint."""
+        from oandapyV20.endpoints.transactions import TransactionList
+        params = {"type": "ORDER_FILL"}
+        if since is not None:
+            params["from"] = since.isoformat("T") + "Z"
+        try:
+            r = TransactionList(self._account_id, params=params)
+            self._client.request(r)
+        except Exception:
+            import logging
+            logging.getLogger("bot.oanda").exception("TransactionList failed")
+            return []
+        out: list[Fill] = []
+        pages = r.response.get("pages", [])
+        # If paginated, OANDA returns page URLs we need to walk; for simplicity
+        # we only consume `transactions` if present in the inline response
+        # (works for small histories; users with huge histories should paginate).
+        for tx in r.response.get("transactions", []):
+            if tx.get("type") != "ORDER_FILL":
+                continue
+            units = float(tx.get("units", 0))
+            if units == 0:
+                continue
+            side = Side.BUY if units > 0 else Side.SELL
+            out.append(Fill(
+                order_id=str(tx.get("orderID", "")),
+                symbol=tx.get("instrument", ""),
+                side=side,
+                qty=abs(units),
+                price=float(tx.get("price", 0)),
+                timestamp=datetime.fromisoformat(tx["time"].replace("Z", "+00:00")),
+                fee=float(tx.get("commission", 0) or 0),
+            ))
+        if pages and not out:
+            import logging
+            logging.getLogger("bot.oanda").warning(
+                "OANDA returned paginated transactions; only inline page parsed. "
+                "For full history, fetch the page URLs in r.response['pages']."
+            )
+        return out

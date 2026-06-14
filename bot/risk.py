@@ -6,6 +6,12 @@ Responsibilities
    distance between entry and stop loss.
 2. Hard limits — max open positions, max daily loss, cooldown after stop-outs.
 3. Pre-trade veto — returns (allow, qty, reason).
+
+Bar hook
+--------
+Callers (backtester and live runner) MUST call ``on_bar(equity, bar_time)``
+once per bar. This is what advances cooldown counters and rolls the daily
+loss anchor over to a true day boundary — not the first signal of the day.
 """
 from __future__ import annotations
 
@@ -24,10 +30,22 @@ class RiskConfig:
     max_position_pct: float = 0.25          # cap notional at 25% of equity
     cooldown_bars_after_loss: int = 5
 
+    def __post_init__(self) -> None:
+        if not 0 < self.risk_per_trade_pct <= 1:
+            raise ValueError("risk_per_trade_pct must be in (0, 1]")
+        if self.max_open_positions < 1:
+            raise ValueError("max_open_positions must be >= 1")
+        if not 0 < self.max_daily_loss_pct <= 1:
+            raise ValueError("max_daily_loss_pct must be in (0, 1]")
+        if not 0 < self.max_position_pct <= 1:
+            raise ValueError("max_position_pct must be in (0, 1]")
+        if self.cooldown_bars_after_loss < 0:
+            raise ValueError("cooldown_bars_after_loss must be >= 0")
+
 
 @dataclass
 class RiskState:
-    day: Optional[date] = None              # set lazily from first bar time
+    day: Optional[date] = None
     starting_equity_today: float = 0.0
     realized_pnl_today: float = 0.0
     last_loss_time: Optional[datetime] = None
@@ -39,16 +57,24 @@ class RiskManager:
         self.cfg = config or RiskConfig()
         self.state = RiskState()
 
-    # ------------------------------------------------------ day rollover
-    def _maybe_rollover(self, equity: float, now: datetime) -> None:
-        today = now.date()
+    # ------------------------------------------------------ bar hook
+    def on_bar(self, equity: float, bar_time: datetime) -> None:
+        """Per-bar housekeeping. Call once per bar before any evaluate().
+
+        - Decrements cooldown so it is measured in BARS, not signals.
+        - Anchors starting_equity_today at the true daily rollover.
+        """
+        today = bar_time.date()
         if self.state.day is None:
-            # First call: anchor to bar's date and starting equity.
+            # First bar ever — anchor to its date.
             self.state.day = today
             self.state.starting_equity_today = equity
         elif today != self.state.day:
-            # New day: reset all daily state.
+            # New day — reset all daily state, equity anchored at day's first bar.
             self.state = RiskState(day=today, starting_equity_today=equity)
+
+        if self.state.cooldown_left > 0:
+            self.state.cooldown_left -= 1
 
     # ---------------------------------------------------- pre-trade check
     def evaluate(
@@ -57,17 +83,20 @@ class RiskManager:
         account: AccountSnapshot,
         now: datetime,
     ) -> tuple[bool, float, str]:
-        self._maybe_rollover(account.equity, now)
+        """Returns (allow, qty, reason). Does NOT advance cooldown — on_bar does."""
+        # Defensive: if caller forgot on_bar, anchor today now (no rollover here).
+        if self.state.day is None:
+            self.state.day = now.date()
+            self.state.starting_equity_today = account.equity
 
-        # Daily loss kill switch
+        # Daily loss kill switch (uses anchored open equity).
         if self.state.starting_equity_today > 0:
             dd = (account.equity - self.state.starting_equity_today) / self.state.starting_equity_today
             if dd <= -self.cfg.max_daily_loss_pct:
                 return False, 0.0, f"Daily loss limit hit ({dd:.2%})"
 
-        # Cooldown after a stop-out
+        # Cooldown after a stop-out — measured in bars via on_bar.
         if self.state.cooldown_left > 0:
-            self.state.cooldown_left -= 1
             return False, 0.0, f"Cooldown active ({self.state.cooldown_left} bars left)"
 
         # Max open positions

@@ -45,7 +45,8 @@ from bot.types import Bar, Signal, SignalType
 class Zone:
     low: float
     high: float
-    kind: str          # "support" or "resistance"
+    kind: str            # "support" or "resistance"
+    anchor: float = 0.0  # original pivot price the zone was created around
     touches: int = 1
     last_touch_idx: int = 0
 
@@ -64,6 +65,20 @@ class SupportResistanceRejection(Strategy):
         sl_buffer_pct: float = 0.0005,  # 5 bps buffer beyond wick
         min_touches: int = 2,
     ):
+        if pivot < 1:
+            raise ValueError("pivot must be >= 1")
+        if lookback < 1:
+            raise ValueError("lookback must be >= 1")
+        if cluster_pct <= 0:
+            raise ValueError("cluster_pct must be > 0")
+        if max_zone_age < 1:
+            raise ValueError("max_zone_age must be >= 1")
+        if rr_target <= 0:
+            raise ValueError("rr_target must be > 0")
+        if sl_buffer_pct < 0:
+            raise ValueError("sl_buffer_pct must be >= 0")
+        if min_touches < 1:
+            raise ValueError("min_touches must be >= 1")
         super().__init__(
             symbol,
             pivot=pivot, lookback=lookback, cluster_pct=cluster_pct,
@@ -110,20 +125,21 @@ class SupportResistanceRejection(Strategy):
         cluster = self.params["cluster_pct"]
 
         def merge(price: float, kind: str, touch_idx: int) -> None:
+            # If price is within `cluster` of an existing zone's anchor, count
+            # this as another touch but DO NOT widen the zone (avoids drift).
             for z in self.zones:
                 if z.kind != kind:
                     continue
-                mid = (z.low + z.high) / 2
-                if mid > 0 and abs(price - mid) / mid <= cluster:
-                    z.low = min(z.low, price * (1 - cluster / 2))
-                    z.high = max(z.high, price * (1 + cluster / 2))
+                if z.anchor > 0 and abs(price - z.anchor) / z.anchor <= cluster:
                     z.touches += 1
                     z.last_touch_idx = touch_idx
                     return
+            # New zone: fixed band of +/- cluster/2 around the pivot price.
             self.zones.append(Zone(
                 low=price * (1 - cluster / 2),
                 high=price * (1 + cluster / 2),
                 kind=kind,
+                anchor=price,
                 last_touch_idx=touch_idx,
             ))
 
