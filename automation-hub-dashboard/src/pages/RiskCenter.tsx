@@ -5,6 +5,7 @@ import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader, Toggle } from "../components/common/ui";
 import { defaultRiskSettings, riskAlertRows, riskMetrics } from "../data/mock";
 import { useApp } from "../app-context";
+import CapitalProtection from "../components/safety/CapitalProtection";
 
 export default function RiskCenterPage() {
   const app = useApp();
@@ -18,6 +19,8 @@ export default function RiskCenterPage() {
         subtitle="Global risk controls applied across every bot"
         actions={<button className="btn btn-primary" onClick={() => app.toast("Risk settings saved", "success")}><Icon name="check" size={14} /> Save Settings</button>}
       />
+
+      <CapitalProtection />
 
       <div className="grid-2-eq">
         <Card title="Global Risk Settings">
