@@ -16,6 +16,7 @@ from strategies.base_strategy import HubStrategy
 class RSIStrategy(HubStrategy):
     name = "rsi"
     label = "RSI Scalper"
+    supported_regimes = ("Ranging", "Low Volatility")
 
     def __init__(self, symbol: str, period: int = 14, oversold: float = 30.0,
                  overbought: float = 70.0, **params):

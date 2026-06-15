@@ -16,6 +16,7 @@ from strategies.base_strategy import HubStrategy
 class EMAStrategy(HubStrategy):
     name = "ema"
     label = "EMA Trend Bot"
+    supported_regimes = ("Trending",)
 
     def __init__(self, symbol: str, fast: int = 12, slow: int = 26, **params):
         if fast >= slow:
