@@ -2,6 +2,7 @@ import type { ActivityKind } from "../../types";
 import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { activity } from "../../data/mock";
+import { useApp } from "../../app-context";
 
 const KIND: Record<ActivityKind, { icon: string; tone: string }> = {
   "open-long": { icon: "up", tone: "pos" },
@@ -12,6 +13,7 @@ const KIND: Record<ActivityKind, { icon: string; tone: string }> = {
 };
 
 export default function ActivityFeed() {
+  const app = useApp();
   return (
     <Card title="Bot Activity" subtitle="Live Feed" className="activity-card">
       <div className="activity-list">
@@ -31,7 +33,7 @@ export default function ActivityFeed() {
           );
         })}
       </div>
-      <button className="link-row" type="button">
+      <button className="link-row" type="button" onClick={() => app.go("Logs")}>
         View All Logs <Icon name="chevron" size={14} />
       </button>
     </Card>

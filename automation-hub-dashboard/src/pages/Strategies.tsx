@@ -5,12 +5,14 @@ import Modal from "../components/common/Modal";
 import Sparkline from "../components/chart/Sparkline";
 import { Badge, PageHeader } from "../components/common/ui";
 import { strategies } from "../data/mock";
+import { useApp } from "../app-context";
 
 const riskTone = (r: string): "green" | "amber" | "red" =>
   r === "Low" ? "green" : r === "Medium" ? "amber" : "red";
 
 export default function StrategiesPage() {
   const [modal, setModal] = useState<{ s: Strategy; mode: string } | null>(null);
+  const app = useApp();
 
   return (
     <>
@@ -47,7 +49,7 @@ export default function StrategiesPage() {
             <div className="strategy-actions">
               <button className="btn btn-ghost sm" onClick={() => setModal({ s, mode: "Rules" })}>View Rules</button>
               <button className="btn btn-ghost sm" onClick={() => setModal({ s, mode: "Edit" })}>Edit</button>
-              <button className="btn btn-soft sm" onClick={() => setModal({ s, mode: "Backtest" })}>Backtest</button>
+              <button className="btn btn-soft sm" onClick={() => app.backtest(s.name)}>Backtest</button>
             </div>
           </div>
         ))}

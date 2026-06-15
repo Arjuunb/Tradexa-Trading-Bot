@@ -3,6 +3,7 @@ import type { Bot } from "../../types";
 import Card from "../common/Card";
 import Icon from "../common/Icon";
 import BotRow from "./BotRow";
+import { useApp } from "../../app-context";
 
 interface MyBotsProps {
   bots: Bot[];
@@ -14,6 +15,7 @@ type Tab = "All" | "Running" | "Paper" | "Live";
 
 export default function MyBots({ bots, onToggle, onCreate }: MyBotsProps) {
   const [tab, setTab] = useState<Tab>("All");
+  const app = useApp();
 
   const counts = useMemo(
     () => ({
@@ -58,7 +60,7 @@ export default function MyBots({ bots, onToggle, onCreate }: MyBotsProps) {
         {visible.length === 0 && <div className="empty-mini">No bots in this view.</div>}
       </div>
 
-      <button className="link-row" type="button">
+      <button className="link-row" type="button" onClick={() => app.go("Bots")}>
         View All Bots <Icon name="chevron" size={14} />
       </button>
     </Card>

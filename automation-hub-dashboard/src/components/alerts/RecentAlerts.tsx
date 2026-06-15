@@ -2,6 +2,7 @@ import type { AlertKind } from "../../types";
 import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { alerts } from "../../data/mock";
+import { useApp } from "../../app-context";
 
 const KIND: Record<AlertKind, { icon: string; tone: string }> = {
   warning: { icon: "warning", tone: "amber" },
@@ -11,6 +12,7 @@ const KIND: Record<AlertKind, { icon: string; tone: string }> = {
 };
 
 export default function RecentAlerts() {
+  const app = useApp();
   return (
     <Card title="Recent Alerts" className="alerts-card">
       <div className="alerts-list">
@@ -30,7 +32,7 @@ export default function RecentAlerts() {
           );
         })}
       </div>
-      <button className="link-row" type="button">
+      <button className="link-row" type="button" onClick={() => app.go("Alerts")}>
         View All <Icon name="chevron" size={14} />
       </button>
     </Card>

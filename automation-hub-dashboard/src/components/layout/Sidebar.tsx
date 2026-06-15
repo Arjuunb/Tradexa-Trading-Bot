@@ -48,7 +48,7 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
           <span>Exposure</span>
           <b>{account.exposure}</b>
         </div>
-        <button className="btn btn-soft full" type="button">View Details</button>
+        <button className="btn btn-soft full" type="button" onClick={() => onSelect("Analytics")}>View Details</button>
       </div>
 
       <div className="market-status">

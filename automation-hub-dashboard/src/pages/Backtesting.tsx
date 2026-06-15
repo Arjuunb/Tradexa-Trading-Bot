@@ -5,8 +5,9 @@ import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader, StatCard } from "../components/common/ui";
 import { backtestResult, strategies } from "../data/mock";
 
-export default function BacktestingPage() {
+export default function BacktestingPage({ initialStrategy }: { initialStrategy?: string }) {
   const [ran, setRan] = useState(true);
+  const [strategy, setStrategy] = useState(initialStrategy || strategies[0].name);
   const r = backtestResult;
 
   return (
@@ -20,7 +21,11 @@ export default function BacktestingPage() {
         </div>
       }>
         <div className="form-grid-3">
-          <Field label="Strategy"><select>{strategies.map((s) => <option key={s.id}>{s.name}</option>)}</select></Field>
+          <Field label="Strategy">
+            <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+              {strategies.map((s) => <option key={s.id}>{s.name}</option>)}
+            </select>
+          </Field>
           <Field label="Symbol"><select><option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select></Field>
           <Field label="Timeframe"><select><option>5m</option><option>15m</option><option selected>1h</option><option>4h</option></select></Field>
           <Field label="Start date"><input type="date" defaultValue="2025-01-01" /></Field>
