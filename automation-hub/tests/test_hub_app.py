@@ -137,5 +137,32 @@ def test_go_live_streams_events_to_hub(client):
     assert any(e.get("bot_id") == bot.id for e in state["events"])
 
 
+def test_edit_and_backtest_bot(client):
+    _login(client)
+    client.post("/bots", data={
+        "name": "Editable", "strategy": "ema", "exchange": "binance",
+        "symbol": "BTCUSDT", "timeframe": "1h", "mode": "paper",
+        "risk_per_trade": "1.0", "max_daily_loss": "3.0",
+    })
+    bot = hub_app.manager.list()[0]
+
+    # Edit form prefilled, then save changes.
+    assert "Editable" in client.get(f"/bots/{bot.id}/edit").text
+    r = client.post(f"/bots/{bot.id}/edit", data={
+        "name": "Edited", "strategy": "rsi", "symbol": "ETHUSDT",
+        "timeframe": "15m", "risk_per_trade": "2.0", "max_daily_loss": "4.0",
+        "max_drawdown": "12.0", "max_consecutive_losses": "3",
+    })
+    assert r.status_code == 303
+    assert bot.config.name == "Edited" and bot.config.symbol == "ETHUSDT"
+    assert bot.config.strategy == "rsi"
+    assert abs(bot.config.risk.max_drawdown_pct - 0.12) < 1e-9
+
+    # Ad-hoc backtest renders results without changing state.
+    page = client.get(f"/bots/{bot.id}/backtest").text
+    assert "Backtest" in page and "Win rate" in page and "Trade History" in page
+    assert bot.runtime.state.value == "Created"
+
+
 def test_health_open(client):
     assert client.get("/health").json()["status"] == "ok"

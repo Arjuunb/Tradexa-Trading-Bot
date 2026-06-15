@@ -70,6 +70,10 @@ logic was rewritten. `paper_trading.simulator` runs `bot.backtester.Backtester`;
   events to a process-wide `HubEventHub` (`dashboard/stream.py`); the overview
   consumes them over Server-Sent Events (`/events/stream`) and updates a Live
   Feed in real time, no page refresh. Stdlib only (`queue` + `threading`).
+- **Phase 9:** bot management — edit a bot's config (`/bots/{id}/edit`) with
+  changes persisted, and run an ad-hoc backtest from the UI
+  (`/bots/{id}/backtest`) that renders equity/drawdown charts, KPIs and the
+  full trade table without touching the bot's live state.
 
 To trade against a real exchange, follow the **[Go Live runbook](GO_LIVE.md)**
 (install extras, set keys, enable real routing, deploy on a persistent host).

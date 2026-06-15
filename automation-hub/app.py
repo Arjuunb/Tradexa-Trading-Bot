@@ -124,11 +124,15 @@ def bots_page(request: Request):
             f"<td>{w.esc(exchange_label(b.config.exchange))}</td>"
             f"<td>{w.esc(b.config.symbol)}</td>"
             f"<td>{w.esc(b.config.mode.value)}</td>"
-            f"<td>{w.state_badge(b.runtime.state.value)}</td></tr>"
+            f"<td>{w.state_badge(b.runtime.state.value)}</td>"
+            f'<td class="rowbtns">'
+            f'<a class="btn btn-ghost" href="/bots/{b.id}/backtest">Backtest</a>'
+            f'<a class="btn btn-ghost" href="/bots/{b.id}/edit">Edit</a></td></tr>'
             for b in bots
         )
         table = (f'<div class="card"><table><thead><tr><th>Name</th><th>Strategy</th>'
-                 f'<th>Exchange</th><th>Symbol</th><th>Mode</th><th>State</th></tr></thead>'
+                 f'<th>Exchange</th><th>Symbol</th><th>Mode</th><th>State</th>'
+                 f'<th></th></tr></thead>'
                  f'<tbody>{rows}</tbody></table></div>')
     else:
         table = '<div class="card"><div class="empty">No bots yet.</div></div>'
@@ -197,6 +201,93 @@ def create_bot(
     )
     manager.create(cfg)
     return RedirectResponse("/bots", status_code=303)
+
+
+# ----------------------------------------------------------- edit (Phase 9)
+@app.get("/bots/{bot_id}/edit", response_class=HTMLResponse)
+def edit_bot_form(bot_id: str, request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/bots", status_code=303)
+    c, r = bot.config, bot.config.risk
+    strat_opts = "".join(
+        f'<option value="{k}"{" selected" if k == c.strategy else ""}'
+        f'{"" if ready else " disabled"}>{w.esc(label)}</option>'
+        for k, (_cls, label, ready) in STRATEGIES.items()
+    )
+    tf_opts = "".join(
+        f'<option{" selected" if tf == c.timeframe else ""}>{tf}</option>'
+        for tf in ("5m", "15m", "1h"))
+    form = f'''<div class="card"><form method="post" action="/bots/{bot_id}/edit">
+<div class="formgrid">
+<div><label>Bot name</label><input name="name" value="{w.esc(c.name)}" required></div>
+<div><label>Symbol</label><input name="symbol" value="{w.esc(c.symbol)}"></div>
+<div><label>Strategy</label><select name="strategy">{strat_opts}</select></div>
+<div><label>Timeframe</label><select name="timeframe">{tf_opts}</select></div>
+<div><label>Risk per trade (%)</label><input name="risk_per_trade" type="number" step="0.1" value="{r.risk_per_trade_pct*100:.2f}"></div>
+<div><label>Max daily loss (%)</label><input name="max_daily_loss" type="number" step="0.1" value="{r.max_daily_loss_pct*100:.2f}"></div>
+<div><label>Max drawdown (%)</label><input name="max_drawdown" type="number" step="0.1" value="{r.max_drawdown_pct*100:.2f}"></div>
+<div><label>Max consecutive losses</label><input name="max_consecutive_losses" type="number" value="{r.max_consecutive_losses}"></div>
+</div><div style="margin-top:16px"><button class="btn" type="submit">Save Changes</button>
+<a class="btn btn-ghost" href="/bots" style="margin-left:8px">Cancel</a></div></form></div>'''
+    return HTMLResponse(w.page(title="Edit Bot", active="bots",
+                               body=w.topbar(f"Edit · {w.esc(c.name)}") + form,
+                               app_name=settings.app_name, user=u))
+
+
+@app.post("/bots/{bot_id}/edit")
+def edit_bot(
+    bot_id: str,
+    request: Request,
+    name: str = Form(...),
+    strategy: str = Form("ema"),
+    symbol: str = Form("BTCUSDT"),
+    timeframe: str = Form("1h"),
+    risk_per_trade: float = Form(1.0),
+    max_daily_loss: float = Form(3.0),
+    max_drawdown: float = Form(20.0),
+    max_consecutive_losses: int = Form(4),
+):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    rules = RiskRules(
+        risk_per_trade_pct=max(risk_per_trade, 0.01) / 100.0,
+        max_daily_loss_pct=max(max_daily_loss, 0.1) / 100.0,
+        max_open_positions=settings.max_open_positions,
+        max_drawdown_pct=max(max_drawdown, 0.1) / 100.0,
+        max_consecutive_losses=max(int(max_consecutive_losses), 0),
+    )
+    try:
+        manager.update(bot_id, name=name, strategy=strategy, symbol=symbol,
+                       timeframe=timeframe, risk=rules)
+    except Exception:  # noqa: BLE001 - missing bot -> back to list
+        pass
+    return RedirectResponse("/bots", status_code=303)
+
+
+# ------------------------------------------------------- backtest (Phase 9)
+@app.get("/bots/{bot_id}/backtest", response_class=HTMLResponse)
+def backtest_bot(bot_id: str, request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/bots", status_code=303)
+    from dashboard.analytics import render_result
+    res = manager.backtest(bot_id)
+    head = (f'<div class="card"><h2>Backtest — {w.esc(bot.config.name)}</h2>'
+            f'<div class="dim">{w.esc(bot.config.strategy.upper())} · '
+            f'{w.esc(bot.config.symbol)} · {w.esc(bot.config.timeframe)} · '
+            f'{w.esc(res.source)} data</div></div>')
+    body = (w.topbar(f"Backtest · {w.esc(bot.config.name)}",
+                     '<a class="btn btn-ghost" href="/bots">← Bots</a>')
+            + head + render_result(bot.config.name, res.metrics, res.trades, res.equity_curve))
+    return HTMLResponse(w.page(title="Backtest", active="bots", body=body,
+                               app_name=settings.app_name, user=u))
 
 
 def _bot_action(request: Request, action):

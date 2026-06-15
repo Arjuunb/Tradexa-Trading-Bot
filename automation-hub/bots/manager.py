@@ -49,6 +49,27 @@ class BotManager:
         if self._store is not None:
             self._store.delete(bot_id)
 
+    def update(self, bot_id: str, **fields) -> Bot:
+        """Edit an existing bot's config in place (Phase 9). Persists the change.
+
+        Accepts: name, symbol, timeframe, strategy, exchange, starting_cash,
+        and a RiskRules instance under ``risk``. Unknown keys are ignored.
+        """
+        bot = self._require(bot_id)
+        cfg = bot.config
+        for key in ("name", "symbol", "timeframe", "strategy", "exchange",
+                    "starting_cash", "risk", "mode"):
+            if key in fields and fields[key] is not None:
+                setattr(cfg, key, fields[key])
+        self._persist(bot)
+        return bot
+
+    def backtest(self, bot_id: str):
+        """Run an ad-hoc backtest of a bot's config WITHOUT touching its runtime
+        or state. Returns a paper_trading.simulator.PaperResult."""
+        bot = self._require(bot_id)
+        return run_paper(bot.config)
+
     # ---------------------------------------------------------- lifecycle
     def start(self, bot_id: str) -> Bot:
         bot = self._require(bot_id)

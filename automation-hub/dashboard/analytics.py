@@ -50,10 +50,18 @@ def render_analytics(manager, bot_id: Optional[str] = None) -> str:
     if bot is None or not bot.runtime.equity_curve:
         bot = bots[0]
 
-    m = bot.runtime.metrics
-    trades = bot.runtime.trades
+    return _selector(bots, bot.id) + render_result(
+        bot.config.name, bot.runtime.metrics, bot.runtime.trades,
+        bot.runtime.equity_curve)
+
+
+def render_result(name: str, metrics: dict, trades: list, equity_curve: list) -> str:
+    """Render KPIs + equity/drawdown charts + trade table for any result-like
+    data (a bot's stored runtime or a transient backtest)."""
+    m = metrics or {}
+    trades = trades or []
     cur = settings.currency
-    eq = [v for _, v in bot.runtime.equity_curve]
+    eq = [v for _, v in equity_curve] if equity_curve else []
     dd = _drawdown_series(eq)
     best = max((t.get("pnl", 0) for t in trades), default=0.0)
     worst = min((t.get("pnl", 0) for t in trades), default=0.0)
@@ -73,7 +81,7 @@ def render_analytics(manager, bot_id: Optional[str] = None) -> str:
     )
 
     charts = (
-        f'<div class="card"><h2>Equity Curve — {w.esc(bot.config.name)}</h2>'
+        f'<div class="card"><h2>Equity Curve — {w.esc(name)}</h2>'
         f'<div class="chart">{w.line(eq, color="#26a69a", fill=True)}</div></div>'
         '<div class="card"><h2>Drawdown</h2>'
         f'<div class="chart">{w.line(dd, color="#ef5350", fill=True)}</div></div>'
@@ -103,4 +111,4 @@ def render_analytics(manager, bot_id: Optional[str] = None) -> str:
     else:
         history = '<div class="card"><h2>Trade History</h2><div class="empty">No trades.</div></div>'
 
-    return _selector(bots, bot.id) + kpis + charts + history
+    return kpis + charts + history
