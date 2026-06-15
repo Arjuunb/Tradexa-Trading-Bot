@@ -1,6 +1,14 @@
 {
-  "installCommand": "npm --prefix automation-hub-dashboard install",
-  "buildCommand": "npm --prefix automation-hub-dashboard run build",
-  "outputDirectory": "automation-hub-dashboard/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "version": 2,
+  "builds": [
+    {
+      "src": "automation-hub-dashboard/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
+    }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
 }
