@@ -132,6 +132,21 @@ class BotManager:
         """Bots that currently have an active live runner (multi-bot supervision)."""
         return [b for bid, b in self._bots.items() if bid in self._runners]
 
+    # --------------------------------------------------- portfolio risk (P5)
+    def portfolio_snapshot(self, equity: float):
+        """Account-wide exposure across all active bots."""
+        from services.portfolio_risk import PortfolioRiskEngine, positions_from_bots
+        eng = getattr(self, "_portfolio", None) or PortfolioRiskEngine()
+        self._portfolio = eng
+        return eng.snapshot(equity, positions_from_bots(self.list(), equity))
+
+    def check_portfolio(self, equity: float, candidate):
+        """Would opening ``candidate`` breach a portfolio-level limit?"""
+        from services.portfolio_risk import PortfolioRiskEngine, positions_from_bots
+        eng = getattr(self, "_portfolio", None) or PortfolioRiskEngine()
+        self._portfolio = eng
+        return eng.check_new(equity, positions_from_bots(self.list(), equity), candidate)
+
     def pause(self, bot_id: str) -> Bot:
         bot = self._require(bot_id)
         assert_transition(bot.runtime.state, BotState.PAUSED)
