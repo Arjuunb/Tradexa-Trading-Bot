@@ -1,17 +1,18 @@
 # This Vercel project builds the React dashboard in automation-hub-dashboard/
-# (see vercel.json). Everything below is unrelated to that build and excluded
-# to keep the upload lean. The Python engine / FastAPI hub are NOT deployed here.
-bot/
-automation-hub/
-api/
-configs/
-data/
-examples/
-tests/
-.github/
-.pytest_cache/
+# (see vercel.json). The patterns below are ANCHORED with a leading slash so
+# they only match the Python engine / FastAPI hub at the repo ROOT and never
+# collide with the dashboard's own folders (e.g. src/data, src/components).
+/bot/
+/automation-hub/
+/api/
+/configs/
+/data/
+/examples/
+/tests/
+/.github/
+/.pytest_cache/
+/report.html
+/requirements.txt
+/pyproject.toml
 __pycache__/
 *.egg-info/
-report.html
-requirements.txt
-pyproject.toml
