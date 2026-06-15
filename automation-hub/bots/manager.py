@@ -80,13 +80,14 @@ class BotManager:
         return bot
 
     def start_live(self, bot_id: str, feed=None, real_broker=None,
-                   alerts: bool = False, dry_run: bool = True) -> Bot:
+                   alerts: bool = False, dry_run: bool = True, event_sink=None) -> Bot:
         """Stream bars through the live runner on a background thread.
 
         With no ``feed`` supplied, replays recent market data as if live — a
         zero-config demo of the real-time path (the runner code is identical to
         a genuine ``BrokerFeed``). Pass ``real_broker`` to mirror orders to a
-        live venue (Phase 5) and ``alerts=True`` to fire notifications. Returns
+        live venue (Phase 5), ``alerts=True`` to fire notifications, and
+        ``event_sink`` to stream events to the live dashboard (Phase 8). Returns
         immediately; the runner updates the bot's runtime as bars arrive.
         """
         from bots.live_runner import LiveBotRunner
@@ -100,7 +101,7 @@ class BotManager:
             bars, _src = get_bars(bot.config.symbol, n=600, timeframe=bot.config.timeframe)
             feed = ReplayFeed(bars)
         runner = LiveBotRunner(bot, feed, real_broker=real_broker,
-                               alerts=alerts, dry_run=dry_run)
+                               alerts=alerts, dry_run=dry_run, event_sink=event_sink)
         self._runners[bot_id] = runner
         runner.start()
         self._persist(bot)

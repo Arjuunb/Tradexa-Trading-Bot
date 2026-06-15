@@ -98,9 +98,12 @@ def render_overview(manager, user: str = "") -> str:
         activity = ('<div class="card"><h2>Recent Activity</h2>'
                     '<div class="empty">No activity yet. Start a bot to populate the feed.</div></div>')
 
+    from dashboard.stream import LIVE_FEED_CARD
+
     estop = ('<form class="inline" method="post" action="/emergency-stop">'
              '<button class="btn btn-danger" type="submit">■ Emergency Stop</button></form>')
-    body = (w.topbar("Automation Hub", estop) + kpis + chart + active + risk + activity)
+    body = (w.topbar("Automation Hub", estop) + kpis + chart + active
+            + LIVE_FEED_CARD + risk + activity)
     return w.page(title="Overview", active="overview", body=body,
                   app_name=settings.app_name, user=user)
 

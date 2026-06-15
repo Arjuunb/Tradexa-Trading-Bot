@@ -33,7 +33,8 @@ def _risk(rules) -> RiskManager:
 
 class LiveBotRunner:
     def __init__(self, bot: Bot, feed: LiveFeed, on_update: Optional[UpdateHook] = None,
-                 real_broker=None, alerts: bool = False, dry_run: bool = True):
+                 real_broker=None, alerts: bool = False, dry_run: bool = True,
+                 event_sink=None):
         self.bot = bot
         self.feed = feed
         self.on_update = on_update
@@ -41,6 +42,10 @@ class LiveBotRunner:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         cfg = bot.config
+        # Phase 8: subscribe the live-dashboard sink BEFORE the engine runs, so
+        # no events are missed if the worker thread races ahead of start().
+        if event_sink is not None:
+            self.bus.subscribe(event_sink)
         self.engine = Backtester(
             strategy=build_strategy(cfg.strategy, cfg.symbol),
             bars=[], starting_cash=cfg.starting_cash, risk=_risk(cfg.risk),

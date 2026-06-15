@@ -15,6 +15,7 @@ production shape later phases fill in.
 """
 from __future__ import annotations
 
+import queue
 import secrets
 import sys
 from pathlib import Path
@@ -24,7 +25,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fastapi import FastAPI, Form, Request  # noqa: E402
-from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import (  # noqa: E402
+    HTMLResponse, RedirectResponse, StreamingResponse,
+)
 
 from config import settings  # noqa: E402
 from bots.manager import BotManager  # noqa: E402
@@ -41,6 +44,10 @@ app = FastAPI(title=settings.app_name)
 store = SqliteStore(settings.db_path)
 store.seed_admin(settings.username, settings.password)
 manager = BotManager(store=store)
+
+# Phase 8: process-wide event hub for the live (SSE) dashboard.
+from dashboard.stream import HubEventHub, sse_format  # noqa: E402
+hub_events = HubEventHub()
 
 # token -> username (Phase 1 in-memory session store)
 _sessions: dict[str, str] = {}
@@ -210,7 +217,25 @@ def start_bot(bot_id: str, request: Request):
 @app.post("/bots/{bot_id}/go-live")
 def go_live_bot(bot_id: str, request: Request):
     # Phase 2: stream bars through the live engine (replay-driven demo).
-    return _bot_action(request, lambda: manager.start_live(bot_id))
+    # Phase 8: forward the runner's events to the hub for the live dashboard.
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/", status_code=303)
+    name = bot.config.name
+
+    def sink(event: dict, _bid: str = bot_id, _bn: str = name) -> None:
+        hub_events.publish({**event, "bot_id": _bid, "bot_name": _bn})
+
+    try:
+        # Subscribe the sink before the worker starts (no missed events).
+        manager.start_live(bot_id, event_sink=sink)
+        hub_events.publish({"type": "lifecycle", "bot_id": bot_id,
+                            "bot_name": name, "message": "went live"})
+    except Exception:  # noqa: BLE001 - bad transition/missing bot -> back to dashboard
+        pass
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/bots/{bot_id}/pause")
@@ -455,6 +480,35 @@ def create_user(request: Request, username: str = Form(...),
         return RedirectResponse("/users?error=User+already+exists", status_code=303)
     store.create_user(username, password, role="admin" if role == "admin" else "operator")
     return RedirectResponse("/users", status_code=303)
+
+
+# --------------------------------------------------- live event stream (P8)
+@app.get("/events/state")
+def events_state(request: Request):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    return {"events": hub_events.replay()}
+
+
+@app.get("/events/stream")
+def events_stream(request: Request):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    q = hub_events.subscribe()
+
+    def gen():
+        try:
+            for ev in hub_events.replay():
+                yield sse_format(ev)
+            while True:
+                try:
+                    yield sse_format(q.get(timeout=15))
+                except queue.Empty:
+                    yield ": ping\n\n"      # heartbeat keeps proxies open
+        finally:
+            hub_events.unsubscribe(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/health")

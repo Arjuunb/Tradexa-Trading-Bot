@@ -10,12 +10,14 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import app as hub_app  # noqa: E402
 from bots.manager import BotManager  # noqa: E402
+from dashboard.stream import HubEventHub  # noqa: E402
 
 
 @pytest.fixture()
 def client():
-    # Fresh manager + sessions per test.
+    # Fresh manager + sessions + event hub per test.
     hub_app.manager = BotManager()
+    hub_app.hub_events = HubEventHub()
     hub_app._sessions.clear()
     return TestClient(hub_app.app, follow_redirects=False)
 
@@ -107,6 +109,32 @@ def test_admin_can_add_user(client):
     assert hub_app.store.get_user(uname) is not None
     # New user can authenticate with the hashed password.
     assert hub_app.store.authenticate(uname, "pw") is not None
+
+
+def test_overview_has_live_stream_client(client):
+    _login(client)
+    body = client.get("/").text
+    assert "Live Feed" in body
+    assert "EventSource" in body and "/events/stream" in body
+
+
+def test_go_live_streams_events_to_hub(client):
+    _login(client)
+    r = client.post("/bots", data={
+        "name": "Streamer", "strategy": "ema", "exchange": "binance",
+        "symbol": "BTCUSDT", "timeframe": "1h", "mode": "live",
+        "risk_per_trade": "1.0", "max_daily_loss": "3.0",
+    })
+    bot = hub_app.manager.list()[0]
+    client.post(f"/bots/{bot.id}/go-live")
+    hub_app.manager.runner(bot.id).wait(timeout=15)   # finite replay feed ends
+
+    state = client.get("/events/state").json()
+    types = {e["type"] for e in state["events"]}
+    assert "lifecycle" in types          # published on go-live
+    assert "run_finished" in types       # forwarded from the runner
+    # forwarded events carry the bot identity
+    assert any(e.get("bot_id") == bot.id for e in state["events"])
 
 
 def test_health_open(client):
