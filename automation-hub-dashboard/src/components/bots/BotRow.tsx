@@ -1,6 +1,7 @@
 import type { Bot } from "../../types";
 import Icon from "../common/Icon";
 import { statusColor } from "../../theme";
+import { useApp } from "../../app-context";
 
 interface BotRowProps {
   bot: Bot;
@@ -8,6 +9,7 @@ interface BotRowProps {
 }
 
 export default function BotRow({ bot, onToggle }: BotRowProps) {
+  const app = useApp();
   const isActive = bot.status === "Live" || bot.status === "Running";
   const pnlClass = bot.todayPnl > 0 ? "pos" : bot.todayPnl < 0 ? "neg" : "dim";
   const pnlText =
@@ -20,7 +22,7 @@ export default function BotRow({ bot, onToggle }: BotRowProps) {
       <div className="bot-avatar" style={{ background: `${statusColor(bot.status)}22`, color: statusColor(bot.status) }}>
         <Icon name="robot" size={16} />
       </div>
-      <div className="bot-info">
+      <div className="bot-info bot-info-link" onClick={() => app.viewBot(bot.id)} title="View details">
         <div className="bot-name-row">
           <b>{bot.name}</b>
           <span className="status-tag" style={{ background: `${statusColor(bot.status)}22`, color: statusColor(bot.status) }}>

@@ -5,10 +5,66 @@ import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader, StatCard } from "../components/common/ui";
 import { backtestResult, strategies } from "../data/mock";
 
+interface BtTrade {
+  id: string; time: string; pair: string; side: "Long" | "Short";
+  entry: number; exit: number; pnl: number; rr: number; result: "Win" | "Loss";
+}
+interface Result {
+  netPnl: string; winRate: string; profitFactor: string; maxDrawdown: string;
+  totalTrades: string; avgRR: string;
+  equityLabels: string[]; equity: number[]; drawdown: number[]; trades: BtTrade[];
+}
+
+const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+
+// Generate a fresh, plausible backtest result so "Run" feels interactive.
+function genResult(): Result {
+  const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+  const equity = [10000];
+  for (let i = 1; i < labels.length; i++) equity.push(Math.round(equity[i - 1] * (1 + rnd(-0.03, 0.1))));
+  const drawdown = labels.map((_, i) => (i === 0 ? 0 : -Math.round(rnd(1, 9) * 10) / 10));
+  const net = equity[equity.length - 1] - 10000;
+  const total = Math.round(rnd(80, 200));
+  const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+  const trades = Array.from({ length: 4 }, (_, i) => {
+    const win = Math.random() > 0.4;
+    const pnl = Math.round((win ? rnd(60, 240) : -rnd(40, 120)) * 10) / 10;
+    return {
+      id: "g" + i, time: `2025-05-${20 - i} ${10 + i}:00`, pair: pairs[i % pairs.length],
+      side: (Math.random() > 0.5 ? "Long" : "Short") as "Long" | "Short",
+      entry: Math.round(rnd(60000, 67000)), exit: Math.round(rnd(60000, 67000)),
+      pnl, rr: Math.round((win ? rnd(1.2, 2.6) : -1) * 10) / 10,
+      result: (win ? "Win" : "Loss") as "Win" | "Loss",
+    };
+  });
+  return {
+    netPnl: `${net >= 0 ? "+" : "-"}$${Math.abs(net).toLocaleString()}`,
+    winRate: `${rnd(54, 68).toFixed(1)}%`,
+    profitFactor: rnd(1.4, 2.6).toFixed(2),
+    maxDrawdown: `${Math.abs(Math.min(...drawdown)).toFixed(1)}%`,
+    totalTrades: `${total}`,
+    avgRR: rnd(1.3, 2.1).toFixed(2),
+    equityLabels: labels, equity, drawdown, trades,
+  };
+}
+
 export default function BacktestingPage({ initialStrategy }: { initialStrategy?: string }) {
+  const hasInitial = !!initialStrategy && strategies.some((s) => s.name === initialStrategy);
+  const [strategy, setStrategy] = useState(hasInitial ? initialStrategy! : strategies[0].name);
+  const [result, setResult] = useState<Result>(backtestResult);
+  const [running, setRunning] = useState(false);
   const [ran, setRan] = useState(true);
-  const [strategy, setStrategy] = useState(initialStrategy || strategies[0].name);
-  const r = backtestResult;
+
+  const run = () => {
+    setRunning(true);
+    setTimeout(() => {
+      setResult(genResult());
+      setRunning(false);
+      setRan(true);
+    }, 650);
+  };
+
+  const r = result;
 
   return (
     <>
@@ -16,7 +72,9 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
 
       <Card title="Configuration" right={
         <div className="row-actions">
-          <button className="btn btn-primary" onClick={() => setRan(true)}><Icon name="play" size={14} /> Run Backtest</button>
+          <button className="btn btn-primary" onClick={run} disabled={running}>
+            <Icon name={running ? "history" : "play"} size={14} /> {running ? "Running…" : "Run Backtest"}
+          </button>
           {ran && <button className="btn btn-ghost"><Icon name="check" size={14} /> Save</button>}
         </div>
       }>
@@ -27,7 +85,7 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
             </select>
           </Field>
           <Field label="Symbol"><select><option>BTC/USDT</option><option>ETH/USDT</option><option>SOL/USDT</option></select></Field>
-          <Field label="Timeframe"><select><option>5m</option><option>15m</option><option selected>1h</option><option>4h</option></select></Field>
+          <Field label="Timeframe"><select><option>5m</option><option>15m</option><option defaultValue="1h">1h</option><option>4h</option></select></Field>
           <Field label="Start date"><input type="date" defaultValue="2025-01-01" /></Field>
           <Field label="End date"><input type="date" defaultValue="2025-05-22" /></Field>
           <Field label="Starting balance"><input defaultValue="10000" /></Field>
@@ -36,9 +94,9 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
       </Card>
 
       {ran && (
-        <>
+        <div className={running ? "is-running" : ""}>
           <div className="stat-row six">
-            <StatCard label="Net P&L" value={r.netPnl} tone="green" />
+            <StatCard label="Net P&L" value={r.netPnl} tone={r.netPnl.startsWith("+") ? "green" : "red"} />
             <StatCard label="Win Rate" value={r.winRate} />
             <StatCard label="Profit Factor" value={r.profitFactor} />
             <StatCard label="Max Drawdown" value={r.maxDrawdown} tone="red" />
@@ -74,7 +132,7 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
               </table>
             </div>
           </Card>
-        </>
+        </div>
       )}
     </>
   );

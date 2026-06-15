@@ -14,32 +14,37 @@ import AnalyticsPage from "./pages/Analytics";
 import LogsPage from "./pages/Logs";
 import AlertsPage from "./pages/Alerts";
 import SettingsPage from "./pages/Settings";
+import BotDetail from "./pages/BotDetail";
 import type { Bot, BotStatus } from "./types";
 import { bots as seedBots } from "./data/mock";
-import { AppContext, pageFromHash, slug } from "./app-context";
+import { AppContext, parseHash, slug } from "./app-context";
 
 const emptyForm = { name: "", strategy: "EMA Trend", pair: "BTC/USDT" };
 
 export default function App() {
-  const [active, setActive] = useState(pageFromHash);
+  const [route, setRoute] = useState(parseHash);
   const [collapsed, setCollapsed] = useState(false);
   const [bots, setBots] = useState<Bot[]>(seedBots);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [backtestStrategy, setBacktestStrategy] = useState<string>("");
+  const active = route.page;
 
   // Hash routing: the URL hash is the single source of truth for the page,
   // so the browser back/forward buttons work.
   useEffect(() => {
-    const onHash = () => setActive(pageFromHash());
+    const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
     if (!window.location.hash) window.location.hash = "/overview";
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   const go = (page: string) => { window.location.hash = "/" + slug(page); };
+  const viewBot = (id: string) => { window.location.hash = "/bot/" + id; };
   const backtest = (strategy: string) => { setBacktestStrategy(strategy); go("Backtesting"); };
   const openCreateBot = () => { setForm(emptyForm); setShowCreate(true); };
+
+  const detailBot = bots.find((b) => b.id === route.botId);
 
   const toggleBot = (id: string) =>
     setBots((prev) =>
@@ -78,17 +83,20 @@ export default function App() {
       case "Logs": return <LogsPage />;
       case "Alerts": return <AlertsPage />;
       case "Settings": return <SettingsPage />;
+      case "BotDetail": return <BotDetail bot={detailBot} setBots={setBots} />;
       default: return <Overview bots={bots} onToggle={toggleBot} onCreate={openCreateBot} />;
     }
   };
 
+  const title = active === "Overview" ? "Dashboard" : active === "BotDetail" ? (detailBot?.name ?? "Bot") : active;
+
   return (
-    <AppContext.Provider value={{ go, backtest, openCreateBot }}>
+    <AppContext.Provider value={{ go, backtest, openCreateBot, viewBot }}>
       <div className={`app ${collapsed ? "sidebar-collapsed" : ""}`}>
-        <Sidebar active={active} onSelect={go} collapsed={collapsed} />
+        <Sidebar active={active === "BotDetail" ? "Bots" : active} onSelect={go} collapsed={collapsed} />
 
         <div className="main">
-          <TopHeader onToggleSidebar={() => setCollapsed((c) => !c)} title={active === "Overview" ? "Dashboard" : active} />
+          <TopHeader onToggleSidebar={() => setCollapsed((c) => !c)} title={title} />
           <div className="content">{renderPage()}</div>
           <TickerBar />
         </div>

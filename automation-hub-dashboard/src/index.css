@@ -467,3 +467,13 @@ button { font-family: inherit; cursor: pointer; }
   .stat-row, .stat-row.six { grid-template-columns: repeat(2, 1fr); }
   .form-grid-3 { grid-template-columns: 1fr 1fr; }
 }
+
+/* button variants + interaction polish (per-bot detail, run state) */
+.btn-warn { background: rgba(245,158,11,0.16); color: var(--amber); border-color: rgba(245,158,11,0.3); }
+.btn-warn:hover { background: rgba(245,158,11,0.24); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { filter: brightness(1.06); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.bot-info-link { cursor: pointer; }
+.bot-info-link:hover .bot-name-row b { color: var(--purple-2); }
+.is-running { opacity: 0.55; transition: opacity 0.2s; pointer-events: none; }
