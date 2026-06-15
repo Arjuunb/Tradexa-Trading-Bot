@@ -2,8 +2,10 @@ import Card from "../common/Card";
 import Icon from "../common/Icon";
 import ProgressBar from "../common/ProgressBar";
 import { riskMetrics } from "../../data/mock";
+import { useApp } from "../../app-context";
 
 export default function RiskCenter() {
+  const app = useApp();
   return (
     <Card title="Risk Center" className="risk-card">
       <div className="risk-list">
@@ -18,7 +20,7 @@ export default function RiskCenter() {
           </div>
         ))}
       </div>
-      <button className="link-row" type="button">
+      <button className="link-row" type="button" onClick={() => app.go("Risk Center")}>
         View Full Risk <Icon name="chevron" size={14} />
       </button>
     </Card>

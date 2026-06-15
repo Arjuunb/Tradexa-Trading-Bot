@@ -1,4 +1,5 @@
 import Icon from "../common/Icon";
+import { useApp } from "../../app-context";
 
 interface TopHeaderProps {
   onToggleSidebar: () => void;
@@ -6,6 +7,7 @@ interface TopHeaderProps {
 }
 
 export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopHeaderProps) {
+  const app = useApp();
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -23,11 +25,11 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
       </div>
 
       <div className="topbar-right">
-        <button className="icon-btn" aria-label="Notifications">
+        <button className="icon-btn" aria-label="Notifications" onClick={() => app.go("Alerts")}>
           <Icon name="bell" size={18} />
           <span className="badge-dot" />
         </button>
-        <button className="icon-btn" aria-label="Help">
+        <button className="icon-btn" aria-label="Help" onClick={() => app.go("Settings")}>
           <Icon name="help" size={18} />
         </button>
         <button className="icon-btn" aria-label="Toggle theme">

@@ -3,6 +3,7 @@ import type { Bot, BotStatus } from "../types";
 import Icon from "../components/common/Icon";
 import Modal from "../components/common/Modal";
 import { PageHeader, StatusBadge } from "../components/common/ui";
+import { useApp } from "../app-context";
 
 interface BotsPageProps {
   bots: Bot[];
@@ -21,6 +22,7 @@ export default function BotsPage({ bots, setBots, onCreate }: BotsPageProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<BotStatus | "All">("All");
   const [modalBot, setModalBot] = useState<Bot | null>(null);
+  const app = useApp();
 
   const visible = useMemo(
     () =>
@@ -106,7 +108,7 @@ export default function BotsPage({ bots, setBots, onCreate }: BotsPageProps) {
                         <button className="icon-btn sm" title="Stop" onClick={() => setStatus(b.id, "Stopped")}><Icon name="close" size={14} /></button>
                         <button className="icon-btn sm" title="Edit" onClick={() => setModalBot(b)}><Icon name="settings" size={14} /></button>
                         <button className="icon-btn sm" title="Duplicate" onClick={() => duplicate(b.id)}><Icon name="layers" size={14} /></button>
-                        <button className="icon-btn sm" title="View details" onClick={() => setModalBot(b)}><Icon name="chart" size={14} /></button>
+                        <button className="icon-btn sm" title="View details" onClick={() => app.go("Analytics")}><Icon name="chart" size={14} /></button>
                         <button className="icon-btn sm neg" title="Delete" onClick={() => remove(b.id)}><Icon name="close" size={14} /></button>
                       </div>
                     </td>
