@@ -6,7 +6,9 @@
   "description": "Automation Hub — Phase 1 dashboard (React + TypeScript + Apache ECharts, mock data).",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build:check": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
