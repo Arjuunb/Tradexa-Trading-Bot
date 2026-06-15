@@ -15,6 +15,7 @@ production shape later phases fill in.
 """
 from __future__ import annotations
 
+import queue
 import secrets
 import sys
 from pathlib import Path
@@ -24,7 +25,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fastapi import FastAPI, Form, Request  # noqa: E402
-from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import (  # noqa: E402
+    HTMLResponse, RedirectResponse, StreamingResponse,
+)
 
 from config import settings  # noqa: E402
 from bots.manager import BotManager  # noqa: E402
@@ -35,9 +38,16 @@ from database.models import BotConfig, BotMode, RiskRules  # noqa: E402
 from database.store import SqliteStore  # noqa: E402
 
 app = FastAPI(title=settings.app_name)
-# Phase 6: persist bots across restarts (stdlib SQLite). Tests override
-# `manager` with an in-memory BotManager().
-manager = BotManager(store=SqliteStore(settings.db_path))
+# Phase 6/7: one SQLite store backs both bot persistence and user accounts.
+# The first admin is seeded from HUB_USERNAME/HUB_PASSWORD. Tests override
+# `manager` with an in-memory BotManager() but reuse `store` for auth.
+store = SqliteStore(settings.db_path)
+store.seed_admin(settings.username, settings.password)
+manager = BotManager(store=store)
+
+# Phase 8: process-wide event hub for the live (SSE) dashboard.
+from dashboard.stream import HubEventHub, sse_format  # noqa: E402
+hub_events = HubEventHub()
 
 # token -> username (Phase 1 in-memory session store)
 _sessions: dict[str, str] = {}
@@ -73,7 +83,8 @@ def login_form(error: str = "") -> str:
 
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
-    if username == settings.username and password == settings.password:
+    # Phase 7: verify against hashed credentials in the user store.
+    if store.authenticate(username, password) is not None:
         token = secrets.token_urlsafe(24)
         _sessions[token] = username
         resp = RedirectResponse("/", status_code=303)
@@ -113,11 +124,15 @@ def bots_page(request: Request):
             f"<td>{w.esc(exchange_label(b.config.exchange))}</td>"
             f"<td>{w.esc(b.config.symbol)}</td>"
             f"<td>{w.esc(b.config.mode.value)}</td>"
-            f"<td>{w.state_badge(b.runtime.state.value)}</td></tr>"
+            f"<td>{w.state_badge(b.runtime.state.value)}</td>"
+            f'<td class="rowbtns">'
+            f'<a class="btn btn-ghost" href="/bots/{b.id}/backtest">Backtest</a>'
+            f'<a class="btn btn-ghost" href="/bots/{b.id}/edit">Edit</a></td></tr>'
             for b in bots
         )
         table = (f'<div class="card"><table><thead><tr><th>Name</th><th>Strategy</th>'
-                 f'<th>Exchange</th><th>Symbol</th><th>Mode</th><th>State</th></tr></thead>'
+                 f'<th>Exchange</th><th>Symbol</th><th>Mode</th><th>State</th>'
+                 f'<th></th></tr></thead>'
                  f'<tbody>{rows}</tbody></table></div>')
     else:
         table = '<div class="card"><div class="empty">No bots yet.</div></div>'
@@ -188,6 +203,93 @@ def create_bot(
     return RedirectResponse("/bots", status_code=303)
 
 
+# ----------------------------------------------------------- edit (Phase 9)
+@app.get("/bots/{bot_id}/edit", response_class=HTMLResponse)
+def edit_bot_form(bot_id: str, request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/bots", status_code=303)
+    c, r = bot.config, bot.config.risk
+    strat_opts = "".join(
+        f'<option value="{k}"{" selected" if k == c.strategy else ""}'
+        f'{"" if ready else " disabled"}>{w.esc(label)}</option>'
+        for k, (_cls, label, ready) in STRATEGIES.items()
+    )
+    tf_opts = "".join(
+        f'<option{" selected" if tf == c.timeframe else ""}>{tf}</option>'
+        for tf in ("5m", "15m", "1h"))
+    form = f'''<div class="card"><form method="post" action="/bots/{bot_id}/edit">
+<div class="formgrid">
+<div><label>Bot name</label><input name="name" value="{w.esc(c.name)}" required></div>
+<div><label>Symbol</label><input name="symbol" value="{w.esc(c.symbol)}"></div>
+<div><label>Strategy</label><select name="strategy">{strat_opts}</select></div>
+<div><label>Timeframe</label><select name="timeframe">{tf_opts}</select></div>
+<div><label>Risk per trade (%)</label><input name="risk_per_trade" type="number" step="0.1" value="{r.risk_per_trade_pct*100:.2f}"></div>
+<div><label>Max daily loss (%)</label><input name="max_daily_loss" type="number" step="0.1" value="{r.max_daily_loss_pct*100:.2f}"></div>
+<div><label>Max drawdown (%)</label><input name="max_drawdown" type="number" step="0.1" value="{r.max_drawdown_pct*100:.2f}"></div>
+<div><label>Max consecutive losses</label><input name="max_consecutive_losses" type="number" value="{r.max_consecutive_losses}"></div>
+</div><div style="margin-top:16px"><button class="btn" type="submit">Save Changes</button>
+<a class="btn btn-ghost" href="/bots" style="margin-left:8px">Cancel</a></div></form></div>'''
+    return HTMLResponse(w.page(title="Edit Bot", active="bots",
+                               body=w.topbar(f"Edit · {w.esc(c.name)}") + form,
+                               app_name=settings.app_name, user=u))
+
+
+@app.post("/bots/{bot_id}/edit")
+def edit_bot(
+    bot_id: str,
+    request: Request,
+    name: str = Form(...),
+    strategy: str = Form("ema"),
+    symbol: str = Form("BTCUSDT"),
+    timeframe: str = Form("1h"),
+    risk_per_trade: float = Form(1.0),
+    max_daily_loss: float = Form(3.0),
+    max_drawdown: float = Form(20.0),
+    max_consecutive_losses: int = Form(4),
+):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    rules = RiskRules(
+        risk_per_trade_pct=max(risk_per_trade, 0.01) / 100.0,
+        max_daily_loss_pct=max(max_daily_loss, 0.1) / 100.0,
+        max_open_positions=settings.max_open_positions,
+        max_drawdown_pct=max(max_drawdown, 0.1) / 100.0,
+        max_consecutive_losses=max(int(max_consecutive_losses), 0),
+    )
+    try:
+        manager.update(bot_id, name=name, strategy=strategy, symbol=symbol,
+                       timeframe=timeframe, risk=rules)
+    except Exception:  # noqa: BLE001 - missing bot -> back to list
+        pass
+    return RedirectResponse("/bots", status_code=303)
+
+
+# ------------------------------------------------------- backtest (Phase 9)
+@app.get("/bots/{bot_id}/backtest", response_class=HTMLResponse)
+def backtest_bot(bot_id: str, request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/bots", status_code=303)
+    from dashboard.analytics import render_result
+    res = manager.backtest(bot_id)
+    head = (f'<div class="card"><h2>Backtest — {w.esc(bot.config.name)}</h2>'
+            f'<div class="dim">{w.esc(bot.config.strategy.upper())} · '
+            f'{w.esc(bot.config.symbol)} · {w.esc(bot.config.timeframe)} · '
+            f'{w.esc(res.source)} data</div></div>')
+    body = (w.topbar(f"Backtest · {w.esc(bot.config.name)}",
+                     '<a class="btn btn-ghost" href="/bots">← Bots</a>')
+            + head + render_result(bot.config.name, res.metrics, res.trades, res.equity_curve))
+    return HTMLResponse(w.page(title="Backtest", active="bots", body=body,
+                               app_name=settings.app_name, user=u))
+
+
 def _bot_action(request: Request, action):
     if not _user(request):
         return RedirectResponse("/login", status_code=303)
@@ -206,7 +308,25 @@ def start_bot(bot_id: str, request: Request):
 @app.post("/bots/{bot_id}/go-live")
 def go_live_bot(bot_id: str, request: Request):
     # Phase 2: stream bars through the live engine (replay-driven demo).
-    return _bot_action(request, lambda: manager.start_live(bot_id))
+    # Phase 8: forward the runner's events to the hub for the live dashboard.
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    bot = manager.get(bot_id)
+    if bot is None:
+        return RedirectResponse("/", status_code=303)
+    name = bot.config.name
+
+    def sink(event: dict, _bid: str = bot_id, _bn: str = name) -> None:
+        hub_events.publish({**event, "bot_id": _bid, "bot_name": _bn})
+
+    try:
+        # Subscribe the sink before the worker starts (no missed events).
+        manager.start_live(bot_id, event_sink=sink)
+        hub_events.publish({"type": "lifecycle", "bot_id": bot_id,
+                            "bot_name": name, "message": "went live"})
+    except Exception:  # noqa: BLE001 - bad transition/missing bot -> back to dashboard
+        pass
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/bots/{bot_id}/pause")
@@ -391,14 +511,95 @@ def notifications_page(request: Request):
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
+    u = _user(request)
+    me = store.get_user(u) if u else None
+    role = me.role if me else "operator"
     inner = (f'<div class="card"><h2>Settings</h2>'
-             f'<div>Operator: <b>{w.esc(settings.username)}</b></div>'
+             f'<div>Signed in as: <b>{w.esc(u or "")}</b> '
+             f'<span class="dim">({w.esc(role)})</span></div>'
              f'<div>Default exchange: <b>{w.esc(settings.default_exchange)}</b></div>'
              f'<div>Currency: <b>{w.esc(settings.currency)}</b></div>'
              f'<div>Starting cash: <b>{settings.currency}{settings.starting_cash:,.0f}</b></div>'
-             '<p class="dim" style="margin-top:10px">Configure via environment variables / .env '
-             '(HUB_USERNAME, HUB_PASSWORD, HUB_EXCHANGE, TELEGRAM_BOT_TOKEN, …).</p></div>')
+             '<p class="dim" style="margin-top:10px">Passwords are hashed (PBKDF2). '
+             'Manage accounts under <a class="pos" href="/users">Users</a>.</p></div>')
     return _simple_page(request, "Settings", "settings", inner)
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request, error: str = ""):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    me = store.get_user(u)
+    rows = "".join(
+        f"<tr><td><b>{w.esc(x.username)}</b></td>"
+        f"<td>{w.state_badge('Running' if x.role == 'admin' else 'Created')}</td>"
+        f"<td>{w.esc(x.role)}</td>"
+        f"<td class='dim'>{w.esc(x.created_at.strftime('%Y-%m-%d'))}</td></tr>"
+        for x in store.list_users()
+    )
+    table = (f'<div class="card"><h2>Users</h2><table><thead><tr><th>Username</th>'
+             f'<th></th><th>Role</th><th>Created</th></tr></thead>'
+             f'<tbody>{rows}</tbody></table></div>')
+    if me and me.is_admin:
+        err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+        form = ('<div class="card"><h2>Add User</h2>'
+                '<form method="post" action="/users"><div class="formgrid">'
+                '<div><label>Username</label><input name="username" required></div>'
+                '<div><label>Password</label><input name="password" type="password" required></div>'
+                '<div><label>Role</label><select name="role">'
+                '<option value="operator">operator</option>'
+                '<option value="admin">admin</option></select></div>'
+                '</div><div style="margin-top:12px">'
+                '<button class="btn" type="submit">Create User</button></div>'
+                f'{err}</form></div>')
+    else:
+        form = '<div class="card"><div class="dim">Only admins can add users.</div></div>'
+    return _simple_page(request, "Users", "settings", table + form)
+
+
+@app.post("/users")
+def create_user(request: Request, username: str = Form(...),
+                password: str = Form(...), role: str = Form("operator")):
+    u = _user(request)
+    if not u:
+        return RedirectResponse("/login", status_code=303)
+    me = store.get_user(u)
+    if not (me and me.is_admin):
+        return RedirectResponse("/users?error=Admin+only", status_code=303)
+    if store.get_user(username) is not None:
+        return RedirectResponse("/users?error=User+already+exists", status_code=303)
+    store.create_user(username, password, role="admin" if role == "admin" else "operator")
+    return RedirectResponse("/users", status_code=303)
+
+
+# --------------------------------------------------- live event stream (P8)
+@app.get("/events/state")
+def events_state(request: Request):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    return {"events": hub_events.replay()}
+
+
+@app.get("/events/stream")
+def events_stream(request: Request):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    q = hub_events.subscribe()
+
+    def gen():
+        try:
+            for ev in hub_events.replay():
+                yield sse_format(ev)
+            while True:
+                try:
+                    yield sse_format(q.get(timeout=15))
+                except queue.Empty:
+                    yield ": ping\n\n"      # heartbeat keeps proxies open
+        finally:
+            hub_events.unsubscribe(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/health")

@@ -63,6 +63,17 @@ logic was rewritten. `paper_trading.simulator` runs `bot.backtester.Backtester`;
   stdlib SQLite (`database/store.py`) with a forward-only migration runner
   (`database/migrations/*.sql`). `BotManager(store=...)` is opt-in; without a
   store it stays pure in-memory. Set `HUB_DB_PATH` to relocate the database.
+- **Phase 7:** authentication — PBKDF2-hashed passwords (`auth.py`, stdlib) and
+  multi-user accounts persisted in SQLite. The first admin is seeded from
+  `HUB_USERNAME`/`HUB_PASSWORD`; admins manage accounts at `/users`.
+- **Phase 8:** live-updating dashboard — every live bot runner streams its
+  events to a process-wide `HubEventHub` (`dashboard/stream.py`); the overview
+  consumes them over Server-Sent Events (`/events/stream`) and updates a Live
+  Feed in real time, no page refresh. Stdlib only (`queue` + `threading`).
+- **Phase 9:** bot management — edit a bot's config (`/bots/{id}/edit`) with
+  changes persisted, and run an ad-hoc backtest from the UI
+  (`/bots/{id}/backtest`) that renders equity/drawdown charts, KPIs and the
+  full trade table without touching the bot's live state.
 
 To trade against a real exchange, follow the **[Go Live runbook](GO_LIVE.md)**
 (install extras, set keys, enable real routing, deploy on a persistent host).
