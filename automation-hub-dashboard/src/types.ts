@@ -130,3 +130,44 @@ export interface RiskSettings {
   consecutiveLossLimit: number;
   autoPause: boolean;
 }
+
+// ---- safety-first models (capital protection / transparency / health) ----
+export interface RuleCheck {
+  rule: string;
+  passed: boolean;
+}
+
+export type Verdict = "Allowed" | "Rejected" | "Blocked";
+
+export interface Decision {
+  id: string;
+  time: string;
+  symbol: string;
+  strategy: string;
+  signal: "Buy" | "Sell" | "Hold";
+  confidence: number;
+  checks: RuleCheck[];
+  verdict: Verdict;
+  reason: string;
+}
+
+export type GuardStatus = "OK" | "Warning" | "Blocked";
+
+export interface CapitalGuard {
+  rule: string;
+  value: string;
+  limit: string;
+  pct: number;
+  status: GuardStatus;
+}
+
+export interface BotHealth {
+  status: string;
+  exchange: string;
+  dataFeed: string;
+  heartbeat: string;
+  uptime: string;
+  lastScan: string;
+  lastTrade: string;
+  errors: number;
+}

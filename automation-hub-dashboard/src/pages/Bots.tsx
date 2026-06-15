@@ -36,13 +36,21 @@ export default function BotsPage({ bots, setBots, onCreate }: BotsPageProps) {
     [bots, query, filter],
   );
 
-  const setStatus = (id: string, status: BotStatus) =>
+  const setStatus = (id: string, status: BotStatus) => {
     setBots((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)));
-  const remove = (id: string) => setBots((prev) => prev.filter((b) => b.id !== id));
+    const name = bots.find((b) => b.id === id)?.name ?? "Bot";
+    app.toast(`${name} ${status.toLowerCase()}`, status === "Stopped" ? "error" : "success");
+  };
+  const remove = (id: string) => {
+    const name = bots.find((b) => b.id === id)?.name ?? "Bot";
+    setBots((prev) => prev.filter((b) => b.id !== id));
+    app.toast(`Deleted "${name}"`, "error");
+  };
   const duplicate = (id: string) =>
     setBots((prev) => {
       const src = prev.find((b) => b.id === id);
       if (!src) return prev;
+      app.toast(`Duplicated "${src.name}"`, "success");
       return [
         ...prev,
         { ...src, id: "b" + Math.random().toString(36).slice(2, 7), name: `${src.name} (copy)`, status: "Stopped", todayPnl: 0 },

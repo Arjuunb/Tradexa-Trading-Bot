@@ -4,7 +4,9 @@ import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard, StatusBadge } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { strategies } from "../data/mock";
+import { botHealth, decisions, strategies } from "../data/mock";
+import BotHealthPanel from "../components/safety/BotHealthPanel";
+import DecisionFeed from "../components/safety/DecisionFeed";
 
 interface Props {
   bot: Bot | undefined;
@@ -44,7 +46,10 @@ export default function BotDetail({ bot, setBots }: Props) {
     );
   }
 
-  const setStatus = (status: BotStatus) => setBots((p) => p.map((b) => (b.id === bot.id ? { ...b, status } : b)));
+  const setStatus = (status: BotStatus) => {
+    setBots((p) => p.map((b) => (b.id === bot.id ? { ...b, status } : b)));
+    app.toast(`${bot.name} ${status.toLowerCase()}`, status === "Stopped" ? "error" : "success");
+  };
   const active = bot.status === "Running" || bot.status === "Live";
   const stratName = strategies.find((s) => s.name.startsWith(bot.strategy))?.name ?? strategies[0].name;
   const labels = ["", "", "", "", "", "", "", "", "", "", "", ""];
@@ -75,10 +80,17 @@ export default function BotDetail({ bot, setBots }: Props) {
         <StatCard label="Symbol" value={bot.pair} />
       </div>
 
-      <Card title="Equity Curve" subtitle={bot.name} right={<StatusBadge status={bot.status} />}>
-        <div className="chart-md">
-          <AreaLine labels={labels} series={[{ name: "Equity", data: botEquity(bot), color: "#8b5cf6" }]} yFormatter={(v) => `$${(v / 1000).toFixed(1)}K`} valueFormatter={(v) => `$${v.toLocaleString()}`} />
-        </div>
+      <div className="grid-2-1">
+        <Card title="Equity Curve" subtitle={bot.name} right={<StatusBadge status={bot.status} />} className="span-2">
+          <div className="chart-md">
+            <AreaLine labels={labels} series={[{ name: "Equity", data: botEquity(bot), color: "#8b5cf6" }]} yFormatter={(v) => `$${(v / 1000).toFixed(1)}K`} valueFormatter={(v) => `$${v.toLocaleString()}`} />
+          </div>
+        </Card>
+        <BotHealthPanel h={botHealth[bot.id] ?? botHealth.default} />
+      </div>
+
+      <Card title="Decision Log" subtitle="Why this bot did (or didn't) trade">
+        <DecisionFeed items={decisions.filter((d) => d.symbol === bot.pair).length ? decisions.filter((d) => d.symbol === bot.pair) : decisions.slice(0, 3)} />
       </Card>
 
       <Card title="Recent Trades">

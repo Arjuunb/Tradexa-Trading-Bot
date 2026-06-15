@@ -2,8 +2,10 @@ import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Field, PageHeader, Toggle } from "../components/common/ui";
+import { useApp } from "../app-context";
 
 export default function SettingsPage() {
+  const app = useApp();
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [telegram, setTelegram] = useState(false);
   const [darkTheme, setDarkTheme] = useState(true);
@@ -14,7 +16,7 @@ export default function SettingsPage() {
       <PageHeader
         title="Settings"
         subtitle="Workspace, connections and default preferences"
-        actions={<button className="btn btn-primary"><Icon name="check" size={14} /> Save Settings</button>}
+        actions={<button className="btn btn-primary" onClick={() => app.toast("Settings saved", "success")}><Icon name="check" size={14} /> Save Settings</button>}
       />
 
       <div className="grid-2-eq">

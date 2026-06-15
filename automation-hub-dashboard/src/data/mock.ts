@@ -256,3 +256,88 @@ export const platformAlerts: PlatformAlert[] = [
   { id: "pa5", time: "09:40 AM", severity: "Info", category: "Risk", title: "Consecutive Losses", detail: "Mean Reversion reached 2 of 5 consecutive losses.", read: true, active: false },
   { id: "pa6", time: "08:55 AM", severity: "Warning", category: "Connection", title: "Websocket Reconnect", detail: "Market feed reconnected after a brief drop.", read: true, active: false },
 ];
+
+// ================= Safety-first data (P1 capital, P2 transparency, P4 health) =================
+import type { BotHealth, CapitalGuard, Decision } from "../types";
+
+// PRIORITY 1 — Capital Protection: mandatory limits + live usage.
+export const capitalGuards: CapitalGuard[] = [
+  { rule: "Risk per trade", value: "0.80%", limit: "1.00%", pct: 80, status: "OK" },
+  { rule: "Daily loss limit", value: "$342", limit: "$1,000", pct: 34, status: "OK" },
+  { rule: "Max drawdown", value: "6.35%", limit: "20%", pct: 32, status: "OK" },
+  { rule: "Consecutive losses", value: "2", limit: "5", pct: 40, status: "Warning" },
+  { rule: "Max open positions", value: "4", limit: "6", pct: 67, status: "OK" },
+  { rule: "Exposure", value: "18.4%", limit: "100%", pct: 18, status: "OK" },
+];
+
+export const tradingStatus = {
+  state: "Active" as "Active" | "Auto-paused" | "Locked",
+  detail: "All capital-protection limits within range. Trading allowed.",
+};
+
+// PRIORITY 2 — Decision Transparency: every signal explained (rules passed/failed).
+export const decisions: Decision[] = [
+  {
+    id: "dc1", time: "10:24:15", symbol: "BTC/USDT", strategy: "EMA Trend", signal: "Buy", confidence: 72,
+    checks: [
+      { rule: "Trend bullish — EMA aligned", passed: true },
+      { rule: "RSI confirmed (cross > 30)", passed: true },
+      { rule: "Risk per trade ≤ 1%", passed: true },
+      { rule: "Daily loss limit OK", passed: true },
+      { rule: "Max open positions OK", passed: true },
+    ],
+    verdict: "Allowed", reason: "All risk + signal checks passed — order sized at 0.8% of equity.",
+  },
+  {
+    id: "dc2", time: "10:18:42", symbol: "ETH/USDT", strategy: "SMC Breakout", signal: "Buy", confidence: 64,
+    checks: [
+      { rule: "Market structure break confirmed", passed: true },
+      { rule: "Order block mitigated", passed: true },
+      { rule: "Price not near resistance", passed: false },
+    ],
+    verdict: "Rejected", reason: "Price too close to resistance.",
+  },
+  {
+    id: "dc3", time: "10:12:07", symbol: "SOL/USDT", strategy: "RSI Scalper", signal: "Sell", confidence: 58,
+    checks: [
+      { rule: "RSI overbought (> 70)", passed: true },
+      { rule: "Spread within limit", passed: true },
+      { rule: "Slippage estimate ≤ 5 bps", passed: false },
+    ],
+    verdict: "Rejected", reason: "Estimated slippage 9 bps exceeds the 5 bps cap.",
+  },
+  {
+    id: "dc4", time: "10:08:19", symbol: "ADA/USDT", strategy: "Mean Reversion", signal: "Sell", confidence: 55,
+    checks: [
+      { rule: "RSI reversion signal", passed: true },
+      { rule: "Consecutive losses (2/5)", passed: true },
+      { rule: "Daily loss limit", passed: false },
+    ],
+    verdict: "Blocked", reason: "Daily loss limit reached for this bot — trading halted for the day.",
+  },
+  {
+    id: "dc5", time: "09:51:30", symbol: "XRP/USDT", strategy: "Mean Reversion", signal: "Buy", confidence: 61,
+    checks: [
+      { rule: "Reversion to mean confirmed", passed: true },
+      { rule: "Exchange connectivity OK", passed: true },
+      { rule: "Data feed fresh (< 5s)", passed: true },
+      { rule: "No duplicate open order", passed: true },
+    ],
+    verdict: "Allowed", reason: "Execution-safety + risk checks passed — order submitted.",
+  },
+  {
+    id: "dc6", time: "09:33:10", symbol: "BTC/USDT", strategy: "EMA Trend", signal: "Hold", confidence: 40,
+    checks: [
+      { rule: "Trend strength below threshold", passed: false },
+    ],
+    verdict: "Rejected", reason: "No trade — trend confidence below the entry threshold.",
+  },
+];
+
+// PRIORITY 4 — Bot Health (per-bot self-monitoring).
+export const botHealth: Record<string, BotHealth> = {
+  default: { status: "Running", exchange: "Connected", dataFeed: "Live", heartbeat: "2s ago", uptime: "4h 12m", lastScan: "1s ago", lastTrade: "10:24:15", errors: 0 },
+  b1: { status: "Running", exchange: "Connected", dataFeed: "Live", heartbeat: "1s ago", uptime: "6h 02m", lastScan: "0s ago", lastTrade: "10:24:15", errors: 0 },
+  b5: { status: "Paused", exchange: "Connected", dataFeed: "Live", heartbeat: "3s ago", uptime: "2h 41m", lastScan: "3s ago", lastTrade: "10:08:19", errors: 1 },
+  b6: { status: "Stopped", exchange: "Connected", dataFeed: "Delayed", heartbeat: "—", uptime: "0m", lastScan: "—", lastTrade: "—", errors: 0 },
+};

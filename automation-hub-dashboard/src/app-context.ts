@@ -9,6 +9,8 @@ export interface AppApi {
   openCreateBot: () => void;
   /** Open a single bot's detail page (route #/bot/<id>). */
   viewBot: (id: string) => void;
+  /** Show a transient toast notification. */
+  toast: (msg: string, tone?: "success" | "error" | "info") => void;
 }
 
 export const AppContext = createContext<AppApi>({
@@ -16,6 +18,7 @@ export const AppContext = createContext<AppApi>({
   backtest: () => {},
   openCreateBot: () => {},
   viewBot: () => {},
+  toast: () => {},
 });
 
 export const useApp = () => useContext(AppContext);
