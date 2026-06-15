@@ -67,6 +67,10 @@ class LiveBotRunner:
         self.decision_log = DecisionLog(strategy=cfg.strategy)
         self.decision_log.attach(self.bus)
 
+        # Phase 6: adaptive risk — tighten sizing as drawdown grows.
+        from services.adaptive_risk import AdaptiveRiskManager
+        self._adaptive = AdaptiveRiskManager()
+
         # Phase 5: real order routing + alerts (event-driven, opt-in).
         self.router = None
         if real_broker is not None:
@@ -163,6 +167,9 @@ class LiveBotRunner:
             rt.state = state
         rt.health = self._health_snapshot(state)
         rt.decisions = self.decision_log.recent(50)
+        mode = self._adaptive.for_equity([v for _, v in self.engine.equity_curve])
+        rt.risk_mode = {"name": mode.name, "size_multiplier": mode.size_multiplier,
+                        "reason": mode.reason, "paused": mode.paused}
         if self.on_update:
             self.on_update(self.bot)
 
