@@ -71,6 +71,10 @@ class LiveBotRunner:
         from services.adaptive_risk import AdaptiveRiskManager
         self._adaptive = AdaptiveRiskManager()
 
+        # Phase 3: rolling strategy-health monitor.
+        from services.strategy_health import StrategyHealthMonitor
+        self._health_monitor = StrategyHealthMonitor()
+
         # Phase 5: real order routing + alerts (event-driven, opt-in).
         self.router = None
         if real_broker is not None:
@@ -170,6 +174,7 @@ class LiveBotRunner:
         mode = self._adaptive.for_equity([v for _, v in self.engine.equity_curve])
         rt.risk_mode = {"name": mode.name, "size_multiplier": mode.size_multiplier,
                         "reason": mode.reason, "paused": mode.paused}
+        rt.strategy_health = self._health_monitor.evaluate(self.engine.trades).to_dict()
         if self.on_update:
             self.on_update(self.bot)
 
