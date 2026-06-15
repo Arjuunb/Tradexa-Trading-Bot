@@ -4,11 +4,13 @@ import Icon from "../components/common/Icon";
 import Modal from "../components/common/Modal";
 import { Badge, Field, PageHeader } from "../components/common/ui";
 import { platformAlerts as seed } from "../data/mock";
+import { useApp } from "../app-context";
 
 const sevTone = (s: AlertSeverity) => ({ Info: "blue", Warning: "amber", Critical: "red" }[s] as any);
 const catTone = (c: string) => ({ Risk: "purple", Trade: "green", System: "blue", Connection: "amber" }[c] as any);
 
 export default function AlertsPage() {
+  const app = useApp();
   const [items, setItems] = useState(seed);
   const [tab, setTab] = useState<"Active" | "Past">("Active");
   const [showRule, setShowRule] = useState(false);
@@ -68,7 +70,7 @@ export default function AlertsPage() {
         <p className="dim">Notification delivery (email / Telegram / Discord) is a placeholder for a later phase.</p>
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={() => setShowRule(false)}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => setShowRule(false)}>Create</button>
+          <button className="btn btn-primary" onClick={() => { setShowRule(false); app.toast("Alert rule created", "success"); }}>Create</button>
         </div>
       </Modal>
     </>

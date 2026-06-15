@@ -477,3 +477,14 @@ button { font-family: inherit; cursor: pointer; }
 .bot-info-link { cursor: pointer; }
 .bot-info-link:hover .bot-name-row b { color: var(--purple-2); }
 .is-running { opacity: 0.55; transition: opacity 0.2s; pointer-events: none; }
+
+/* toast notifications */
+.toast-stack { position: fixed; right: 20px; bottom: 54px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toast { display: flex; align-items: center; gap: 9px; min-width: 210px; max-width: 340px;
+  background: linear-gradient(180deg, var(--card-1), var(--card-2)); border: 1px solid var(--card-border);
+  border-left: 3px solid var(--purple); border-radius: 10px; padding: 11px 14px; font-size: 12.5px;
+  color: var(--text); box-shadow: 0 10px 30px rgba(0,0,0,0.45); animation: toastIn 0.2s ease; }
+.toast.success { border-left-color: var(--green); } .toast.success svg { color: var(--green); }
+.toast.error { border-left-color: var(--red); } .toast.error svg { color: var(--red); }
+.toast.info { border-left-color: var(--blue); } .toast.info svg { color: var(--blue); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

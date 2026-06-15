@@ -4,8 +4,10 @@ import ProgressBar from "../components/common/ProgressBar";
 import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader, Toggle } from "../components/common/ui";
 import { defaultRiskSettings, riskAlertRows, riskMetrics } from "../data/mock";
+import { useApp } from "../app-context";
 
 export default function RiskCenterPage() {
+  const app = useApp();
   const [s, setS] = useState(defaultRiskSettings);
   const set = (k: keyof typeof s, v: number) => setS((p) => ({ ...p, [k]: v }));
 
@@ -14,7 +16,7 @@ export default function RiskCenterPage() {
       <PageHeader
         title="Risk Center"
         subtitle="Global risk controls applied across every bot"
-        actions={<button className="btn btn-primary"><Icon name="check" size={14} /> Save Settings</button>}
+        actions={<button className="btn btn-primary" onClick={() => app.toast("Risk settings saved", "success")}><Icon name="check" size={14} /> Save Settings</button>}
       />
 
       <div className="grid-2-eq">
@@ -44,7 +46,7 @@ export default function RiskCenterPage() {
           </div>
           <div className="estop-box">
             <div><b className="neg">Emergency Stop</b><span className="dim">Immediately halt and flatten every bot.</span></div>
-            <button className="btn btn-danger"><Icon name="close" size={14} /> Stop All Bots</button>
+            <button className="btn btn-danger" onClick={() => app.toast("Emergency stop — all bots halted", "error")}><Icon name="close" size={14} /> Stop All Bots</button>
           </div>
         </Card>
       </div>

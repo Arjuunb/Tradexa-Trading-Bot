@@ -6,8 +6,10 @@ import { Badge, Field, PageHeader, StatCard } from "../components/common/ui";
 import {
   executionLog, paperAccount, paperHistory, paperPnlLabels, paperPnlSeries, paperPositions,
 } from "../data/mock";
+import { useApp } from "../app-context";
 
 export default function PaperTradingPage() {
+  const app = useApp();
   const [running, setRunning] = useState(true);
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
 
@@ -19,11 +21,11 @@ export default function PaperTradingPage() {
         actions={
           <div className="row-actions">
             {running ? (
-              <button className="btn btn-warn" onClick={() => setRunning(false)}><Icon name="pause" size={14} /> Pause</button>
+              <button className="btn btn-warn" onClick={() => { setRunning(false); app.toast("Paper bot paused", "info"); }}><Icon name="pause" size={14} /> Pause</button>
             ) : (
-              <button className="btn btn-primary" onClick={() => setRunning(true)}><Icon name="play" size={14} /> Start</button>
+              <button className="btn btn-primary" onClick={() => { setRunning(true); app.toast("Paper bot started", "success"); }}><Icon name="play" size={14} /> Start</button>
             )}
-            <button className="btn btn-ghost"><Icon name="history" size={14} /> Reset Account</button>
+            <button className="btn btn-ghost" onClick={() => app.toast("Paper account reset to $10,000", "info")}><Icon name="history" size={14} /> Reset Account</button>
           </div>
         }
       />
@@ -83,7 +85,8 @@ export default function PaperTradingPage() {
           <Field label="Order type">
             <select><option>Market</option><option>Limit</option></select>
           </Field>
-          <button className={`btn full ${side === "Buy" ? "btn-primary" : "btn-danger"}`} style={{ marginTop: 10 }}>
+          <button className={`btn full ${side === "Buy" ? "btn-primary" : "btn-danger"}`} style={{ marginTop: 10 }}
+            onClick={() => app.toast(`Simulated ${side} order placed`, "success")}>
             Place {side} Order
           </button>
         </Card>

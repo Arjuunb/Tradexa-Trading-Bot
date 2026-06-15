@@ -44,7 +44,10 @@ export default function BotDetail({ bot, setBots }: Props) {
     );
   }
 
-  const setStatus = (status: BotStatus) => setBots((p) => p.map((b) => (b.id === bot.id ? { ...b, status } : b)));
+  const setStatus = (status: BotStatus) => {
+    setBots((p) => p.map((b) => (b.id === bot.id ? { ...b, status } : b)));
+    app.toast(`${bot.name} ${status.toLowerCase()}`, status === "Stopped" ? "error" : "success");
+  };
   const active = bot.status === "Running" || bot.status === "Live";
   const stratName = strategies.find((s) => s.name.startsWith(bot.strategy))?.name ?? strategies[0].name;
   const labels = ["", "", "", "", "", "", "", "", "", "", "", ""];

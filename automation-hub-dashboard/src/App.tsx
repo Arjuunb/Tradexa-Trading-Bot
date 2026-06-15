@@ -3,6 +3,7 @@ import Sidebar from "./components/layout/Sidebar";
 import TopHeader from "./components/layout/TopHeader";
 import TickerBar from "./components/layout/TickerBar";
 import Modal from "./components/common/Modal";
+import Toasts, { type ToastItem } from "./components/common/Toasts";
 import { Field } from "./components/common/ui";
 import Overview from "./pages/Overview";
 import BotsPage from "./pages/Bots";
@@ -20,15 +21,36 @@ import { bots as seedBots } from "./data/mock";
 import { AppContext, parseHash, slug } from "./app-context";
 
 const emptyForm = { name: "", strategy: "EMA Trend", pair: "BTC/USDT" };
+const STORE_KEY = "ah_bots";
+
+function loadBots(): Bot[] {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw) as Bot[];
+  } catch { /* ignore corrupt storage */ }
+  return seedBots;
+}
 
 export default function App() {
   const [route, setRoute] = useState(parseHash);
   const [collapsed, setCollapsed] = useState(false);
-  const [bots, setBots] = useState<Bot[]>(seedBots);
+  const [bots, setBots] = useState<Bot[]>(loadBots);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [backtestStrategy, setBacktestStrategy] = useState<string>("");
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
   const active = route.page;
+
+  // Persist bots across reloads.
+  useEffect(() => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(bots)); } catch { /* quota */ }
+  }, [bots]);
+
+  const toast = (msg: string, tone: "success" | "error" | "info" = "info") => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, msg, tone }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
+  };
 
   // Hash routing: the URL hash is the single source of truth for the page,
   // so the browser back/forward buttons work.
@@ -69,6 +91,7 @@ export default function App() {
     };
     setBots((prev) => [...prev, newBot]);
     setShowCreate(false);
+    toast(`Created "${newBot.name}"`, "success");
     go("Bots");
   };
 
@@ -91,8 +114,9 @@ export default function App() {
   const title = active === "Overview" ? "Dashboard" : active === "BotDetail" ? (detailBot?.name ?? "Bot") : active;
 
   return (
-    <AppContext.Provider value={{ go, backtest, openCreateBot, viewBot }}>
+    <AppContext.Provider value={{ go, backtest, openCreateBot, viewBot, toast }}>
       <div className={`app ${collapsed ? "sidebar-collapsed" : ""}`}>
+        <Toasts items={toasts} />
         <Sidebar active={active === "BotDetail" ? "Bots" : active} onSelect={go} collapsed={collapsed} />
 
         <div className="main">

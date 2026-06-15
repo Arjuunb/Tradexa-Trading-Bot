@@ -19,7 +19,7 @@ export default function StrategiesPage() {
       <PageHeader
         title="Strategies"
         subtitle={`${strategies.length} strategies in your library`}
-        actions={<button className="btn btn-primary"><Icon name="plus" size={15} /> Create Strategy</button>}
+        actions={<button className="btn btn-primary" onClick={() => app.toast("Strategy builder coming soon", "info")}><Icon name="plus" size={15} /> Create Strategy</button>}
       />
 
       <div className="strategy-grid">

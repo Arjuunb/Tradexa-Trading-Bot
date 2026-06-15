@@ -4,6 +4,7 @@ import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader, StatCard } from "../components/common/ui";
 import { backtestResult, strategies } from "../data/mock";
+import { useApp } from "../app-context";
 
 interface BtTrade {
   id: string; time: string; pair: string; side: "Long" | "Short";
@@ -49,6 +50,7 @@ function genResult(): Result {
 }
 
 export default function BacktestingPage({ initialStrategy }: { initialStrategy?: string }) {
+  const app = useApp();
   const hasInitial = !!initialStrategy && strategies.some((s) => s.name === initialStrategy);
   const [strategy, setStrategy] = useState(hasInitial ? initialStrategy! : strategies[0].name);
   const [result, setResult] = useState<Result>(backtestResult);
@@ -61,6 +63,7 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
       setResult(genResult());
       setRunning(false);
       setRan(true);
+      app.toast("Backtest complete", "success");
     }, 650);
   };
 
@@ -75,7 +78,7 @@ export default function BacktestingPage({ initialStrategy }: { initialStrategy?:
           <button className="btn btn-primary" onClick={run} disabled={running}>
             <Icon name={running ? "history" : "play"} size={14} /> {running ? "Running…" : "Run Backtest"}
           </button>
-          {ran && <button className="btn btn-ghost"><Icon name="check" size={14} /> Save</button>}
+          {ran && <button className="btn btn-ghost" onClick={() => app.toast("Backtest saved", "success")}><Icon name="check" size={14} /> Save</button>}
         </div>
       }>
         <div className="form-grid-3">

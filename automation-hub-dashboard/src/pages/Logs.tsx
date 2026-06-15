@@ -3,12 +3,14 @@ import type { LogType } from "../types";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import { logs as seedLogs } from "../data/mock";
+import { useApp } from "../app-context";
 
 const FILTERS: (LogType | "All")[] = ["All", "Info", "Warning", "Error", "Trade", "Risk"];
 const tone = (t: LogType) =>
   ({ Info: "blue", Warning: "amber", Error: "red", Trade: "green", Risk: "purple" }[t] as any);
 
 export default function LogsPage() {
+  const app = useApp();
   const [items, setItems] = useState(seedLogs);
   const [filter, setFilter] = useState<LogType | "All">("All");
   const [query, setQuery] = useState("");
@@ -25,8 +27,8 @@ export default function LogsPage() {
         subtitle={`${items.length} log entries`}
         actions={
           <div className="row-actions">
-            <button className="btn btn-ghost" onClick={() => setItems([])}><Icon name="close" size={14} /> Clear</button>
-            <button className="btn btn-soft"><Icon name="external" size={14} /> Export</button>
+            <button className="btn btn-ghost" onClick={() => { setItems([]); app.toast("Logs cleared", "info"); }}><Icon name="close" size={14} /> Clear</button>
+            <button className="btn btn-soft" onClick={() => app.toast(`Exported ${items.length} log entries`, "success")}><Icon name="external" size={14} /> Export</button>
           </div>
         }
       />
