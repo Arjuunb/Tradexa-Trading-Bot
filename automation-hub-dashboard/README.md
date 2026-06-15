@@ -13,6 +13,20 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build to dist/
 ```
 
+## Deploy (Vercel)
+
+The repo-root `vercel.json` builds this app and serves it as the site:
+
+```json
+{ "builds": [{ "src": "automation-hub-dashboard/package.json",
+              "use": "@vercel/static-build", "config": { "distDir": "dist" } }],
+  "routes": [{ "handle": "filesystem" }, { "src": "/(.*)", "dest": "/index.html" }] }
+```
+
+Vercel runs `npm install && npm run build` in this folder and serves `dist/`.
+Pushing to the production branch redeploys automatically. (This replaced the
+earlier Python backtest-report deployment.)
+
 ## What's implemented
 
 - **Left sidebar** — logo, 10 nav items (active state works), account summary card,
