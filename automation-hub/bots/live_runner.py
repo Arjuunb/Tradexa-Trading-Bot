@@ -62,6 +62,11 @@ class LiveBotRunner:
         )
         self.engine.run_kind = "live"
 
+        # Phase 2: decision log — captures why each signal did/didn't trade.
+        from services.decision_log import DecisionLog
+        self.decision_log = DecisionLog(strategy=cfg.strategy)
+        self.decision_log.attach(self.bus)
+
         # Phase 5: real order routing + alerts (event-driven, opt-in).
         self.router = None
         if real_broker is not None:
@@ -157,6 +162,7 @@ class LiveBotRunner:
         if state is not None:
             rt.state = state
         rt.health = self._health_snapshot(state)
+        rt.decisions = self.decision_log.recent(50)
         if self.on_update:
             self.on_update(self.bot)
 
