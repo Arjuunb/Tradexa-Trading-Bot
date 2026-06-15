@@ -5,7 +5,7 @@ import { buyHoldSeries, equityDates, equitySeries } from "../../data/mock";
 export default function EquityCurve() {
   const option: EChartsOption = {
     backgroundColor: "transparent",
-    grid: { left: 52, right: 18, top: 16, bottom: 30 },
+    grid: { left: 48, right: 16, top: 12, bottom: 24 },
     tooltip: {
       trigger: "axis",
       backgroundColor: "rgba(13,18,32,0.95)",
