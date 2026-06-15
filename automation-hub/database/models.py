@@ -84,6 +84,7 @@ class BotRuntime:
     pnl_today: float = 0.0
     last_error: Optional[str] = None
     halt_reason: Optional[str] = None   # set when a risk circuit-breaker trips
+    health: dict = field(default_factory=dict)   # P4: self-monitoring snapshot
 
 
 @dataclass
