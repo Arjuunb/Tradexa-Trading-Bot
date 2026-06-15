@@ -16,6 +16,7 @@ from strategies.base_strategy import HubStrategy
 class SMCStrategy(HubStrategy):
     name = "smc"
     label = "SMC Bot"
+    supported_regimes = ("Trending", "High Volatility")
 
     def generate(self, bar: Bar) -> Optional[Signal]:
         # TODO(phase-2): BOS/CHoCH + order-block + FVG detection.

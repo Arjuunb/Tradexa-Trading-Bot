@@ -88,6 +88,7 @@ class BotRuntime:
     decisions: list = field(default_factory=list)  # P2: decision-log records
     risk_mode: dict = field(default_factory=dict)  # P6: adaptive risk mode
     strategy_health: dict = field(default_factory=dict)  # P3: rolling health
+    regime: dict = field(default_factory=dict)     # P4: market regime
 
 
 @dataclass

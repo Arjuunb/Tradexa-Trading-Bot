@@ -75,6 +75,10 @@ class LiveBotRunner:
         from services.strategy_health import StrategyHealthMonitor
         self._health_monitor = StrategyHealthMonitor()
 
+        # Phase 4: market-regime detector.
+        from services.regime import RegimeDetector
+        self._regime = RegimeDetector()
+
         # Phase 5: real order routing + alerts (event-driven, opt-in).
         self.router = None
         if real_broker is not None:
@@ -175,6 +179,8 @@ class LiveBotRunner:
         rt.risk_mode = {"name": mode.name, "size_multiplier": mode.size_multiplier,
                         "reason": mode.reason, "paused": mode.paused}
         rt.strategy_health = self._health_monitor.evaluate(self.engine.trades).to_dict()
+        if self.engine.bars:
+            rt.regime = self._regime.detect(self.engine.bars).to_dict()
         if self.on_update:
             self.on_update(self.bot)
 

@@ -17,6 +17,7 @@ from bot.types import Bar, Signal, SignalType
 
 class HubStrategy(Strategy):
     label: str = "Base Strategy"
+    supported_regimes: tuple[str, ...] = ()   # P4: empty = trade in any regime
 
     def __init__(self, symbol: str, atr_period: int = 14, atr_mult: float = 1.5,
                  rr_target: float = 2.0, **params):
