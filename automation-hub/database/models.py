@@ -85,6 +85,7 @@ class BotRuntime:
     last_error: Optional[str] = None
     halt_reason: Optional[str] = None   # set when a risk circuit-breaker trips
     health: dict = field(default_factory=dict)   # P4: self-monitoring snapshot
+    decisions: list = field(default_factory=list)  # P2: decision-log records
 
 
 @dataclass
