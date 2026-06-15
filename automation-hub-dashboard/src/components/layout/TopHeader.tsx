@@ -2,16 +2,17 @@ import Icon from "../common/Icon";
 
 interface TopHeaderProps {
   onToggleSidebar: () => void;
+  title?: string;
 }
 
-export default function TopHeader({ onToggleSidebar }: TopHeaderProps) {
+export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopHeaderProps) {
   return (
     <header className="topbar">
       <div className="topbar-left">
         <button className="icon-btn" onClick={onToggleSidebar} aria-label="Toggle menu">
           <Icon name="menu" size={20} />
         </button>
-        <h1 className="page-title">Dashboard</h1>
+        <h1 className="page-title">{title}</h1>
       </div>
 
       <div className="status-pill">

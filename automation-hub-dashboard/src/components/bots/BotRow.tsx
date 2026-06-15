@@ -9,11 +9,11 @@ interface BotRowProps {
 
 export default function BotRow({ bot, onToggle }: BotRowProps) {
   const isActive = bot.status === "Live" || bot.status === "Running";
-  const pnlClass = bot.pnl7d > 0 ? "pos" : bot.pnl7d < 0 ? "neg" : "dim";
+  const pnlClass = bot.todayPnl > 0 ? "pos" : bot.todayPnl < 0 ? "neg" : "dim";
   const pnlText =
-    bot.pnl7d === 0
+    bot.todayPnl === 0
       ? "$0.00"
-      : `${bot.pnl7d > 0 ? "+" : "-"}$${Math.abs(bot.pnl7d).toFixed(2)}`;
+      : `${bot.todayPnl > 0 ? "+" : "-"}$${Math.abs(bot.todayPnl).toFixed(2)}`;
 
   return (
     <div className="bot-row">

@@ -2,9 +2,15 @@ import type {
   Activity,
   AlertItem,
   Bot,
+  LogEntry,
   PerfMetric,
+  PlatformAlert,
+  Position,
   RiskMetric,
+  RiskSettings,
+  Strategy,
   Ticker,
+  Trade,
 } from "../types";
 
 export const NAV_ITEMS = [
@@ -30,59 +36,15 @@ export const account = {
 };
 
 export const metricCards = [
-  {
-    key: "total",
-    label: "Total Bots",
-    value: "6",
-    sub: "3 Running",
-    tone: "default" as const,
-    color: "#8b5cf6",
-    spark: [4, 5, 5, 6, 6, 6, 6],
-  },
-  {
-    key: "running",
-    label: "Running Bots",
-    value: "3",
-    sub: "50%",
-    tone: "green" as const,
-    color: "#22c55e",
-    spark: [1, 2, 2, 3, 2, 3, 3],
-  },
-  {
-    key: "paper",
-    label: "Paper Bots",
-    value: "2",
-    sub: "33%",
-    tone: "blue" as const,
-    color: "#3b82f6",
-    spark: [1, 1, 2, 2, 2, 1, 2],
-  },
-  {
-    key: "live",
-    label: "Live Bots",
-    value: "1",
-    sub: "17%",
-    tone: "purple" as const,
-    color: "#8b5cf6",
-    spark: [0, 1, 1, 1, 1, 1, 1],
-  },
+  { key: "total", label: "Total Bots", value: "6", sub: "3 Running", tone: "default" as const, color: "#8b5cf6", spark: [4, 5, 5, 6, 6, 6, 6] },
+  { key: "running", label: "Running Bots", value: "3", sub: "50%", tone: "green" as const, color: "#22c55e", spark: [1, 2, 2, 3, 2, 3, 3] },
+  { key: "paper", label: "Paper Bots", value: "2", sub: "33%", tone: "blue" as const, color: "#3b82f6", spark: [1, 1, 2, 2, 2, 1, 2] },
+  { key: "live", label: "Live Bots", value: "1", sub: "17%", tone: "purple" as const, color: "#8b5cf6", spark: [0, 1, 1, 1, 1, 1, 1] },
 ];
 
-export const totalPnl = {
-  value: "+$2,340.75",
-  pct: "+12.45%",
-};
+export const totalPnl = { value: "+$2,340.75", pct: "+12.45%" };
 
-// Equity curve — 7 days, May 16..22.
-export const equityDates = [
-  "May 16",
-  "May 17",
-  "May 18",
-  "May 19",
-  "May 20",
-  "May 21",
-  "May 22",
-];
+export const equityDates = ["May 16", "May 17", "May 18", "May 19", "May 20", "May 21", "May 22"];
 export const equitySeries = [12400, 14200, 13600, 17800, 19200, 23400, 24532];
 export const buyHoldSeries = [12400, 12900, 13100, 14000, 14600, 15200, 15800];
 
@@ -98,12 +60,20 @@ export const performance: PerfMetric[] = [
 ];
 
 export const bots: Bot[] = [
-  { id: "b1", name: "EMA Trend Bot", status: "Live", pair: "BTC/USDT", timeframe: "15m", pnl7d: 342.21 },
-  { id: "b2", name: "SMC Breakout Bot", status: "Running", pair: "ETH/USDT", timeframe: "1h", pnl7d: 186.75 },
-  { id: "b3", name: "RSI Scalper", status: "Running", pair: "SOL/USDT", timeframe: "5m", pnl7d: 167.32 },
-  { id: "b4", name: "Swing Master", status: "Paper", pair: "XRP/USDT", timeframe: "4h", pnl7d: 96.12 },
-  { id: "b5", name: "Mean Reversion", status: "Paper", pair: "ADA/USDT", timeframe: "1h", pnl7d: -45.32 },
-  { id: "b6", name: "AI Momentum Bot", status: "Stopped", pair: "BNB/USDT", timeframe: "1h", pnl7d: 0 },
+  { id: "b1", name: "EMA Trend Bot", status: "Live", strategy: "EMA Trend", pair: "BTC/USDT", timeframe: "15m", riskPct: 1.0, todayPnl: 342.21, totalPnl: 1820.4 },
+  { id: "b2", name: "SMC Breakout Bot", status: "Running", strategy: "SMC Breakout", pair: "ETH/USDT", timeframe: "1h", riskPct: 1.5, todayPnl: 186.75, totalPnl: 940.1 },
+  { id: "b3", name: "RSI Scalper", status: "Running", strategy: "RSI Scalper", pair: "SOL/USDT", timeframe: "5m", riskPct: 0.75, todayPnl: 167.32, totalPnl: 512.9 },
+  { id: "b4", name: "Swing Master", status: "Paper", strategy: "Mean Reversion", pair: "XRP/USDT", timeframe: "4h", riskPct: 1.0, todayPnl: 96.12, totalPnl: 220.5 },
+  { id: "b5", name: "Mean Reversion", status: "Paper", strategy: "Mean Reversion", pair: "ADA/USDT", timeframe: "1h", riskPct: 1.0, todayPnl: -45.32, totalPnl: -88.2 },
+  { id: "b6", name: "AI Momentum Bot", status: "Stopped", strategy: "AI Momentum", pair: "BNB/USDT", timeframe: "1h", riskPct: 2.0, todayPnl: 0, totalPnl: 0 },
+];
+
+export const strategies: Strategy[] = [
+  { id: "s1", name: "EMA Trend Bot", desc: "Fast/slow EMA crossover trend following", winRate: 63.4, profitFactor: 2.31, avgRR: 1.82, backtests: 42, lastUsed: "2025-05-22", risk: "Medium", spark: [40, 60, 55, 80, 95, 120, 140], color: "#8b5cf6" },
+  { id: "s2", name: "SMC Breakout Bot", desc: "Smart-money structure break + order blocks", winRate: 58.1, profitFactor: 1.96, avgRR: 2.1, backtests: 31, lastUsed: "2025-05-21", risk: "High", spark: [20, 35, 30, 55, 50, 75, 90], color: "#3b82f6" },
+  { id: "s3", name: "RSI Scalper", desc: "RSI oversold/overbought mean scalps", winRate: 66.7, profitFactor: 1.74, avgRR: 1.2, backtests: 58, lastUsed: "2025-05-22", risk: "Low", spark: [10, 20, 18, 26, 30, 36, 41], color: "#22c55e" },
+  { id: "s4", name: "Mean Reversion", desc: "Bollinger reversion to the mean", winRate: 61.2, profitFactor: 1.58, avgRR: 1.4, backtests: 27, lastUsed: "2025-05-20", risk: "Medium", spark: [30, 28, 35, 32, 40, 38, 46], color: "#f59e0b" },
+  { id: "s5", name: "AI Momentum Bot", desc: "ML-ranked momentum (experimental)", winRate: 54.9, profitFactor: 1.41, avgRR: 1.9, backtests: 12, lastUsed: "2025-05-18", risk: "High", spark: [12, 10, 18, 14, 22, 20, 28], color: "#ec4899" },
 ];
 
 export const activity: Activity[] = [
@@ -146,3 +116,143 @@ export const tickers: Ticker[] = [
 ];
 
 export const serverTime = "22 May 2025, 10:25:30 AM (UTC)";
+
+// ---- Paper trading ----
+export const paperAccount = {
+  balance: 10000,
+  equity: 10412.32,
+  pnl: 412.32,
+  openPnl: 86.4,
+  marginUsed: "12.4%",
+};
+
+export const paperPositions: Position[] = [
+  { id: "p1", pair: "BTC/USDT", side: "Long", size: 0.12, entry: 66980, mark: 67312, pnl: 39.84 },
+  { id: "p2", pair: "ETH/USDT", side: "Long", size: 1.4, entry: 3712, mark: 3750, pnl: 53.2 },
+  { id: "p3", pair: "SOL/USDT", side: "Short", size: 8, entry: 169.8, mark: 168.4, pnl: 11.2 },
+];
+
+export const paperHistory: Trade[] = [
+  { id: "t1", time: "10:18", pair: "ETH/USDT", side: "Long", entry: 3702, exit: 3742, pnl: 56.0, rr: 2.0, result: "Win" },
+  { id: "t2", time: "10:05", pair: "SOL/USDT", side: "Short", entry: 170.2, exit: 167.9, pnl: 18.4, rr: 1.5, result: "Win" },
+  { id: "t3", time: "09:51", pair: "BTC/USDT", side: "Long", entry: 67110, exit: 66890, pnl: -26.4, rr: -1.0, result: "Loss" },
+  { id: "t4", time: "09:33", pair: "XRP/USDT", side: "Long", entry: 0.512, exit: 0.524, pnl: 24.0, rr: 1.8, result: "Win" },
+  { id: "t5", time: "09:12", pair: "ADA/USDT", side: "Short", entry: 0.452, exit: 0.461, pnl: -18.0, rr: -1.0, result: "Loss" },
+];
+
+export const paperPnlSeries = [0, 40, 22, 96, 70, 150, 210, 188, 280, 340, 412];
+export const paperPnlLabels = ["09:00", "09:15", "09:30", "09:45", "10:00", "10:15", "10:20", "10:22", "10:23", "10:24", "10:25"];
+
+export const executionLog = [
+  { time: "10:25:30", msg: "Signal: BUY ETH/USDT (RSI cross 30)" },
+  { time: "10:24:15", msg: "Filled: LONG BTC/USDT 0.12 @ 66,980" },
+  { time: "10:22:02", msg: "Risk check passed (0.8% of equity)" },
+  { time: "10:18:42", msg: "Closed: ETH/USDT TP hit +$56.00" },
+  { time: "10:15:00", msg: "Bar closed 15m — evaluating signals" },
+];
+
+// ---- Backtesting sample result ----
+export const backtestResult = {
+  netPnl: "+$3,184.20",
+  winRate: "61.8%",
+  profitFactor: "2.14",
+  maxDrawdown: "8.2%",
+  totalTrades: "146",
+  avgRR: "1.76",
+  equityLabels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+  equity: [10000, 10620, 10410, 11380, 12240, 13184],
+  drawdown: [0, -1.2, -3.4, -2.1, -4.8, -2.0],
+  trades: [
+    { id: "bt1", time: "2025-05-20 14:00", pair: "BTC/USDT", side: "Long" as const, entry: 64200, exit: 65100, pnl: 142.0, rr: 1.8, result: "Win" as const },
+    { id: "bt2", time: "2025-05-19 09:00", pair: "BTC/USDT", side: "Short" as const, entry: 66100, exit: 66500, pnl: -88.0, rr: -1.0, result: "Loss" as const },
+    { id: "bt3", time: "2025-05-18 16:00", pair: "BTC/USDT", side: "Long" as const, entry: 63000, exit: 64400, pnl: 210.0, rr: 2.4, result: "Win" as const },
+    { id: "bt4", time: "2025-05-17 11:00", pair: "BTC/USDT", side: "Long" as const, entry: 62500, exit: 62100, pnl: -64.0, rr: -1.0, result: "Loss" as const },
+  ],
+};
+
+// ---- Risk settings (defaults) ----
+export const defaultRiskSettings: RiskSettings = {
+  riskPct: 1.0,
+  dailyLossLimit: 1000,
+  maxDrawdown: 20,
+  maxOpenTrades: 5,
+  consecutiveLossLimit: 5,
+  autoPause: true,
+};
+
+export const riskAlertRows = [
+  { id: "ra1", time: "10:25 AM", rule: "Daily Loss Limit", level: "Warning", detail: "34% of daily budget used", bot: "Portfolio" },
+  { id: "ra2", time: "09:40 AM", rule: "Consecutive Losses", level: "Info", detail: "2 of 5 on Mean Reversion", bot: "Mean Reversion" },
+  { id: "ra3", time: "08:55 AM", rule: "Max Drawdown", level: "Info", detail: "6.35% of 20%", bot: "Portfolio" },
+];
+
+// ---- Analytics ----
+export const analytics = {
+  overallLabels: equityDates,
+  overall: equitySeries,
+  pnlByBot: [
+    { name: "EMA Trend", value: 1820 },
+    { name: "SMC Breakout", value: 940 },
+    { name: "RSI Scalper", value: 513 },
+    { name: "Swing Master", value: 221 },
+    { name: "Mean Reversion", value: -88 },
+    { name: "AI Momentum", value: 0 },
+  ],
+  winRateByStrategy: [
+    { name: "EMA", value: 63.4 },
+    { name: "SMC", value: 58.1 },
+    { name: "RSI", value: 66.7 },
+    { name: "MeanRev", value: 61.2 },
+    { name: "AI", value: 54.9 },
+  ],
+  profitFactorByStrategy: [
+    { name: "EMA", value: 2.31 },
+    { name: "SMC", value: 1.96 },
+    { name: "RSI", value: 1.74 },
+    { name: "MeanRev", value: 1.58 },
+    { name: "AI", value: 1.41 },
+  ],
+  drawdown: [0, -1.5, -2.2, -1.1, -3.8, -2.6, -1.2],
+  monthly: [
+    { name: "Jan", value: 620 },
+    { name: "Feb", value: -210 },
+    { name: "Mar", value: 970 },
+    { name: "Apr", value: 860 },
+    { name: "May", value: 944 },
+  ],
+  tradeDistribution: [
+    { name: "Wins", value: 18, color: "#22c55e" },
+    { name: "Losses", value: 10, color: "#ef4444" },
+    { name: "Breakeven", value: 2, color: "#5b6478" },
+  ],
+  bestBot: { name: "EMA Trend Bot", value: "+$1,820.40" },
+  worstBot: { name: "Mean Reversion", value: "-$88.20" },
+  bestSymbol: { name: "BTC/USDT", value: "+$1,142.00" },
+  worstSymbol: { name: "ADA/USDT", value: "-$88.20" },
+};
+
+// ---- Logs ----
+export const logs: LogEntry[] = [
+  { id: "l1", time: "10:25:30", bot: "RSI Scalper", type: "Trade", message: "BUY signal ETH/USDT @ 3,750", status: "Executed" },
+  { id: "l2", time: "10:24:15", bot: "EMA Trend Bot", type: "Trade", message: "Opened LONG BTC/USDT 0.12", status: "Filled" },
+  { id: "l3", time: "10:22:02", bot: "Portfolio", type: "Risk", message: "Risk check passed (0.8% equity)", status: "OK" },
+  { id: "l4", time: "10:20:11", bot: "System", type: "Info", message: "Market data heartbeat OK", status: "OK" },
+  { id: "l5", time: "10:18:42", bot: "SMC Breakout Bot", type: "Trade", message: "Take profit hit +$186.75", status: "Closed" },
+  { id: "l6", time: "10:15:00", bot: "System", type: "Warning", message: "Latency spike 420ms to exchange", status: "Recovered" },
+  { id: "l7", time: "10:08:19", bot: "Mean Reversion", type: "Risk", message: "Stop loss hit -$45.32", status: "Closed" },
+  { id: "l8", time: "09:55:03", bot: "AI Momentum Bot", type: "Error", message: "Model inference timeout, skipped bar", status: "Skipped" },
+  { id: "l9", time: "09:40:22", bot: "Mean Reversion", type: "Risk", message: "2 consecutive losses (limit 5)", status: "Monitoring" },
+  { id: "l10", time: "09:33:10", bot: "Swing Master", type: "Trade", message: "Opened LONG XRP/USDT", status: "Filled" },
+  { id: "l11", time: "09:12:48", bot: "System", type: "Info", message: "Daily session started", status: "OK" },
+  { id: "l12", time: "08:55:00", bot: "Connection", type: "Warning", message: "Reconnected websocket feed", status: "Recovered" },
+];
+
+// ---- Platform alerts ----
+export const platformAlerts: PlatformAlert[] = [
+  { id: "pa1", time: "10:25 AM", severity: "Warning", category: "Risk", title: "Daily Loss Limit Approaching", detail: "34% of the daily loss budget has been used.", read: false, active: true },
+  { id: "pa2", time: "10:18 AM", severity: "Info", category: "Trade", title: "Take Profit Hit", detail: "SMC Breakout Bot closed +$186.75 on ETH/USDT.", read: false, active: true },
+  { id: "pa3", time: "10:15 AM", severity: "Info", category: "System", title: "Market Data Restored", detail: "Connection to the market data feed was restored.", read: true, active: true },
+  { id: "pa4", time: "09:55 AM", severity: "Critical", category: "Connection", title: "Exchange Latency", detail: "Latency to exchange exceeded 400ms briefly.", read: false, active: true },
+  { id: "pa5", time: "09:40 AM", severity: "Info", category: "Risk", title: "Consecutive Losses", detail: "Mean Reversion reached 2 of 5 consecutive losses.", read: true, active: false },
+  { id: "pa6", time: "08:55 AM", severity: "Warning", category: "Connection", title: "Websocket Reconnect", detail: "Market feed reconnected after a brief drop.", read: true, active: false },
+];
