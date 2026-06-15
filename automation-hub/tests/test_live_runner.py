@@ -61,6 +61,23 @@ def test_risk_breaker_halts_live_bot():
     assert len(bot.runtime.equity_curve) < len(bars)
 
 
+def test_live_runner_emits_health_telemetry():
+    bars = generate_bars(400, "1h", seed=4)
+    m = BotManager()
+    bot = m.create(_bot())
+    m.start_live(bot.id, feed=ReplayFeed(bars))
+    m.runner(bot.id).wait(timeout=15)
+
+    h = bot.runtime.health
+    assert h["type"] == "health"
+    assert h["bars"] == len(bars)           # one scan per bar
+    assert h["errors"] == 0
+    assert h["uptime_s"] >= 0
+    assert h["status"] == "Stopped"
+    # a health event was streamed on the bus during the run
+    assert any(e.get("type") == "health" for e in bot.runtime.events)
+
+
 def test_stop_halts_runner():
     bars = generate_bars(2000, "1h", seed=9)
     m = BotManager()
