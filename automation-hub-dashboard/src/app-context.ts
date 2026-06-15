@@ -7,12 +7,15 @@ export interface AppApi {
   backtest: (strategy: string) => void;
   /** Open the global Create Bot modal. */
   openCreateBot: () => void;
+  /** Open a single bot's detail page (route #/bot/<id>). */
+  viewBot: (id: string) => void;
 }
 
 export const AppContext = createContext<AppApi>({
   go: () => {},
   backtest: () => {},
   openCreateBot: () => {},
+  viewBot: () => {},
 });
 
 export const useApp = () => useContext(AppContext);
@@ -24,7 +27,15 @@ export const NAV_LABELS = [
 
 export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");
 
-export const pageFromHash = (): string => {
+export interface Route {
+  page: string;
+  botId: string;
+}
+
+export const parseHash = (): Route => {
   const h = window.location.hash.replace(/^#\/?/, "").trim();
-  return NAV_LABELS.find((n) => slug(n) === h) ?? "Overview";
+  const m = h.match(/^bot\/(.+)$/);
+  if (m) return { page: "BotDetail", botId: m[1] };
+  const found = NAV_LABELS.find((n) => slug(n) === h);
+  return { page: found ?? "Overview", botId: "" };
 };

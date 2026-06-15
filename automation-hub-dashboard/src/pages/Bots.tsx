@@ -108,7 +108,7 @@ export default function BotsPage({ bots, setBots, onCreate }: BotsPageProps) {
                         <button className="icon-btn sm" title="Stop" onClick={() => setStatus(b.id, "Stopped")}><Icon name="close" size={14} /></button>
                         <button className="icon-btn sm" title="Edit" onClick={() => setModalBot(b)}><Icon name="settings" size={14} /></button>
                         <button className="icon-btn sm" title="Duplicate" onClick={() => duplicate(b.id)}><Icon name="layers" size={14} /></button>
-                        <button className="icon-btn sm" title="View details" onClick={() => app.go("Analytics")}><Icon name="chart" size={14} /></button>
+                        <button className="icon-btn sm" title="View details" onClick={() => app.viewBot(b.id)}><Icon name="chart" size={14} /></button>
                         <button className="icon-btn sm neg" title="Delete" onClick={() => remove(b.id)}><Icon name="close" size={14} /></button>
                       </div>
                     </td>
