@@ -283,6 +283,25 @@ def test_ledger_read_endpoints(client):
     assert isinstance(client.get("/ledger/alerts").json(), list)
 
 
+def test_live_summary_endpoints(client):
+    # open then close a trade so there is realized P&L + history
+    client.post("/webhook/tradingview", json=_alert(alert_id="o"),
+                headers={"X-Webhook-Secret": SECRET})
+    client.post("/webhook/tradingview", json=_alert(alert_id="c", side="CLOSE", entry=68000),
+                headers={"X-Webhook-Secret": SECRET})
+
+    risk = client.get("/risk/summary").json()
+    assert "exposure_pct" in risk and risk["exposure_limit_pct"] == 0.05
+    assert "trading_state" in risk
+
+    eq = client.get("/paper/equity-curve").json()
+    assert eq["starting_balance"] == 10_000 and len(eq["points"]) >= 2
+
+    bots = client.get("/bots/live").json()
+    assert isinstance(bots, list) and bots and bots[0]["strategy"] == "EMA Trend"
+    assert "win_rate" in bots[0] and "realized_pnl" in bots[0]
+
+
 # ----------------------------------------------------- autonomous engine
 from bot.types import Bar, Signal, SignalType  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402

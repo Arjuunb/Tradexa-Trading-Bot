@@ -93,6 +93,19 @@ export interface EngineStatus {
   started_at: string | null; bars: number; signals: number; trades: number; rejections: number;
 }
 export interface ControlState { state: "Active" | "Paused" | "Stopped"; }
+export interface RiskSummary {
+  equity: number; realized_pnl: number; open_positions: number; max_open_positions: number;
+  exposure_notional: number; exposure_pct: number; exposure_limit_pct: number;
+  risk_per_trade_pct: number; rejections: number; signals: number;
+  trading_state: string; engine_running: boolean;
+}
+export interface EquityPoint { t: string | null; equity: number; }
+export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
+export interface LiveBot {
+  id: string; symbol: string; name: string; strategy: string; timeframe: string;
+  status: "Running" | "Paused" | "Stopped"; open: boolean; side: string | null;
+  size: number; entry: number; num_trades: number; win_rate: number; realized_pnl: number;
+}
 
 /** Short "HH:MM:SS" from an ISO timestamp. */
 export function hhmmss(iso: string | null | undefined): string {

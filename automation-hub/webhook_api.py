@@ -145,3 +145,69 @@ def ledger_logs(limit: int = 200):
 @router.get("/ledger/alerts")
 def ledger_alerts(limit: int = 100):
     return ledger.get_alerts(limit)
+
+
+@router.get("/paper/equity-curve")
+def paper_equity_curve():
+    """Realized-equity curve: starting balance + cumulative closed-trade P&L."""
+    trades = sorted((t for t in paper.history() if t.get("closed_at")),
+                    key=lambda t: t["closed_at"])
+    eq = paper.starting_balance
+    points = [{"t": None, "equity": round(eq, 2)}]
+    for t in trades:
+        eq += (t.get("pnl") or 0.0)
+        points.append({"t": t.get("closed_at"), "equity": round(eq, 2)})
+    return {"starting_balance": paper.starting_balance, "points": points}
+
+
+@router.get("/risk/summary")
+def risk_summary():
+    """Live risk usage: exposure vs limit, open trades vs max, rejections."""
+    positions = paper.positions()
+    equity = paper.balance()
+    notional = sum((p["size"] * p["entry"]) for p in positions)
+    st = engine.status()
+    return {
+        "equity": equity,
+        "realized_pnl": paper.realized_pnl(),
+        "open_positions": len(positions),
+        "max_open_positions": settings.max_open_positions,
+        "exposure_notional": notional,
+        "exposure_pct": (notional / equity) if equity > 0 else 0.0,
+        "exposure_limit_pct": settings.exposure_limit_pct,
+        "risk_per_trade_pct": settings.risk_per_trade_pct,
+        "rejections": st.get("rejections", 0),
+        "signals": st.get("signals", 0),
+        "trading_state": controls.state,
+        "engine_running": st.get("running", False),
+    }
+
+
+@router.get("/bots/live")
+def bots_live():
+    """Each engine symbol as a live 'bot' with real per-symbol stats."""
+    history = paper.history()
+    st = engine.status()
+    running = st.get("running", False)
+    out = []
+    for sym in engine.symbols:
+        sym_trades = [t for t in history if t["symbol"] == sym]
+        wins = sum(1 for t in sym_trades if (t.get("pnl") or 0) > 0)
+        realized = sum((t.get("pnl") or 0.0) for t in sym_trades)
+        pos = paper.open_position(sym)
+        if not controls.trading_allowed():
+            status = controls.state            # Paused / Stopped
+        else:
+            status = "Running" if running else "Stopped"
+        out.append({
+            "id": sym, "symbol": sym, "name": f"{sym} · EMA Trend",
+            "strategy": "EMA Trend", "timeframe": engine.timeframe, "status": status,
+            "open": pos is not None,
+            "side": pos["side"] if pos else None,
+            "size": pos["size"] if pos else 0.0,
+            "entry": pos["entry"] if pos else 0.0,
+            "num_trades": len(sym_trades),
+            "win_rate": (wins / len(sym_trades)) if sym_trades else 0.0,
+            "realized_pnl": round(realized, 2),
+        })
+    return out
