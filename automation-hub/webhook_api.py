@@ -19,18 +19,26 @@ from data.ledger import get_ledger
 from execution.paper_engine import PaperExecutionEngine
 from services.auto_engine import AutoStrategyEngine
 from services.controls import TradingControl
+from services.market_quality import MarketQualityConfig, MarketQualityGate
 from services.signal_pipeline import SignalPipeline
 
 # --- Phase 1 singletons (one ledger / paper account / control switch) ---
 ledger = get_ledger(settings.ledger_path)
 controls = TradingControl()
 paper = PaperExecutionEngine(ledger, settings.starting_cash)
+quality = MarketQualityGate(MarketQualityConfig(
+    min_stop_distance_pct=settings.quality_min_stop_pct,
+    max_stop_distance_pct=settings.quality_max_stop_pct,
+    max_signal_age_s=settings.quality_max_signal_age_s,
+    max_spread_bps=settings.quality_max_spread_bps,
+))
 pipeline = SignalPipeline(
     ledger, paper, controls,
     equity=settings.starting_cash,
     risk_per_trade_pct=settings.risk_per_trade_pct,
     exposure_limit_pct=settings.exposure_limit_pct,
     dedup_window_s=settings.dedup_window_s,
+    quality=quality,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects

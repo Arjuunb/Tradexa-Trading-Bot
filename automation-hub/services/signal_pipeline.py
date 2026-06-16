@@ -18,6 +18,7 @@ from execution.paper_engine import PaperExecutionEngine, _dir
 from risk.position_sizing import size_position
 from services.controls import TradingControl
 from services.dedup import DuplicateGuard
+from services.market_quality import MarketQualityGate
 
 
 @dataclass
@@ -57,6 +58,7 @@ class SignalPipeline:
         risk_per_trade_pct: float = 0.01,
         exposure_limit_pct: float = 0.05,
         dedup_window_s: int = 300,
+        quality: Optional[MarketQualityGate] = None,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -65,6 +67,8 @@ class SignalPipeline:
         self.risk_per_trade_pct = risk_per_trade_pct
         self.exposure_limit_pct = exposure_limit_pct
         self.dedup = DuplicateGuard(ledger, dedup_window_s)
+        # Fail-closed pre-trade safety gate (default = strong defaults).
+        self.quality = quality or MarketQualityGate()
 
     def process(self, payload: dict) -> PipelineResult:
         symbol = payload["symbol"]
@@ -93,6 +97,16 @@ class SignalPipeline:
         if not self.controls.trading_allowed():
             return reject("controls", f"Trading {self.controls.state.lower()} — entry blocked")
         steps.append(Step("controls", True, "trading active"))
+
+        # 1.5 market-quality gate (fail-closed: bad data / untradeable market -> veto)
+        q = self.quality.check(
+            entry=entry, stop=stop, timestamp=payload.get("timestamp"),
+            bid=payload.get("bid"), ask=payload.get("ask"),
+            spread_bps=payload.get("spread_bps"),
+        )
+        if not q.ok:
+            return reject("market_quality", q.reason)
+        steps.append(Step("market_quality", True, "data + microstructure ok"))
 
         # 2. duplicate protection
         if self.dedup.is_duplicate(alert_id):

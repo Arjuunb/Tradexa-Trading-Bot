@@ -68,6 +68,12 @@ class Settings:
     auto_timeframe: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_TIMEFRAME", "4h"))
     auto_strategy: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_STRATEGY", "brain"))
 
+    # --- market-quality gate (fail-closed pre-trade safety) ---
+    quality_min_stop_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MIN_STOP", "0.0005")))
+    quality_max_stop_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MAX_STOP", "0.25")))
+    quality_max_signal_age_s: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MAX_AGE", "0")))
+    quality_max_spread_bps: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MAX_SPREAD", "0")))
+
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.environ.get("TELEGRAM_CHAT_ID", ""))
