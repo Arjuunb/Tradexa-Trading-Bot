@@ -1,0 +1,18 @@
+# Render Blueprint — one-click deploy of the Automation Hub backend.
+# In Render: New + → "Blueprint" → pick this repo. It builds the Dockerfile and
+# runs the FastAPI app with the autonomous engine. Then set VITE_API_BASE on
+# Vercel to the URL Render gives you (e.g. https://automation-hub-api.onrender.com).
+services:
+  - type: web
+    name: automation-hub-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: HUB_AUTO_ENGINE
+        value: "1"
+      # Set a real secret here and use the SAME value for VITE_WEBHOOK_SECRET on
+      # Vercel so the Pause/Stop/Start controls work from the deployed UI.
+      - key: HUB_WEBHOOK_SECRET
+        sync: false
