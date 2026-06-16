@@ -6,10 +6,13 @@ HTTP surface (secret gating + routes) via TestClient.
 
 SQLite ledgers use ``:memory:`` so tests touch no files and stay isolated.
 """
+import time
+
 import pytest
 
 from data.ledger import SqliteLedger
 from execution.paper_engine import PaperExecutionEngine
+from services.auto_engine import AutoStrategyEngine
 from services.controls import TradingControl
 from services.dedup import DuplicateGuard
 from services.signal_pipeline import SignalPipeline
@@ -209,14 +212,26 @@ def client():
     webhook_api.pipeline = SignalPipeline(
         led, webhook_api.paper, webhook_api.controls,
         equity=10_000, risk_per_trade_pct=0.01, exposure_limit_pct=0.05)
+    webhook_api.engine = AutoStrategyEngine(
+        webhook_api.pipeline, webhook_api.paper, led, symbols=["BTCUSDT"], interval=0.01)
 
     from fastapi import FastAPI
     app = FastAPI()
     app.include_router(webhook_api.router)
-    return TestClient(app)
+    yield TestClient(app)
+    webhook_api.engine.stop()
 
 
 SECRET = "dev-webhook-secret"
+
+
+def test_engine_endpoints_gated_and_status(client):
+    assert client.post("/engine/start").status_code == 401      # secret required
+    r = client.post("/engine/start", headers={"X-Webhook-Secret": SECRET})
+    assert r.status_code == 200 and r.json()["status"]["running"] is True
+    assert client.get("/engine/status").json()["running"] is True
+    stopped = client.post("/engine/stop", headers={"X-Webhook-Secret": SECRET})
+    assert stopped.json()["stopped"] is True
 
 
 def test_webhook_rejects_missing_secret(client):
@@ -268,6 +283,81 @@ def test_ledger_read_endpoints(client):
     assert isinstance(client.get("/ledger/alerts").json(), list)
 
 
+# ----------------------------------------------------- autonomous engine
+from bot.types import Bar, Signal, SignalType  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+
+class _StubStrategy:
+    """Emits a queued signal per bar (None when empty)."""
+    def __init__(self, signals):
+        self._signals = list(signals)
+        self.bars = []
+
+    def on_bar(self, bar):
+        self.bars.append(bar)
+        return self._signals.pop(0) if self._signals else None
+
+
+def _bar(close, high=None, low=None):
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return Bar(ts, close, high if high is not None else close,
+               low if low is not None else close, close, 1.0)
+
+
+def _engine(ledger, paper, **kw):
+    pipe = SignalPipeline(ledger, paper, TradingControl(), equity=10_000,
+                          risk_per_trade_pct=0.01, exposure_limit_pct=0.05)
+    return AutoStrategyEngine(pipe, paper, ledger, symbols=["BTCUSDT"], **kw)
+
+
+def test_auto_engine_opens_then_stops_out(ledger, paper):
+    eng = _engine(ledger, paper)
+    sig = Signal(timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc), symbol="BTCUSDT",
+                 type=SignalType.LONG, entry=100, stop_loss=95, take_profit=110, reason="x")
+    eng._process_bar("BTCUSDT", _bar(100), _StubStrategy([sig]))
+    assert len(paper.positions()) == 1
+    # next bar dips through the stop -> closed at the stop price
+    eng._process_bar("BTCUSDT", _bar(96, high=101, low=94), _StubStrategy([]))
+    assert paper.positions() == []
+    hist = paper.history()
+    assert len(hist) == 1 and hist[0]["exit"] == 95
+    assert hist[0]["pnl"] < 0
+
+
+def test_auto_engine_take_profit_exit(ledger, paper):
+    eng = _engine(ledger, paper)
+    sig = Signal(timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc), symbol="BTCUSDT",
+                 type=SignalType.LONG, entry=100, stop_loss=95, take_profit=110, reason="x")
+    eng._process_bar("BTCUSDT", _bar(100), _StubStrategy([sig]))
+    eng._process_bar("BTCUSDT", _bar(109, high=112, low=108), _StubStrategy([]))  # hits 110
+    hist = paper.history()
+    assert len(hist) == 1 and hist[0]["exit"] == 110 and hist[0]["pnl"] > 0
+
+
+def test_auto_engine_lifecycle(ledger, paper):
+    eng = _engine(ledger, paper, interval=0.01)
+    assert eng.status()["running"] is False
+    assert eng.start() is True
+    assert eng.start() is False          # already running
+    assert eng.stop() is True
+    assert eng.stop() is False
+
+
+def test_auto_engine_produces_real_trades(ledger, paper):
+    eng = _engine(ledger, paper, interval=0.0, warmup=150, live_bars=120)
+    eng.start()
+    deadline = time.time() + 4
+    while time.time() < deadline and eng.stats["bars"] < 200:
+        time.sleep(0.02)
+    eng.stop()
+    assert eng.stats["bars"] > 0
+    assert eng.stats["signals"] > 0
+    # real strategy signals became real paper trades + decision logs
+    assert ledger.get_logs(500)
+    assert paper.history() or paper.positions()
+
+
 # ----------------------------------------------------- dashboard wiring (UI)
 @pytest.fixture()
 def hub_client():
@@ -291,11 +381,14 @@ def hub_client():
     webhook_api.pipeline = SignalPipeline(
         led, webhook_api.paper, webhook_api.controls,
         equity=10_000, risk_per_trade_pct=0.01, exposure_limit_pct=0.05)
+    webhook_api.engine = AutoStrategyEngine(
+        webhook_api.pipeline, webhook_api.paper, led, symbols=["BTCUSDT"], interval=0.01)
 
     c = TestClient(hub_app.app, follow_redirects=False)
     r = c.post("/login", data={"username": "admin", "password": "admin"})
     assert r.status_code == 303
-    return c
+    yield c
+    webhook_api.engine.stop()
 
 
 def test_paper_page_reflects_open_position(hub_client):

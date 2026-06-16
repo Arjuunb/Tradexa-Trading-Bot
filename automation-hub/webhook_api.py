@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from config import settings
 from data.ledger import get_ledger
 from execution.paper_engine import PaperExecutionEngine
+from services.auto_engine import AutoStrategyEngine
 from services.controls import TradingControl
 from services.signal_pipeline import SignalPipeline
 
@@ -30,6 +31,13 @@ pipeline = SignalPipeline(
     risk_per_trade_pct=settings.risk_per_trade_pct,
     exposure_limit_pct=settings.exposure_limit_pct,
     dedup_window_s=settings.dedup_window_s,
+)
+# Autonomous engine: real strategy signals -> the same pipeline (paper-only).
+engine = AutoStrategyEngine(
+    pipeline, paper, ledger,
+    symbols=list(settings.auto_symbols),
+    timeframe=settings.auto_timeframe,
+    interval=settings.auto_interval,
 )
 
 router = APIRouter()
@@ -81,6 +89,26 @@ def resume(x_webhook_secret: Optional[str] = Header(default=None)):
     controls.resume()
     ledger.log(level="info", stage="controls", message="RESUME — trading active")
     return {"state": controls.state}
+
+
+# ---------------------------------------------------- autonomous engine
+@router.post("/engine/start")
+def engine_start(x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    started = engine.start()
+    return {"started": started, "status": engine.status()}
+
+
+@router.post("/engine/stop")
+def engine_stop(x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    stopped = engine.stop()
+    return {"stopped": stopped, "status": engine.status()}
+
+
+@router.get("/engine/status")
+def engine_status():
+    return engine.status()
 
 
 # ------------------------------------------------------------- read (dashboard)

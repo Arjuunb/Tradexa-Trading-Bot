@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,45 +51,55 @@ class Ledger(Protocol):
 
 
 class SqliteLedger:
+    """Thread-safe SQLite ledger. A single connection is shared across the API
+    request threads and the autonomous engine's background thread, so every
+    access is guarded by a re-entrant lock."""
+
     def __init__(self, path: str | Path = ":memory:"):
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._c = sqlite3.connect(self.path, check_same_thread=False)
         self._c.row_factory = sqlite3.Row
-        self._c.executescript(_SCHEMA)
-        self._c.commit()
+        self._lock = threading.RLock()
+        with self._lock:
+            self._c.executescript(_SCHEMA)
+            self._c.commit()
 
     # ----------------------------------------------------------- webhook
     def insert_webhook_event(self, *, alert_id, symbol, side, entry, stop, payload, status, reason=""):
         wid = _id()
-        self._c.execute(
-            "INSERT INTO webhook_events(id,alert_id,symbol,side,entry,stop,payload_json,received_at,status,reason)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (wid, alert_id, symbol, side, entry, stop, json.dumps(payload), _now(), status, reason))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "INSERT INTO webhook_events(id,alert_id,symbol,side,entry,stop,payload_json,received_at,status,reason)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (wid, alert_id, symbol, side, entry, stop, json.dumps(payload), _now(), status, reason))
+            self._c.commit()
         return wid
 
     def webhook_seen(self, alert_id: str, since_iso: str) -> bool:
-        r = self._c.execute(
-            "SELECT 1 FROM webhook_events WHERE alert_id=? AND received_at>=? AND status!='rejected' LIMIT 1",
-            (alert_id, since_iso)).fetchone()
+        with self._lock:
+            r = self._c.execute(
+                "SELECT 1 FROM webhook_events WHERE alert_id=? AND received_at>=? AND status!='rejected' LIMIT 1",
+                (alert_id, since_iso)).fetchone()
         return r is not None
 
     # ----------------------------------------------------------- positions
     def open_position(self, *, symbol, side, size, entry, stop):
         pid = _id()
-        self._c.execute(
-            "INSERT INTO positions(id,symbol,side,size,entry,stop,status,pnl,opened_at)"
-            " VALUES (?,?,?,?,?,?, 'open', 0, ?)",
-            (pid, symbol, side, size, entry, stop, _now()))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "INSERT INTO positions(id,symbol,side,size,entry,stop,status,pnl,opened_at)"
+                " VALUES (?,?,?,?,?,?, 'open', 0, ?)",
+                (pid, symbol, side, size, entry, stop, _now()))
+            self._c.commit()
         return pid
 
     def close_position(self, position_id, *, exit_price, pnl):
-        self._c.execute("UPDATE positions SET status='closed', pnl=?, closed_at=? WHERE id=?",
-                        (pnl, _now(), position_id))
-        self._c.commit()
+        with self._lock:
+            self._c.execute("UPDATE positions SET status='closed', pnl=?, closed_at=? WHERE id=?",
+                            (pnl, _now(), position_id))
+            self._c.commit()
 
     def get_positions(self, status=None):
         q = "SELECT * FROM positions"
@@ -97,51 +108,60 @@ class SqliteLedger:
             q += " WHERE status=?"
             args = (status,)
         q += " ORDER BY opened_at DESC"
-        return [dict(r) for r in self._c.execute(q, args)]
+        with self._lock:
+            return [dict(r) for r in self._c.execute(q, args)]
 
     # ----------------------------------------------------------- paper trades
     def record_paper_trade(self, trade: dict) -> str:
         tid = trade.get("id") or _id()
-        self._c.execute(
-            "INSERT INTO paper_trades(id,alert_id,symbol,side,size,entry,stop,status,opened_at)"
-            " VALUES (?,?,?,?,?,?,?, 'open', ?)",
-            (tid, trade.get("alert_id"), trade["symbol"], trade["side"], trade["size"],
-             trade["entry"], trade.get("stop"), _now()))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "INSERT INTO paper_trades(id,alert_id,symbol,side,size,entry,stop,status,opened_at)"
+                " VALUES (?,?,?,?,?,?,?, 'open', ?)",
+                (tid, trade.get("alert_id"), trade["symbol"], trade["side"], trade["size"],
+                 trade["entry"], trade.get("stop"), _now()))
+            self._c.commit()
         return tid
 
     def close_paper_trade(self, trade_id, *, exit_price, pnl, rr):
-        self._c.execute(
-            "UPDATE paper_trades SET status='closed', exit=?, pnl=?, rr=?, closed_at=? WHERE id=?",
-            (exit_price, pnl, rr, _now(), trade_id))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "UPDATE paper_trades SET status='closed', exit=?, pnl=?, rr=?, closed_at=? WHERE id=?",
+                (exit_price, pnl, rr, _now(), trade_id))
+            self._c.commit()
 
     def get_paper_trades(self):
-        return [dict(r) for r in self._c.execute("SELECT * FROM paper_trades ORDER BY opened_at DESC")]
+        with self._lock:
+            return [dict(r) for r in self._c.execute("SELECT * FROM paper_trades ORDER BY opened_at DESC")]
 
     # ----------------------------------------------------------- logs / alerts
     def log(self, *, level, stage, message, symbol=""):
-        self._c.execute(
-            "INSERT INTO bot_logs(id,ts,symbol,level,stage,message) VALUES (?,?,?,?,?,?)",
-            (_id(), _now(), symbol, level, stage, message))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "INSERT INTO bot_logs(id,ts,symbol,level,stage,message) VALUES (?,?,?,?,?,?)",
+                (_id(), _now(), symbol, level, stage, message))
+            self._c.commit()
 
     def get_logs(self, limit=200):
-        return [dict(r) for r in self._c.execute(
-            "SELECT * FROM bot_logs ORDER BY ts DESC LIMIT ?", (limit,))]
+        with self._lock:
+            return [dict(r) for r in self._c.execute(
+                "SELECT * FROM bot_logs ORDER BY ts DESC LIMIT ?", (limit,))]
 
     def add_alert(self, *, severity, category, title, detail=""):
-        self._c.execute(
-            "INSERT INTO alerts(id,ts,severity,category,title,detail,read) VALUES (?,?,?,?,?,?,0)",
-            (_id(), _now(), severity, category, title, detail))
-        self._c.commit()
+        with self._lock:
+            self._c.execute(
+                "INSERT INTO alerts(id,ts,severity,category,title,detail,read) VALUES (?,?,?,?,?,?,0)",
+                (_id(), _now(), severity, category, title, detail))
+            self._c.commit()
 
     def get_alerts(self, limit=100):
-        return [dict(r) for r in self._c.execute(
-            "SELECT * FROM alerts ORDER BY ts DESC LIMIT ?", (limit,))]
+        with self._lock:
+            return [dict(r) for r in self._c.execute(
+                "SELECT * FROM alerts ORDER BY ts DESC LIMIT ?", (limit,))]
 
     def close(self):
-        self._c.close()
+        with self._lock:
+            self._c.close()
 
 
 class SupabaseLedger:

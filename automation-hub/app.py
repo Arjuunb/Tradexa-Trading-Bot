@@ -53,6 +53,24 @@ import webhook_api  # noqa: E402
 from webhook_api import router as webhook_router  # noqa: E402
 app.include_router(webhook_router)
 
+# The React dashboard runs on its own dev origin (Vite) and calls this API, so
+# allow cross-origin during local development.
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=False,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def _start_auto_engine() -> None:
+    """Start the autonomous strategy engine when the server boots (real signals
+    -> paper execution -> ledger). Disabled under pytest and via HUB_AUTO_ENGINE=0."""
+    import os
+    if settings.auto_engine and "PYTEST_CURRENT_TEST" not in os.environ:
+        webhook_api.engine.start()
+
 # Phase 8: process-wide event hub for the live (SSE) dashboard.
 from dashboard.stream import HubEventHub, sse_format  # noqa: E402
 hub_events = HubEventHub()

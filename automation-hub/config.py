@@ -60,6 +60,13 @@ class Settings:
         "HUB_LEDGER_PATH", str(BASE_DIR / "logs" / "ledger.db")))
     dedup_window_s: int = field(default_factory=lambda: int(os.environ.get("HUB_DEDUP_WINDOW", "300")))
 
+    # --- autonomous strategy engine (real signals -> paper execution) ---
+    auto_engine: bool = field(default_factory=lambda: os.environ.get("HUB_AUTO_ENGINE", "1") not in ("0", "false", ""))
+    auto_symbols: tuple = field(default_factory=lambda: tuple(
+        s.strip() for s in os.environ.get("HUB_AUTO_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",") if s.strip()))
+    auto_interval: float = field(default_factory=lambda: float(os.environ.get("HUB_AUTO_INTERVAL", "2.0")))
+    auto_timeframe: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_TIMEFRAME", "1h"))
+
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.environ.get("TELEGRAM_CHAT_ID", ""))
