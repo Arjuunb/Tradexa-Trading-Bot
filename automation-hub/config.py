@@ -78,6 +78,8 @@ class Settings:
 
     # --- automatic capital protection (drawdown circuit breaker) ---
     max_drawdown_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_MAX_DRAWDOWN", "0.20")))
+    settings_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
 
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))

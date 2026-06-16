@@ -75,7 +75,18 @@ engine = AutoStrategyEngine(
     live_poll_s=settings.live_poll_s,
 )
 
+# Apply persisted runtime overrides (risk/exposure/drawdown) on top of env defaults.
+from services.runtime_settings import load_overrides, save_overrides  # noqa: E402
+for _k, _v in load_overrides(settings.settings_path).items():
+    setattr(pipeline, _k, _v)
+
 router = APIRouter()
+
+
+class SettingsUpdate(BaseModel):
+    risk_per_trade_pct: Optional[float] = None
+    exposure_limit_pct: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
 
 
 class WebhookPayload(BaseModel):
@@ -256,6 +267,61 @@ _STRATEGY_CATALOG = [
      "desc": "Trades only when 2 of 3 agree (EMA + Supertrend + Donchian)"},
     {"key": "ema", "label": "EMA Crossover", "desc": "Simple fast/slow EMA cross"},
 ]
+
+
+@router.get("/settings")
+def get_settings():
+    """Real current configuration. `editable` persists; `readonly` is env-set."""
+    return {
+        "editable": {
+            "risk_per_trade_pct": pipeline.risk_per_trade_pct,
+            "exposure_limit_pct": pipeline.exposure_limit_pct,
+            "max_drawdown_pct": pipeline.max_drawdown_pct,
+        },
+        "readonly": {
+            "strategy": engine.strategy_label,
+            "strategy_key": settings.auto_strategy,
+            "timeframe": engine.timeframe,
+            "symbols": engine.symbols,
+            "starting_cash": paper.starting_balance,
+            "max_open_positions": pipeline.max_open_positions,
+            "dedup_window_s": settings.dedup_window_s,
+            "data_source": "live (ccxt)" if engine.live else "synthetic / replay",
+            "mode": "paper",
+            "broker_connected": False,
+            "webhook_secret_set": bool(settings.webhook_secret),
+        },
+    }
+
+
+@router.post("/settings")
+def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    changed = {}
+    if body.risk_per_trade_pct is not None:
+        if not (0 < body.risk_per_trade_pct <= 0.5):
+            raise HTTPException(400, "risk_per_trade_pct must be in (0, 0.5]")
+        pipeline.risk_per_trade_pct = body.risk_per_trade_pct
+        changed["risk_per_trade_pct"] = body.risk_per_trade_pct
+    if body.exposure_limit_pct is not None:
+        if not (0 < body.exposure_limit_pct <= 1):
+            raise HTTPException(400, "exposure_limit_pct must be in (0, 1]")
+        pipeline.exposure_limit_pct = body.exposure_limit_pct
+        changed["exposure_limit_pct"] = body.exposure_limit_pct
+    if body.max_drawdown_pct is not None:
+        if not (0 < body.max_drawdown_pct <= 1):
+            raise HTTPException(400, "max_drawdown_pct must be in (0, 1]")
+        pipeline.max_drawdown_pct = body.max_drawdown_pct
+        changed["max_drawdown_pct"] = body.max_drawdown_pct
+
+    current = {
+        "risk_per_trade_pct": pipeline.risk_per_trade_pct,
+        "exposure_limit_pct": pipeline.exposure_limit_pct,
+        "max_drawdown_pct": pipeline.max_drawdown_pct,
+    }
+    save_overrides(settings.settings_path, current)
+    ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")
+    return {"saved": True, "editable": current}
 
 
 @router.get("/strategy/list")

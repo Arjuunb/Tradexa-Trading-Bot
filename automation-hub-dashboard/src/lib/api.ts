@@ -24,6 +24,25 @@ export async function apiPost<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "X-Webhook-Secret": SECRET, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export interface BotSettings {
+  editable: { risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number };
+  readonly: {
+    strategy: string; strategy_key: string; timeframe: string; symbols: string[];
+    starting_cash: number; max_open_positions: number; dedup_window_s: number;
+    data_source: string; mode: string; broker_connected: boolean; webhook_secret_set: boolean;
+  };
+}
+
 export interface LiveState<T> {
   data: T | null;
   error: string | null;
