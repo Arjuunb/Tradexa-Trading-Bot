@@ -24,8 +24,18 @@ from datetime import datetime, timezone
 
 from bot.types import Bar, SignalType
 from strategies.brain_strategy import DecisionBrain
+from strategies.donchian_strategy import DonchianStrategy
+from strategies.supertrend_strategy import SupertrendStrategy
 
 TAKER_FEE = 0.0004  # per side (Binance futures taker)
+
+
+def make_strategy(name: str, threshold: float, rr: float):
+    if name == "supertrend":
+        return SupertrendStrategy("BT", rr_target=rr)
+    if name == "donchian":
+        return DonchianStrategy("BT", rr_target=rr)
+    return DecisionBrain("BT", conviction_threshold=threshold, rr_target=rr)
 
 
 def load_csv(path: str) -> list[Bar]:
@@ -86,13 +96,13 @@ def _metrics(rs: list[float]) -> Metrics:
                    sum(rs) / len(rs), sum(rs), dd)
 
 
-def run(bars: list[Bar], *, threshold: float = 0.5, rr: float = 2.5,
-        fee: float = TAKER_FEE, with_index: bool = False):
-    """Run the brain over bars; return R-multiples per trade (hold to stop/TP).
+def run(bars: list[Bar], *, strategy: str = "brain", threshold: float = 0.5,
+        rr: float = 2.5, fee: float = TAKER_FEE, with_index: bool = False):
+    """Run a strategy over bars; return R-multiples per trade (hold to stop/TP).
 
     Each trade's R is reward/risk: +rr on a target hit, -1 on a stop, minus fees.
     """
-    brain = DecisionBrain("BT", conviction_threshold=threshold, rr_target=rr)
+    brain = make_strategy(strategy, threshold, rr)
     pos = None
     out: list = []
     for i, b in enumerate(bars):
@@ -125,12 +135,13 @@ def run(bars: list[Bar], *, threshold: float = 0.5, rr: float = 2.5,
     return out
 
 
-def walk_forward(bars: list[Bar], *, train: int = 1500, test: int = 750,
-                 fee: float = TAKER_FEE) -> tuple[Metrics, list]:
+def walk_forward(bars: list[Bar], *, strategy: str = "brain", train: int = 1500,
+                 test: int = 750, fee: float = TAKER_FEE) -> tuple[Metrics, list]:
     """Optimise (threshold, rr) on each train window, trade the next unseen test
     window, roll forward. Returns aggregate out-of-sample metrics + per-fold rows."""
     grid = [(t, rr) for t in (0.4, 0.5, 0.6) for rr in (1.5, 2.0, 2.5, 3.0)]
-    runs = {p: run(bars, threshold=p[0], rr=p[1], fee=fee, with_index=True) for p in grid}
+    runs = {p: run(bars, strategy=strategy, threshold=p[0], rr=p[1], fee=fee, with_index=True)
+            for p in grid}
     oos: list[float] = []
     folds = []
     start = 0
@@ -149,23 +160,24 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="DecisionBrain backtest / walk-forward")
     ap.add_argument("csv")
     ap.add_argument("--group", type=int, default=1, help="bars per resampled candle (16 = 15m->4h)")
+    ap.add_argument("--strategy", choices=("brain", "supertrend", "donchian"), default="brain")
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--rr", type=float, default=2.5)
     ap.add_argument("--walk-forward", action="store_true")
     args = ap.parse_args()
 
     bars = resample(load_csv(args.csv), args.group)
-    print(f"{len(bars):,} bars  {bars[0].timestamp.date()} -> {bars[-1].timestamp.date()}")
+    print(f"{len(bars):,} bars  {bars[0].timestamp.date()} -> {bars[-1].timestamp.date()}  [{args.strategy}]")
 
     if args.walk_forward:
-        agg, folds = walk_forward(bars)
+        agg, folds = walk_forward(bars, strategy=args.strategy)
         print("\nOut-of-sample folds (params chosen on prior window):")
         for d0, d1, p, m in folds:
             print(f"  {d0}->{d1}  thr{p[0]} rr{p[1]}  {m}")
         print(f"\nAGGREGATE OUT-OF-SAMPLE: {agg}")
     else:
-        m = _metrics(run(bars, threshold=args.threshold, rr=args.rr))
-        print(f"threshold {args.threshold} · rr {args.rr}\n{m}")
+        m = _metrics(run(bars, strategy=args.strategy, threshold=args.threshold, rr=args.rr))
+        print(f"strategy {args.strategy} · threshold {args.threshold} · rr {args.rr}\n{m}")
 
 
 if __name__ == "__main__":

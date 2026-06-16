@@ -36,9 +36,16 @@ pipeline = SignalPipeline(
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
 # the simple EMA crossover instead.
 def _make_strategy(symbol: str):
-    if settings.auto_strategy == "ema":
+    s = settings.auto_strategy
+    if s == "ema":
         from strategies.ema_strategy import EMAStrategy
         return EMAStrategy(symbol)
+    if s == "supertrend":
+        from strategies.supertrend_strategy import SupertrendStrategy
+        return SupertrendStrategy(symbol)
+    if s == "donchian":
+        from strategies.donchian_strategy import DonchianStrategy
+        return DonchianStrategy(symbol)
     from strategies.brain_strategy import DecisionBrain
     return DecisionBrain(symbol)
 

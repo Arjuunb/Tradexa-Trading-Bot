@@ -35,3 +35,11 @@ def test_walk_forward_returns_oos_metrics():
     agg, folds = walk_forward(bars, train=600, test=300)
     assert isinstance(agg, Metrics)
     assert len(folds) >= 1
+
+
+def test_supertrend_and_donchian_strategies_run():
+    bars, _ = get_bars("BTCUSDT", n=2000, timeframe="1h")
+    for strat in ("supertrend", "donchian"):
+        m = _metrics(run(bars, strategy=strat))
+        assert isinstance(m, Metrics)
+        assert m.trades > 0, f"{strat} produced no trades"
