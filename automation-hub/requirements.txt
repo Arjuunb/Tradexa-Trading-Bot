@@ -8,6 +8,10 @@ python-multipart>=0.0.9   # form handling for login / create-bot
 # The client is installed so flipping to Supabase needs no rebuild — just env vars.
 supabase>=2.0
 
+# Real market data for the autonomous engine (HUB_USE_LIVE_DATA=1). Without it
+# the engine falls back to bundled/synthetic data.
+ccxt>=4.3.0
+
 # The trading engine itself is the parent package (pure stdlib):
 #   pip install -e ..            # installs the `bot` package
 # Optional live venues:

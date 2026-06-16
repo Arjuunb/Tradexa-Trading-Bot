@@ -62,7 +62,11 @@ By default the backend uses local SQLite, which **resets when the host restarts*
   always-on.
 - **Engine config** (env): `HUB_AUTO_ENGINE` (1/0), `HUB_AUTO_SYMBOLS`
   (`BTCUSDT,ETHUSDT,SOLUSDT`), `HUB_AUTO_INTERVAL` (seconds per bar),
-  `HUB_AUTO_TIMEFRAME`.
+  `HUB_AUTO_TIMEFRAME` (default `4h` — the walk-forward-validated config),
+  `HUB_AUTO_STRATEGY` (`brain` default / `supertrend` / `donchian` / `ensemble`).
+- **Live real prices:** set `HUB_USE_LIVE_DATA=1` (ccxt is bundled) and the
+  engine paper-trades the validated DecisionBrain on real Binance candles
+  instead of synthetic data. `HUB_EXCHANGE` selects the venue (default binance).
 - **Security:** read endpoints are public; control/engine actions require
   `HUB_WEBHOOK_SECRET`. Market data is local synthetic/sample — no exchange keys,
   paper-only, no real funds.
