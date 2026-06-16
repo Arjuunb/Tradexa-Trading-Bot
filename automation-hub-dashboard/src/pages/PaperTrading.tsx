@@ -1,141 +1,169 @@
-import { useState } from "react";
 import Card from "../components/common/Card";
-import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import type { TradingState, WebhookStatus } from "../types";
-import {
-  paperAccount, paperHistory, paperPnlLabels, paperPnlSeries, paperPositions,
-  webhookConfig, webhookEvents,
-} from "../data/mock";
 import { useApp } from "../app-context";
+import {
+  apiPost, useLive, hhmmss, API_BASE,
+  type AlertRow, type ControlState, type EngineStatus, type LedgerPosition,
+  type LogRow, type PaperAccount, type PaperTradeRow,
+} from "../lib/api";
 
-const stateTone = (s: TradingState) => (s === "Active" ? "green" : s === "Paused" ? "amber" : "red");
-const statusTone = (s: WebhookStatus) => (s === "Accepted" ? "green" : s === "Duplicate" ? "amber" : "red");
+const money = (n: number | null | undefined) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const stateTone = (s?: string) => (s === "Active" ? "green" : s === "Paused" ? "amber" : "red");
+const levelTone = (l: string) => ({ info: "blue", warning: "amber", error: "red" }[l] as any) ?? "default";
 
 export default function PaperTradingPage() {
   const app = useApp();
-  const [tradingState, setTradingState] = useState<TradingState>("Active");
+  const account = useLive<PaperAccount>("/paper/account", 2000);
+  const positions = useLive<LedgerPosition[]>("/paper/positions", 2000);
+  const trades = useLive<PaperTradeRow[]>("/paper/trades", 2500);
+  const control = useLive<ControlState>("/controls/state", 2000);
+  const engine = useLive<EngineStatus>("/engine/status", 2000);
+  const logs = useLive<LogRow[]>("/ledger/logs?limit=40", 2500);
+  const alertsFeed = useLive<AlertRow[]>("/ledger/alerts?limit=20", 4000);
 
-  const setState = (s: TradingState, msg: string, kind: "info" | "success" | "error") => {
-    setTradingState(s);
-    app.toast(msg, kind);
+  const offline = account.error && !account.data;
+
+  const act = async (path: string, msg: string, refetch: () => void) => {
+    try {
+      await apiPost(path);
+      app.toast(msg, "success");
+      refetch();
+      control.refetch();
+      engine.refetch();
+    } catch {
+      app.toast("Backend not reachable — is the API running?", "error");
+    }
   };
+
+  const eng = engine.data;
+  const acct = account.data;
+  const state = control.data?.state;
 
   return (
     <>
       <PageHeader
         title="Paper Trading"
-        subtitle="TradingView webhook → paper execution · no real funds at risk"
+        subtitle="Live engine · real strategy signals → risk → paper execution · no real funds"
         actions={
           <div className="row-actions">
-            <button className="btn btn-warn" onClick={() => setState("Paused", "Trading paused — new entries blocked", "info")}><Icon name="pause" size={14} /> Pause All</button>
-            <button className="btn btn-danger" onClick={() => setState("Stopped", "Trading stopped — all entries halted", "error")}><Icon name="close" size={14} /> Stop All</button>
-            <button className="btn btn-primary" onClick={() => setState("Active", "Trading resumed", "success")}><Icon name="play" size={14} /> Resume</button>
+            {eng?.running ? (
+              <button className="btn btn-warn" onClick={() => act("/engine/stop", "Engine stopped", engine.refetch)}><Icon name="pause" size={14} /> Stop Engine</button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => act("/engine/start", "Engine started", engine.refetch)}><Icon name="play" size={14} /> Start Engine</button>
+            )}
           </div>
         }
       />
 
-      {tradingState !== "Active" && (
-        <div className="card" style={{ borderColor: tradingState === "Stopped" ? "#ef4444" : "#f59e0b", display: "flex", alignItems: "center", gap: 10 }}>
-          <Icon name="warning" size={16} className={tradingState === "Stopped" ? "neg" : "amber"} />
-          <span><b>Trading {tradingState}.</b> Incoming TradingView webhook entries are blocked. Open positions still close on exit signals. Paper mode only.</span>
+      {offline && (
+        <div className="card" style={{ borderColor: "#ef4444", display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="warning" size={16} className="neg" />
+          <span>
+            <b>Backend not reachable.</b> Start it with{" "}
+            <span className="mono">cd automation-hub &amp;&amp; uvicorn app:app</span>{" "}
+            (expected at <span className="mono">{API_BASE}</span>). The autonomous engine then streams real trades here.
+          </span>
         </div>
       )}
 
       <div className="stat-row">
-        <StatCard label="Paper Balance" value={`$${paperAccount.balance.toLocaleString()}`} />
-        <StatCard label="Equity" value={`$${paperAccount.equity.toLocaleString()}`} />
-        <StatCard label="Realized P&L" value={`+$${paperAccount.pnl.toFixed(2)}`} tone="green" />
-        <StatCard label="Open Positions" value={String(paperPositions.length)} />
-        <StatCard label="Trading State" value={tradingState} tone={stateTone(tradingState)} />
+        <StatCard label="Paper Balance" value={money(acct?.balance)} sub={`Start ${money(acct?.starting_balance)}`} />
+        <StatCard label="Realized P&L" value={money(acct?.realized_pnl)} tone={(acct?.realized_pnl ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Open Positions" value={String(acct?.open_positions ?? 0)} />
+        <StatCard label="Engine" value={eng?.running ? "Running" : "Stopped"} tone={eng?.running ? "green" : "red"} sub={eng ? `${eng.signals} signals · ${eng.trades} fills` : ""} />
+        <StatCard label="Trading State" value={state ?? "—"} tone={stateTone(state)} />
       </div>
 
-      <Card title="TradingView Webhook" subtitle="Secret-gated endpoint · dedup → risk → sizing → paper execution">
-        <div className="webhook-meta">
-          <div><span className="dim">Endpoint</span><b className="mono">{webhookConfig.endpoint}</b></div>
-          <div><span className="dim">Secret header</span><b className="mono">{webhookConfig.secretHeader}</b> <Badge text={webhookConfig.secretStatus} tone="green" /></div>
-          <div><span className="dim">Duplicate window</span><b>{webhookConfig.dedupWindowSec}s</b></div>
-          <div><span className="dim">Risk / trade</span><b>{webhookConfig.riskPerTradePct}%</b></div>
-          <div><span className="dim">Exposure limit</span><b>{webhookConfig.exposureLimitPct}%</b></div>
+      <Card title="Engine & Emergency Controls" subtitle={eng ? `${eng.symbols.join(", ")} · ${eng.timeframe} · ${eng.bars} bars processed` : "autonomous strategy engine"}>
+        <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn btn-warn" onClick={() => act("/controls/pause-all", "Trading paused — entries blocked", control.refetch)}><Icon name="pause" size={14} /> Pause All</button>
+          <button className="btn btn-danger" onClick={() => act("/controls/stop-all", "Trading stopped", control.refetch)}><Icon name="close" size={14} /> Stop All</button>
+          <button className="btn btn-primary" onClick={() => act("/controls/resume", "Trading resumed", control.refetch)}><Icon name="play" size={14} /> Resume</button>
         </div>
-        <div className="tablewrap" style={{ marginTop: 12 }}>
+        {state && state !== "Active" && (
+          <p className="dim" style={{ marginTop: 10 }}>
+            <b>Trading {state}.</b> New entries from the engine and webhooks are blocked. Paper mode only.
+          </p>
+        )}
+      </Card>
+
+      <Card title="Open Positions">
+        <div className="tablewrap">
           <table className="data-table">
-            <thead><tr><th>Time</th><th>Alert ID</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Stop</th><th>Stage</th><th>Outcome</th><th>Reason</th></tr></thead>
+            <thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Stop</th><th>Opened</th></tr></thead>
             <tbody>
-              {webhookEvents.map((e) => (
-                <tr key={e.id}>
-                  <td className="dim mono">{e.time}</td>
-                  <td className="mono">{e.alertId}</td>
-                  <td><b>{e.symbol}</b></td>
-                  <td><Badge text={e.side} tone={e.side === "Buy" ? "green" : e.side === "Sell" ? "red" : "blue"} /></td>
-                  <td>{e.entry.toLocaleString()}</td>
-                  <td className="dim">{e.stop !== null ? e.stop.toLocaleString() : "—"}</td>
-                  <td className="dim">{e.stage}</td>
-                  <td><Badge text={e.status} tone={statusTone(e.status)} /></td>
-                  <td className="dim">{e.reason}</td>
+              {(positions.data ?? []).map((p) => (
+                <tr key={p.id}>
+                  <td><b>{p.symbol}</b></td>
+                  <td><Badge text={p.side} tone={p.side === "long" ? "green" : "red"} /></td>
+                  <td>{p.size.toFixed(6)}</td>
+                  <td>{p.entry.toLocaleString()}</td>
+                  <td className="dim">{p.stop !== null ? p.stop.toLocaleString() : "—"}</td>
+                  <td className="dim mono">{hhmmss(p.opened_at)}</td>
                 </tr>
               ))}
+              {(positions.data?.length ?? 0) === 0 && <tr><td colSpan={6} className="dim ta-center" style={{ padding: 18 }}>No open positions.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Paper Trade History" subtitle={`${trades.data?.length ?? 0} closed trades`}>
+        <div className="tablewrap">
+          <table className="data-table">
+            <thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>R:R</th><th>Closed</th></tr></thead>
+            <tbody>
+              {(trades.data ?? []).map((t) => (
+                <tr key={t.id}>
+                  <td><b>{t.symbol}</b></td>
+                  <td><Badge text={t.side} tone={t.side === "long" ? "green" : "red"} /></td>
+                  <td>{t.size.toFixed(6)}</td>
+                  <td>{t.entry.toLocaleString()}</td>
+                  <td>{t.exit !== null ? t.exit.toLocaleString() : "—"}</td>
+                  <td className={(t.pnl ?? 0) >= 0 ? "pos" : "neg"}>{(t.pnl ?? 0) >= 0 ? "+" : ""}{money(t.pnl)}</td>
+                  <td>{t.rr !== null ? `${t.rr.toFixed(2)}R` : "—"}</td>
+                  <td className="dim mono">{hhmmss(t.closed_at)}</td>
+                </tr>
+              ))}
+              {(trades.data?.length ?? 0) === 0 && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 18 }}>No closed trades yet.</td></tr>}
             </tbody>
           </table>
         </div>
       </Card>
 
       <div className="grid-2-1">
-        <Card title="Paper P&L" subtitle="Today" className="span-2">
-          <div className="chart-md"><AreaLine labels={paperPnlLabels} series={[{ name: "P&L", data: paperPnlSeries, color: "#22c55e" }]} valueFormatter={(v) => `$${v}`} /></div>
+        <Card title="Decision Log" subtitle="every signal explained — passed / rejected + reason" className="span-2">
+          <div className="tablewrap">
+            <table className="data-table">
+              <thead><tr><th>Time</th><th>Level</th><th>Stage</th><th>Symbol</th><th>Message</th></tr></thead>
+              <tbody>
+                {(logs.data ?? []).map((l) => (
+                  <tr key={l.id}>
+                    <td className="dim mono">{hhmmss(l.ts)}</td>
+                    <td><Badge text={l.level} tone={levelTone(l.level)} /></td>
+                    <td className="dim">{l.stage}</td>
+                    <td>{l.symbol}</td>
+                    <td>{l.message}</td>
+                  </tr>
+                ))}
+                {(logs.data?.length ?? 0) === 0 && <tr><td colSpan={5} className="dim ta-center" style={{ padding: 18 }}>No decisions yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Card>
 
-        <Card title="Latest Signal">
-          <div className="signal-box">
-            <span className="signal-action buy">BUY</span>
-            <div className="signal-meta">
-              <div><span className="dim">Symbol</span><b>BTCUSDT</b></div>
-              <div><span className="dim">Entry</span><b>67,500</b></div>
-              <div><span className="dim">Stop</span><b>66,800</b></div>
-              <div><span className="dim">Outcome</span><b className="pos">Paper trade opened</b></div>
-            </div>
+        <Card title="Recent Alerts">
+          <div className="alert-stack">
+            {(alertsFeed.data ?? []).slice(0, 8).map((a) => (
+              <div className="exec-line" key={a.id}>
+                <span className="exec-time">{hhmmss(a.ts)}</span> <b>{a.title}</b> <span className="dim">{a.detail}</span>
+              </div>
+            ))}
+            {(alertsFeed.data?.length ?? 0) === 0 && <div className="dim">No alerts yet.</div>}
           </div>
         </Card>
       </div>
-
-      <Card title="Open Paper Positions">
-        <div className="tablewrap">
-          <table className="data-table">
-            <thead><tr><th>Pair</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&amp;L</th></tr></thead>
-            <tbody>
-              {paperPositions.map((p) => (
-                <tr key={p.id}>
-                  <td><b>{p.pair}</b></td>
-                  <td><Badge text={p.side} tone={p.side === "Long" ? "green" : "red"} /></td>
-                  <td>{p.size}</td><td>{p.entry.toLocaleString()}</td><td>{p.mark.toLocaleString()}</td>
-                  <td className={p.pnl >= 0 ? "pos" : "neg"}>{p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card title="Paper Trade History">
-        <div className="tablewrap">
-          <table className="data-table">
-            <thead><tr><th>Time</th><th>Pair</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>R:R</th><th>Result</th></tr></thead>
-            <tbody>
-              {paperHistory.map((t) => (
-                <tr key={t.id}>
-                  <td className="dim">{t.time}</td><td>{t.pair}</td>
-                  <td><Badge text={t.side} tone={t.side === "Long" ? "green" : "red"} /></td>
-                  <td>{t.entry}</td><td>{t.exit}</td>
-                  <td className={t.pnl >= 0 ? "pos" : "neg"}>{t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}</td>
-                  <td>{t.rr}</td>
-                  <td><Badge text={t.result} tone={t.result === "Win" ? "green" : "red"} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
     </>
   );
 }
