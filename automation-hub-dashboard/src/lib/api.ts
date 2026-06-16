@@ -6,8 +6,12 @@
 // so pages can show a "start the backend" hint instead of fake data.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
-const SECRET = (import.meta.env.VITE_WEBHOOK_SECRET as string | undefined) ?? "dev-webhook-secret";
+// Runtime config: when the backend serves this app (single-origin on Render) it
+// injects window.__HUB_CONFIG__ with apiBase="" (same origin) + the secret.
+// Otherwise fall back to Vite build-time env (Vercel / local dev).
+const _cfg = (typeof window !== "undefined" ? (window as any).__HUB_CONFIG__ : undefined) ?? {};
+export const API_BASE = (_cfg.apiBase ?? (import.meta.env.VITE_API_BASE as string | undefined)) ?? "http://localhost:8000";
+const SECRET = (_cfg.secret ?? (import.meta.env.VITE_WEBHOOK_SECRET as string | undefined)) ?? "dev-webhook-secret";
 
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);

@@ -1,8 +1,10 @@
-# Keep the backend image lean — the React app and build junk aren't needed.
+# Keep the image lean. The dashboard SOURCE is needed (the Docker UI stage
+# builds it), but its node_modules / dist / env are not.
 .git
 **/node_modules
 **/dist
-automation-hub-dashboard
+automation-hub-dashboard/.env
+automation-hub-dashboard/.env.*
 **/__pycache__
 *.egg-info
 **/*.db

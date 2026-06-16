@@ -62,6 +62,27 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# Single-origin UI: when the React build is present (copied into ./webui by the
+# Docker image), serve it from this backend so Render shows the SAME dashboard as
+# Vercel. Assets are mounted; index.html is served at "/" with runtime config
+# injected (apiBase="" same-origin + the webhook secret). Without a build (tests/
+# local), the legacy server-rendered dashboard is served instead.
+import json as _json  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+_WEBUI = Path(__file__).resolve().parent / "webui"
+_WEBUI_READY = (_WEBUI / "index.html").exists()
+if _WEBUI_READY and (_WEBUI / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_WEBUI / "assets")), name="assets")
+
+
+def _serve_react() -> HTMLResponse:
+    html = (_WEBUI / "index.html").read_text(encoding="utf-8")
+    cfg = ('<script>window.__HUB_CONFIG__='
+           + _json.dumps({"apiBase": "", "secret": settings.webhook_secret})
+           + '</script>')
+    return HTMLResponse(html.replace("<head>", "<head>" + cfg, 1))
+
+
 
 @app.on_event("startup")
 def _start_auto_engine() -> None:
@@ -138,6 +159,9 @@ def logout(request: Request):
 # ------------------------------------------------------------------- dashboard
 @app.get("/", response_class=HTMLResponse)
 def overview(request: Request):
+    # Serve the React dashboard when it's bundled (production); else the legacy UI.
+    if _WEBUI_READY:
+        return _serve_react()
     u = _require(request)
     if isinstance(u, RedirectResponse):
         return u
