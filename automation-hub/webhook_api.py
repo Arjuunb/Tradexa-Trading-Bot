@@ -9,6 +9,7 @@ Mounted on the existing FastAPI app via ``app.include_router(router)``.
 from __future__ import annotations
 
 import hmac
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -23,6 +24,7 @@ from services.market_quality import MarketQualityConfig, MarketQualityGate
 from services.signal_pipeline import SignalPipeline
 
 # --- Phase 1 singletons (one ledger / paper account / control switch) ---
+_BOOT = time.time()
 ledger = get_ledger(settings.ledger_path)
 controls = TradingControl()
 paper = PaperExecutionEngine(ledger, settings.starting_cash)
@@ -143,6 +145,31 @@ def engine_stop(x_webhook_secret: Optional[str] = Header(default=None)):
 @router.get("/engine/status")
 def engine_status():
     return engine.status()
+
+
+@router.get("/system/status")
+def system_status():
+    """Real bot/system health — no fabricated values. Paper-only until a live
+    broker is wired (live execution is a future phase)."""
+    st = engine.status()
+    return {
+        "mode": "paper",                     # the engine paper-executes; no live broker
+        "broker_connected": False,           # honest: no live venue connected
+        "data_source": "live (ccxt)" if engine.live else "synthetic / replay",
+        "engine_running": st.get("running", False),
+        "engine_mode": st.get("mode"),
+        "strategy": engine.strategy_label,
+        "symbols": engine.symbols,
+        "timeframe": engine.timeframe,
+        "bars_processed": st.get("bars", 0),
+        "signals": st.get("signals", 0),
+        "trades": st.get("trades", 0),
+        "started_at": st.get("started_at"),
+        "uptime_s": round(time.time() - _BOOT, 0),
+        "trading_state": controls.state,
+        "auto_halted": pipeline.halted,
+        "halt_reason": pipeline.halt_reason,
+    }
 
 
 # ------------------------------------------------------------- read (dashboard)

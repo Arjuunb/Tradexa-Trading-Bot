@@ -93,6 +93,19 @@ export interface EngineStatus {
   started_at: string | null; bars: number; signals: number; trades: number; rejections: number;
 }
 export interface ControlState { state: "Active" | "Paused" | "Stopped"; }
+export interface SystemStatus {
+  mode: string; broker_connected: boolean; data_source: string;
+  engine_running: boolean; engine_mode: string; strategy: string;
+  symbols: string[]; timeframe: string; bars_processed: number;
+  signals: number; trades: number; started_at: string | null;
+  uptime_s: number; trading_state: string; auto_halted: boolean; halt_reason: string;
+}
+
+export function uptime(secs: number | undefined): string {
+  const s = Math.max(0, Math.floor(secs ?? 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
 export interface RiskSummary {
   equity: number; realized_pnl: number; open_positions: number; max_open_positions: number;
   exposure_notional: number; exposure_pct: number; exposure_limit_pct: number;

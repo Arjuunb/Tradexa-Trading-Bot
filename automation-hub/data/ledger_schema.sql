@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     pnl        REAL,
     rr         REAL,
     status     TEXT NOT NULL,          -- open | closed
+    source     TEXT NOT NULL DEFAULT 'paper',   -- paper | backtest | live (dataset separation)
     opened_at  TEXT NOT NULL,
     closed_at  TEXT
 );

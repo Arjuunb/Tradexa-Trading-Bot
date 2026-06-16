@@ -114,6 +114,8 @@ button { font-family: inherit; cursor: pointer; }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
+.dot.warn { background: var(--amber); box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
+.dot.offline { background: var(--dim-2, #5b6478); box-shadow: 0 0 0 3px rgba(91,100,120,0.16); }
 
 /* ----------------------------------------------------------- topbar */
 .topbar {
