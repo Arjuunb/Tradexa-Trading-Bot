@@ -74,6 +74,9 @@ class Settings:
     quality_max_signal_age_s: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MAX_AGE", "0")))
     quality_max_spread_bps: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MAX_SPREAD", "0")))
 
+    # --- automatic capital protection (drawdown circuit breaker) ---
+    max_drawdown_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_MAX_DRAWDOWN", "0.20")))
+
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.environ.get("TELEGRAM_CHAT_ID", ""))

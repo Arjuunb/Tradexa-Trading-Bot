@@ -39,6 +39,8 @@ pipeline = SignalPipeline(
     exposure_limit_pct=settings.exposure_limit_pct,
     dedup_window_s=settings.dedup_window_s,
     quality=quality,
+    max_drawdown_pct=settings.max_drawdown_pct,
+    max_open_positions=settings.max_open_positions,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
@@ -116,8 +118,9 @@ def stop_all(x_webhook_secret: Optional[str] = Header(default=None)):
 def resume(x_webhook_secret: Optional[str] = Header(default=None)):
     _check_secret(x_webhook_secret)
     controls.resume()
+    pipeline.resume()          # also clear any auto-halt (drawdown breaker)
     ledger.log(level="info", stage="controls", message="RESUME — trading active")
-    return {"state": controls.state}
+    return {"state": controls.state, "auto_halted": pipeline.halted}
 
 
 # ---------------------------------------------------- autonomous engine
@@ -209,6 +212,9 @@ def risk_summary():
         "signals": st.get("signals", 0),
         "trading_state": controls.state,
         "engine_running": st.get("running", False),
+        "max_drawdown_pct": settings.max_drawdown_pct,
+        "auto_halted": pipeline.halted,
+        "halt_reason": pipeline.halt_reason,
     }
 
 

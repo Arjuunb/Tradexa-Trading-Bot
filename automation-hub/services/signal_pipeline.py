@@ -59,6 +59,8 @@ class SignalPipeline:
         exposure_limit_pct: float = 0.05,
         dedup_window_s: int = 300,
         quality: Optional[MarketQualityGate] = None,
+        max_drawdown_pct: float = 0.20,
+        max_open_positions: int = 3,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -69,6 +71,16 @@ class SignalPipeline:
         self.dedup = DuplicateGuard(ledger, dedup_window_s)
         # Fail-closed pre-trade safety gate (default = strong defaults).
         self.quality = quality or MarketQualityGate()
+        # Automatic capital protection: a drawdown circuit breaker (halts new
+        # entries, never exits) + a cap on concurrent positions.
+        self.max_drawdown_pct = max_drawdown_pct
+        self.max_open_positions = max_open_positions
+        self._halted = False
+        self._halt_reason = ""
+        # Drawdown is measured from this baseline; a manual Resume rebaselines to
+        # the current equity so the same loss doesn't immediately re-halt.
+        self._dd_base_balance = paper.starting_balance
+        self._dd_base_count = 0
 
     def process(self, payload: dict) -> PipelineResult:
         symbol = payload["symbol"]
@@ -127,11 +139,30 @@ class SignalPipeline:
             self.ledger.add_alert(severity="info", category="trade",
                                   title=f"Position closed — {symbol}", detail=f"PnL {fill.pnl:+.2f}")
             steps.append(Step("execution", True, f"closed PnL {fill.pnl:+.2f}"))
+            # A losing close may breach drawdown -> halt future entries (not exits).
+            if not self._halted:
+                dd = self._drawdown_trip()
+                if dd is not None:
+                    self._engage_halt(dd)
             return PipelineResult(True, "execution", "position closed", steps, fill.__dict__)
 
         # 3b. OPEN — no pyramiding in Phase 1
         if existing is not None:
             return reject("execution", f"Position already open on {symbol} (no pyramiding)")
+
+        # 3c. portfolio cap — limit concurrent open positions
+        if len(self.paper.positions()) >= self.max_open_positions:
+            return reject("risk_guard", f"Max open positions ({self.max_open_positions}) reached")
+
+        # 3d. drawdown circuit breaker — auto-halt NEW ENTRIES until manual resume
+        #     (exits are never blocked, so open positions can always stop out).
+        if not self._halted:
+            dd = self._drawdown_trip()
+            if dd is not None:
+                self._engage_halt(dd)
+        if self._halted:
+            return reject("risk_guard", f"Auto-halt: {self._halt_reason}")
+        steps.append(Step("risk_guard", True, "within risk limits"))
 
         # 4. risk: position sizing from stop distance, scaled by conviction
         #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%).
@@ -167,3 +198,48 @@ class SignalPipeline:
                               detail=(brain_reason or f"{side} {size:.6f} @ {entry}"))
         steps.append(Step("execution", True, f"opened {size:.6f} @ {entry}"))
         return PipelineResult(True, "execution", "paper trade opened", steps, fill.__dict__)
+
+    # ----------------------------------------------------- auto risk guard
+    @property
+    def halted(self) -> bool:
+        return self._halted
+
+    @property
+    def halt_reason(self) -> str:
+        return self._halt_reason
+
+    def resume(self) -> None:
+        """Clear an auto-halt and rebaseline drawdown to the current equity
+        (called by the manual Resume control)."""
+        self._halted = False
+        self._halt_reason = ""
+        self._dd_base_balance = self.paper.balance()
+        self._dd_base_count = len(self.paper.history())
+
+    def _drawdown_trip(self) -> Optional[str]:
+        """Return a reason if realized-equity drawdown (since the last baseline)
+        breaches the limit."""
+        ordered = sorted(self.paper.history(), key=lambda t: t.get("closed_at") or "")
+        ordered = ordered[self._dd_base_count:]
+        if not ordered:
+            return None
+        base = self._dd_base_balance
+        eq = [base]
+        run = base
+        for t in ordered:
+            run += (t.get("pnl") or 0.0)
+            eq.append(run)
+        from bot.metrics import max_drawdown
+        from risk.drawdown_guard import breached
+        if breached(eq, self.max_drawdown_pct):
+            return (f"Max drawdown breached "
+                    f"({max_drawdown(eq) * 100:.1f}% > {self.max_drawdown_pct * 100:.0f}%)")
+        return None
+
+    def _engage_halt(self, reason: str) -> None:
+        self._halted = True
+        self._halt_reason = reason
+        self.ledger.log(level="error", stage="risk_guard",
+                        message=f"AUTO-HALT — {reason}; new entries blocked until Resume")
+        self.ledger.add_alert(severity="critical", category="risk",
+                              title="Auto-halt — drawdown circuit breaker", detail=reason)
