@@ -4,9 +4,9 @@ uvicorn[standard]>=0.29
 python-multipart>=0.0.9   # form handling for login / create-bot
 
 # Kyros Phase 1 ledger: defaults to local SQLite (stdlib, no install needed).
-# Set SUPABASE_URL + SUPABASE_KEY to use Supabase as the source of truth:
-#   pip install supabase>=2.0
-# supabase>=2.0
+# Set SUPABASE_URL + SUPABASE_KEY (env) to use Supabase as the source of truth.
+# The client is installed so flipping to Supabase needs no rebuild — just env vars.
+supabase>=2.0
 
 # The trading engine itself is the parent package (pure stdlib):
 #   pip install -e ..            # installs the `bot` package

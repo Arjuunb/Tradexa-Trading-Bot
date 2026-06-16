@@ -68,8 +68,16 @@ def _start_auto_engine() -> None:
     """Start the autonomous strategy engine when the server boots (real signals
     -> paper execution -> ledger). Disabled under pytest and via HUB_AUTO_ENGINE=0."""
     import os
+    backend = type(webhook_api.ledger).__name__
+    print(f"[startup] ledger backend = {backend} "
+          f"(Supabase active: {backend == 'SupabaseLedger'})", flush=True)
     if settings.auto_engine and "PYTEST_CURRENT_TEST" not in os.environ:
         webhook_api.engine.start()
+        print(f"[startup] autonomous engine started — symbols={list(settings.auto_symbols)} "
+              f"timeframe={settings.auto_timeframe} interval={settings.auto_interval}s", flush=True)
+    else:
+        print("[startup] autonomous engine NOT started "
+              f"(auto_engine={settings.auto_engine})", flush=True)
 
 # Phase 8: process-wide event hub for the live (SSE) dashboard.
 from dashboard.stream import HubEventHub, sse_format  # noqa: E402
