@@ -171,3 +171,20 @@ export interface BotHealth {
   lastTrade: string;
   errors: number;
 }
+
+// ---- Phase 1: TradingView webhook -> paper execution ----
+export type TradingState = "Active" | "Paused" | "Stopped";
+export type WebhookStatus = "Accepted" | "Rejected" | "Duplicate";
+
+export interface WebhookEvent {
+  id: string;
+  time: string;
+  alertId: string;
+  symbol: string;
+  side: "Buy" | "Sell" | "Close";
+  entry: number;
+  stop: number | null;
+  stage: "controls" | "dedup" | "risk" | "sizing" | "execution";
+  status: WebhookStatus;
+  reason: string;
+}

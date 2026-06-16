@@ -11,6 +11,7 @@ import type {
   Strategy,
   Ticker,
   Trade,
+  WebhookEvent,
 } from "../types";
 
 export const NAV_ITEMS = [
@@ -341,3 +342,22 @@ export const botHealth: Record<string, BotHealth> = {
   b5: { status: "Paused", exchange: "Connected", dataFeed: "Live", heartbeat: "3s ago", uptime: "2h 41m", lastScan: "3s ago", lastTrade: "10:08:19", errors: 1 },
   b6: { status: "Stopped", exchange: "Connected", dataFeed: "Delayed", heartbeat: "—", uptime: "0m", lastScan: "—", lastTrade: "—", errors: 0 },
 };
+
+// ---- Phase 1: TradingView webhook -> secret -> dedup -> risk -> paper ----
+export const webhookConfig = {
+  endpoint: "POST /webhook/tradingview",
+  secretHeader: "X-Webhook-Secret",
+  secretStatus: "Configured" as const,
+  dedupWindowSec: 300,
+  exposureLimitPct: 5,
+  riskPerTradePct: 1,
+};
+
+export const webhookEvents: WebhookEvent[] = [
+  { id: "wh1", time: "10:24:15", alertId: "tv-9f3a", symbol: "BTCUSDT", side: "Buy", entry: 67500, stop: 66800, stage: "execution", status: "Accepted", reason: "Paper trade opened — 0.001481 @ 67500" },
+  { id: "wh2", time: "10:21:02", alertId: "tv-9f3a", symbol: "BTCUSDT", side: "Buy", entry: 67500, stop: 66800, stage: "dedup", status: "Duplicate", reason: "Duplicate alert_id within 300s window" },
+  { id: "wh3", time: "10:18:44", alertId: "tv-8c1b", symbol: "ETHUSDT", side: "Buy", entry: 3120, stop: 3120, stage: "risk", status: "Rejected", reason: "Invalid stop (equal to entry)" },
+  { id: "wh4", time: "10:12:31", alertId: "tv-7a90", symbol: "SOLUSDT", side: "Sell", entry: 172.4, stop: 176.0, stage: "execution", status: "Accepted", reason: "Paper trade opened — 6.94 @ 172.4" },
+  { id: "wh5", time: "10:05:09", alertId: "tv-6d2e", symbol: "BTCUSDT", side: "Close", entry: 68010, stop: null, stage: "execution", status: "Accepted", reason: "Position closed @ 68010 (PnL +0.76)" },
+  { id: "wh6", time: "09:58:22", alertId: "tv-5b14", symbol: "XRPUSDT", side: "Buy", entry: 0.52, stop: 0.515, stage: "controls", status: "Rejected", reason: "Trading paused — entry blocked" },
+];
