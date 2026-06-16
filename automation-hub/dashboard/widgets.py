@@ -19,6 +19,7 @@ NAV = [
     ("Risk Center", "/risk-center", "risk"),
     ("Analytics", "/analytics", "analytics"),
     ("Logs", "/logs", "logs"),
+    ("Alerts", "/alerts", "alerts"),
     ("Notifications", "/notifications", "notifications"),
     ("Settings", "/settings", "settings"),
 ]

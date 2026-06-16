@@ -1,0 +1,10 @@
+# Keep the backend image lean — the React app and build junk aren't needed.
+.git
+**/node_modules
+**/dist
+automation-hub-dashboard
+**/__pycache__
+*.egg-info
+**/*.db
+.pytest_cache
+report.html
