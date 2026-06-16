@@ -29,9 +29,10 @@ from services.signal_pipeline import SignalPipeline
 
 
 def _default_strategy_factory(symbol: str):
-    # Imported lazily so the rest of the module has no hard strategy dependency.
-    from strategies.ema_strategy import EMAStrategy
-    return EMAStrategy(symbol)
+    # The DecisionBrain is the default: a multi-signal, regime-aware decision
+    # engine (imported lazily so the module has no hard strategy dependency).
+    from strategies.brain_strategy import DecisionBrain
+    return DecisionBrain(symbol)
 
 
 class AutoStrategyEngine:
@@ -57,6 +58,12 @@ class AutoStrategyEngine:
         self.warmup = warmup
         self.live_bars = live_bars
         self.strategy_factory = strategy_factory
+        # Human-readable label for the active strategy (shown on the Bots page).
+        try:
+            probe = strategy_factory(self.symbols[0]) if self.symbols else None
+            self.strategy_label = getattr(probe, "label", None) or "Strategy"
+        except Exception:  # noqa: BLE001 — never let label probing break construction
+            self.strategy_label = "Strategy"
 
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -189,11 +196,20 @@ class AutoStrategyEngine:
                 self._targets.pop(sym, None)
 
     def _on_signal(self, sym: str, signal: Signal) -> None:
+        # The brain re-asserts its view every bar; only act when it CHANGES the
+        # position (open from flat, or flip/close an opposite). Holding the same
+        # direction is a no-op, so the decision log stays signal — not spam.
+        desired = "long" if signal.type == SignalType.LONG else "short"
+        pos = self.paper.open_position(sym)
+        if pos is not None and pos["side"] == desired:
+            return
         self.stats["signals"] += 1
         side = "BUY" if signal.type == SignalType.LONG else "SELL"
         res = self._route({
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
+            "confidence": getattr(signal, "confidence", 1.0),
+            "reason": getattr(signal, "reason", ""),
             "timestamp": signal.timestamp.isoformat(),
         })
         if res is None:

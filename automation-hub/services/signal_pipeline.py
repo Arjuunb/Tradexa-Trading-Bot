@@ -73,6 +73,10 @@ class SignalPipeline:
         stop = payload.get("stop")
         stop = float(stop) if stop is not None else None
         alert_id = payload.get("alert_id", "")
+        # Optional brain inputs: conviction (scales risk) + human-readable rationale.
+        confidence = float(payload.get("confidence", 1.0) or 1.0)
+        confidence = max(0.0, min(1.0, confidence))
+        brain_reason = str(payload.get("reason", "") or "")
         steps: list[Step] = []
 
         def reject(stage: str, reason: str, status: str = "rejected") -> PipelineResult:
@@ -115,13 +119,16 @@ class SignalPipeline:
         if existing is not None:
             return reject("execution", f"Position already open on {symbol} (no pyramiding)")
 
-        # 4. risk: position sizing from stop distance
+        # 4. risk: position sizing from stop distance, scaled by conviction
+        #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%).
         if stop is None or stop == entry:
             return reject("risk", "Invalid stop (missing or equal to entry)")
-        size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=self.risk_per_trade_pct))
+        eff_risk = self.risk_per_trade_pct * (0.5 + 0.5 * confidence)
+        size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
-        steps.append(Step("risk", True, f"risk {self.risk_per_trade_pct*100:.2f}% sized {size:.6f}"))
+        steps.append(Step("risk", True,
+                          f"conf {confidence:.2f} → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
         max_size = (self.exposure_limit_pct * self.equity) / entry if entry > 0 else 0.0
@@ -137,9 +144,12 @@ class SignalPipeline:
         fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop, alert_id=alert_id)
         self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
                                           entry=entry, stop=stop, payload=payload, status="accepted")
-        self.ledger.log(level="info", stage="execution",
-                        message=f"{symbol} {side} opened {size:.6f} @ {entry}", symbol=symbol)
+        open_msg = f"{symbol} {side} opened {size:.6f} @ {entry}"
+        if brain_reason:
+            open_msg += f" | {brain_reason}"
+        self.ledger.log(level="info", stage="execution", message=open_msg, symbol=symbol)
         self.ledger.add_alert(severity="info", category="trade",
-                              title=f"Paper trade opened — {symbol}", detail=f"{side} {size:.6f} @ {entry}")
+                              title=f"Paper trade opened — {symbol}",
+                              detail=(brain_reason or f"{side} {size:.6f} @ {entry}"))
         steps.append(Step("execution", True, f"opened {size:.6f} @ {entry}"))
         return PipelineResult(True, "execution", "paper trade opened", steps, fill.__dict__)

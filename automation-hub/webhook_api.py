@@ -33,11 +33,22 @@ pipeline = SignalPipeline(
     dedup_window_s=settings.dedup_window_s,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
+# Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
+# the simple EMA crossover instead.
+def _make_strategy(symbol: str):
+    if settings.auto_strategy == "ema":
+        from strategies.ema_strategy import EMAStrategy
+        return EMAStrategy(symbol)
+    from strategies.brain_strategy import DecisionBrain
+    return DecisionBrain(symbol)
+
+
 engine = AutoStrategyEngine(
     pipeline, paper, ledger,
     symbols=list(settings.auto_symbols),
     timeframe=settings.auto_timeframe,
     interval=settings.auto_interval,
+    strategy_factory=_make_strategy,
 )
 
 router = APIRouter()
@@ -200,8 +211,8 @@ def bots_live():
         else:
             status = "Running" if running else "Stopped"
         out.append({
-            "id": sym, "symbol": sym, "name": f"{sym} · EMA Trend",
-            "strategy": "EMA Trend", "timeframe": engine.timeframe, "status": status,
+            "id": sym, "symbol": sym, "name": f"{sym} · {engine.strategy_label}",
+            "strategy": engine.strategy_label, "timeframe": engine.timeframe, "status": status,
             "open": pos is not None,
             "side": pos["side"] if pos else None,
             "size": pos["size"] if pos else 0.0,

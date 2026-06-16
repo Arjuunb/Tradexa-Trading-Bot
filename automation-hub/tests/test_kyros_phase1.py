@@ -298,7 +298,7 @@ def test_live_summary_endpoints(client):
     assert eq["starting_balance"] == 10_000 and len(eq["points"]) >= 2
 
     bots = client.get("/bots/live").json()
-    assert isinstance(bots, list) and bots and bots[0]["strategy"] == "EMA Trend"
+    assert isinstance(bots, list) and bots and bots[0]["strategy"]
     assert "win_rate" in bots[0] and "realized_pnl" in bots[0]
 
 
@@ -375,6 +375,55 @@ def test_auto_engine_produces_real_trades(ledger, paper):
     # real strategy signals became real paper trades + decision logs
     assert ledger.get_logs(500)
     assert paper.history() or paper.positions()
+
+
+# ----------------------------------------------------- decision brain
+from strategies.brain_strategy import DecisionBrain  # noqa: E402
+
+
+def _trend_bars(n, start=100.0, step=0.6, noise=0.05):
+    """Steadily rising bars (clear uptrend) with tiny noise."""
+    bars = []
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    price = start
+    for i in range(n):
+        price += step
+        hi = price + noise
+        lo = price - noise
+        bars.append(Bar(ts, price - step, hi, lo, price, 1.0))
+    return bars
+
+
+def test_brain_goes_long_in_uptrend():
+    brain = DecisionBrain("BTCUSDT")
+    sig = None
+    for b in _trend_bars(120):
+        sig = brain.on_bar(b) or sig
+    assert sig is not None
+    assert sig.type == SignalType.LONG
+    assert 0.0 < sig.confidence <= 1.0
+    assert "conviction" in sig.reason and "RSI" in sig.reason
+
+
+def test_brain_holds_on_flat_market():
+    brain = DecisionBrain("BTCUSDT")
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    decisions = [brain.on_bar(Bar(ts, 100, 100.1, 99.9, 100.0, 1.0)) for _ in range(120)]
+    # a flat market gives no conviction -> the brain declines to trade
+    assert all(d is None for d in decisions)
+
+
+def test_brain_confidence_scales_size(ledger, paper):
+    pipe = SignalPipeline(ledger, paper, TradingControl(), equity=10_000,
+                          risk_per_trade_pct=0.02, exposure_limit_pct=0.5)
+    hi = pipe.process({"alert_id": "hi", "symbol": "BTCUSDT", "side": "BUY",
+                       "entry": 100, "stop": 50, "confidence": 1.0})
+    lo = pipe.process({"alert_id": "lo", "symbol": "ETHUSDT", "side": "BUY",
+                       "entry": 100, "stop": 50, "confidence": 0.4})
+    assert hi.accepted and lo.accepted
+    hi_size = next(p["size"] for p in paper.positions() if p["symbol"] == "BTCUSDT")
+    lo_size = next(p["size"] for p in paper.positions() if p["symbol"] == "ETHUSDT")
+    assert hi_size > lo_size      # higher conviction -> bigger position
 
 
 # ----------------------------------------------------- dashboard wiring (UI)
