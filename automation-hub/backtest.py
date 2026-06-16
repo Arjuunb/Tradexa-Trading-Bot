@@ -100,11 +100,14 @@ def _metrics(rs: list[float]) -> Metrics:
 
 
 def run(bars: list[Bar], *, strategy: str = "brain", threshold: float = 0.5,
-        rr: float = 2.5, fee: float = TAKER_FEE, with_index: bool = False):
+        rr: float = 2.5, fee: float = TAKER_FEE, slippage: float = 0.0,
+        with_index: bool = False):
     """Run a strategy over bars; return R-multiples per trade (hold to stop/TP).
 
-    Each trade's R is reward/risk: +rr on a target hit, -1 on a stop, minus fees.
+    Each trade's R is reward/risk: +rr on a target hit, -1 on a stop, minus
+    round-trip costs (``fee`` + ``slippage`` per side, as a fraction of price).
     """
+    cost = fee + slippage
     brain = make_strategy(strategy, threshold, rr)
     pos = None
     out: list = []
@@ -122,7 +125,7 @@ def run(bars: list[Bar], *, strategy: str = "brain", threshold: float = 0.5,
                 elif b.low <= pos["tp"]:
                     r, exited = rr, True
             if exited:
-                r -= fee * pos["entry"] * 2 / pos["risk"]
+                r -= cost * pos["entry"] * 2 / pos["risk"]
                 out.append((pos["i"], r) if with_index else r)
                 pos = None
         if pos is None:
@@ -139,12 +142,13 @@ def run(bars: list[Bar], *, strategy: str = "brain", threshold: float = 0.5,
 
 
 def walk_forward(bars: list[Bar], *, strategy: str = "brain", train: int = 1500,
-                 test: int = 750, fee: float = TAKER_FEE) -> tuple[Metrics, list]:
+                 test: int = 750, fee: float = TAKER_FEE,
+                 slippage: float = 0.0) -> tuple[Metrics, list]:
     """Optimise (threshold, rr) on each train window, trade the next unseen test
     window, roll forward. Returns aggregate out-of-sample metrics + per-fold rows."""
     grid = [(t, rr) for t in (0.4, 0.5, 0.6) for rr in (1.5, 2.0, 2.5, 3.0)]
-    runs = {p: run(bars, strategy=strategy, threshold=p[0], rr=p[1], fee=fee, with_index=True)
-            for p in grid}
+    runs = {p: run(bars, strategy=strategy, threshold=p[0], rr=p[1], fee=fee,
+                   slippage=slippage, with_index=True) for p in grid}
     oos: list[float] = []
     folds = []
     start = 0
@@ -166,20 +170,23 @@ def main() -> None:
     ap.add_argument("--strategy", choices=("brain", "supertrend", "donchian", "ensemble"), default="brain")
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--rr", type=float, default=2.5)
+    ap.add_argument("--slippage", type=float, default=0.0, help="per-side slippage as fraction (e.g. 0.0002 = 2bps)")
     ap.add_argument("--walk-forward", action="store_true")
     args = ap.parse_args()
 
     bars = resample(load_csv(args.csv), args.group)
-    print(f"{len(bars):,} bars  {bars[0].timestamp.date()} -> {bars[-1].timestamp.date()}  [{args.strategy}]")
+    print(f"{len(bars):,} bars  {bars[0].timestamp.date()} -> {bars[-1].timestamp.date()}  "
+          f"[{args.strategy}, slip {args.slippage*100:.3f}%/side]")
 
     if args.walk_forward:
-        agg, folds = walk_forward(bars, strategy=args.strategy)
+        agg, folds = walk_forward(bars, strategy=args.strategy, slippage=args.slippage)
         print("\nOut-of-sample folds (params chosen on prior window):")
         for d0, d1, p, m in folds:
             print(f"  {d0}->{d1}  thr{p[0]} rr{p[1]}  {m}")
         print(f"\nAGGREGATE OUT-OF-SAMPLE: {agg}")
     else:
-        m = _metrics(run(bars, strategy=args.strategy, threshold=args.threshold, rr=args.rr))
+        m = _metrics(run(bars, strategy=args.strategy, threshold=args.threshold,
+                         rr=args.rr, slippage=args.slippage))
         print(f"strategy {args.strategy} · threshold {args.threshold} · rr {args.rr}\n{m}")
 
 
