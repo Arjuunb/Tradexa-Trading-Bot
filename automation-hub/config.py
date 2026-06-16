@@ -65,7 +65,7 @@ class Settings:
     auto_symbols: tuple = field(default_factory=lambda: tuple(
         s.strip() for s in os.environ.get("HUB_AUTO_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",") if s.strip()))
     auto_interval: float = field(default_factory=lambda: float(os.environ.get("HUB_AUTO_INTERVAL", "2.0")))
-    auto_timeframe: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_TIMEFRAME", "1h"))
+    auto_timeframe: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_TIMEFRAME", "4h"))
     auto_strategy: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_STRATEGY", "brain"))
 
     # --- notifications (Phase 5) ---
