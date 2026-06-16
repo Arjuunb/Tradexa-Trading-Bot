@@ -1,6 +1,19 @@
 """Smoke tests for the DecisionBrain backtest / walk-forward harness."""
-from backtest import Metrics, resample, run, walk_forward, _metrics
+from backtest import Metrics, performance_report, resample, run, walk_forward, _metrics
 from data.market_data import get_bars
+
+
+def test_performance_report_keys_and_sanity():
+    # "ZZZUSDT" isn't a bundled sample -> deterministic synthetic of length n.
+    bars, _ = get_bars("ZZZUSDT", n=2000, timeframe="1h")
+    rep = performance_report(bars, train=800, test=400)
+    for k in ("trades", "win_rate", "profit_factor", "expectancy_r",
+              "max_drawdown_r", "longest_losing_streak", "sharpe", "cagr_pct"):
+        assert k in rep
+    assert rep["trades"] > 0
+    assert 0 <= rep["win_rate"] <= 100
+    assert rep["max_drawdown_r"] >= 0
+    assert rep["longest_losing_streak"] >= 0
 
 
 def test_run_produces_trades_and_metrics():

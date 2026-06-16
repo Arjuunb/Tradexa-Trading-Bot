@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -163,6 +165,94 @@ def walk_forward(bars: list[Bar], *, strategy: str = "brain", train: int = 1500,
     return _metrics(oos), folds
 
 
+def oos_trades(bars: list[Bar], *, strategy: str = "brain", train: int = 1500,
+               test: int = 750, fee: float = TAKER_FEE, slippage: float = 0.0):
+    """Ordered (timestamp, R) of every out-of-sample trade in the walk-forward."""
+    grid = [(t, rr) for t in (0.4, 0.5, 0.6) for rr in (1.5, 2.0, 2.5, 3.0)]
+    runs = {p: run(bars, strategy=strategy, threshold=p[0], rr=p[1], fee=fee,
+                   slippage=slippage, with_index=True) for p in grid}
+    out = []
+    start, n = 0, len(bars)
+    while start + train + test <= n:
+        a, b, c = start, start + train, start + train + test
+        best = max(grid, key=lambda p: sum(r for idx, r in runs[p] if a <= idx < b))
+        out += [(bars[idx].timestamp, r) for idx, r in runs[best] if b <= idx < c]
+        start += test
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def performance_report(bars: list[Bar], *, strategy: str = "brain",
+                       train: int = 1500, test: int = 750,
+                       fee: float = TAKER_FEE, slippage: float = 0.0002,
+                       risk_per_trade: float = 0.01) -> dict:
+    """Full out-of-sample performance + risk stats (the numbers that matter)."""
+    tr = oos_trades(bars, strategy=strategy, train=train, test=test, fee=fee, slippage=slippage)
+    if not tr:
+        return {}
+    R = [r for _, r in tr]
+    n = len(R)
+    wins = [r for r in R if r > 0]
+    losses = [r for r in R if r < 0]
+    # equity (R) for drawdown + losing streak
+    eq = peak = dd = 0.0
+    streak = worst_streak = 0
+    for r in R:
+        eq += r
+        peak = max(peak, eq)
+        dd = max(dd, peak - eq)
+        streak = streak + 1 if r < 0 else 0
+        worst_streak = max(worst_streak, streak)
+    years = max((tr[-1][0] - tr[0][0]).days / 365.25, 1e-9)
+    mean = sum(R) / n
+    sd = (sum((r - mean) ** 2 for r in R) / n) ** 0.5
+    sharpe = (mean / sd) * math.sqrt(n / years) if sd else 0.0
+    mon = defaultdict(float)
+    for ts, r in tr:
+        mon[(ts.year, ts.month)] += r
+    pos_months = sum(1 for v in mon.values() if v > 0)
+    # $ equity compounding `risk_per_trade` of equity per trade
+    bal = 10_000.0
+    for r in R:
+        bal *= (1 + risk_per_trade * r)
+    cagr = (bal / 10_000.0) ** (1 / years) - 1
+    return {
+        "start": tr[0][0].date().isoformat(), "end": tr[-1][0].date().isoformat(),
+        "years": round(years, 1), "trades": n,
+        "win_rate": len(wins) / n * 100,
+        "profit_factor": (sum(wins) / -sum(losses)) if losses else float("inf"),
+        "expectancy_r": mean,
+        "avg_win_r": (sum(wins) / len(wins)) if wins else 0.0,
+        "avg_loss_r": (sum(losses) / len(losses)) if losses else 0.0,
+        "best_r": max(R), "worst_r": min(R), "total_r": sum(R),
+        "max_drawdown_r": dd, "longest_losing_streak": worst_streak,
+        "sharpe": sharpe, "positive_months": pos_months, "months": len(mon),
+        "end_balance": bal, "cagr_pct": cagr * 100,
+    }
+
+
+def _print_report(label: str, s: dict) -> None:
+    if not s:
+        print("No out-of-sample trades.")
+        return
+    pf = "inf" if s["profit_factor"] == float("inf") else f"{s['profit_factor']:.2f}"
+    print(f"=== {label} — OUT-OF-SAMPLE (walk-forward, fees+slippage) ===")
+    print(f"Period:                {s['start']} -> {s['end']}  ({s['years']}y)")
+    print(f"Trades:                {s['trades']}")
+    print(f"Win rate:              {s['win_rate']:.1f}%")
+    print(f"Profit factor:         {pf}")
+    print(f"Expectancy:            {s['expectancy_r']:+.3f}R / trade")
+    print(f"Avg win / loss:        +{s['avg_win_r']:.2f}R / {s['avg_loss_r']:.2f}R")
+    print(f"Best / worst trade:    +{s['best_r']:.2f}R / {s['worst_r']:.2f}R")
+    print(f"Total:                 {s['total_r']:+.0f}R")
+    print(f"Max drawdown:          {s['max_drawdown_r']:.0f}R")
+    print(f"Longest losing streak: {s['longest_losing_streak']} trades")
+    print(f"Sharpe (annualized):   {s['sharpe']:.2f}")
+    print(f"Positive months:       {s['positive_months']}/{s['months']} "
+          f"({s['positive_months'] / s['months'] * 100:.0f}%)")
+    print(f"$10k @1% risk/trade ->  ${s['end_balance']:,.0f}   (CAGR {s['cagr_pct']:.1f}%/yr)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="DecisionBrain backtest / walk-forward")
     ap.add_argument("csv")
@@ -172,13 +262,17 @@ def main() -> None:
     ap.add_argument("--rr", type=float, default=2.5)
     ap.add_argument("--slippage", type=float, default=0.0, help="per-side slippage as fraction (e.g. 0.0002 = 2bps)")
     ap.add_argument("--walk-forward", action="store_true")
+    ap.add_argument("--report", action="store_true", help="full out-of-sample performance + risk report")
     args = ap.parse_args()
 
     bars = resample(load_csv(args.csv), args.group)
     print(f"{len(bars):,} bars  {bars[0].timestamp.date()} -> {bars[-1].timestamp.date()}  "
-          f"[{args.strategy}, slip {args.slippage*100:.3f}%/side]")
+          f"[{args.strategy}, slip {args.slippage*100:.3f}%/side]\n")
 
-    if args.walk_forward:
+    if args.report:
+        slip = args.slippage or 0.0002   # default to a realistic 2bps for the report
+        _print_report(f"{args.strategy}", performance_report(bars, strategy=args.strategy, slippage=slip))
+    elif args.walk_forward:
         agg, folds = walk_forward(bars, strategy=args.strategy, slippage=args.slippage)
         print("\nOut-of-sample folds (params chosen on prior window):")
         for d0, d1, p, m in folds:
