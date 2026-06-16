@@ -101,6 +101,16 @@ export interface RiskSummary {
 }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
+export interface EquityCurvePoint { t: string | null; equity: number; }
+export interface StrategyPerformance {
+  strategy: string; mode: string;
+  trades: number; win_rate: number; profit_factor: number; expectancy: number;
+  avg_win: number; avg_loss: number; best: number; worst: number;
+  realized_pnl: number; starting_balance: number; balance: number;
+  max_drawdown_abs: number; max_drawdown_pct: number; longest_losing_streak: number;
+  equity_curve: EquityCurvePoint[];
+  recent: PaperTradeRow[];
+}
 export interface LiveBot {
   id: string; symbol: string; name: string; strategy: string; timeframe: string;
   status: "Running" | "Paused" | "Stopped"; open: boolean; side: string | null;

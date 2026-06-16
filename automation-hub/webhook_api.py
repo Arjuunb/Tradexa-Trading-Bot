@@ -220,6 +220,16 @@ def risk_summary():
     }
 
 
+@router.get("/strategy/performance")
+def strategy_performance():
+    """The bot's live paper-trading track record (real executed trades)."""
+    from services.performance import summarize
+    stats = summarize(paper.history(), paper.starting_balance)
+    stats["strategy"] = engine.strategy_label
+    stats["mode"] = "live" if engine.live else "replay"
+    return stats
+
+
 @router.get("/bots/live")
 def bots_live():
     """Each engine symbol as a live 'bot' with real per-symbol stats."""
