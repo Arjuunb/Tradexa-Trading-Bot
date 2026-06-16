@@ -1,4 +1,3 @@
-import type { Bot } from "../types";
 import Card from "../components/common/Card";
 import MetricCards from "../components/cards/MetricCards";
 import EquityCurve from "../components/chart/EquityCurve";
@@ -9,13 +8,11 @@ import {
   type AlertRow, type LedgerPosition, type LogRow, type RiskSummary,
 } from "../lib/api";
 
-interface OverviewProps { bots: Bot[]; onToggle: (id: string) => void; onCreate: () => void; }
-
 const money = (n: number | null | undefined) => `${(n ?? 0) >= 0 ? "+" : "-"}$${Math.abs(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const lvlTone = (l: string) => ({ info: "blue", warning: "amber", error: "red", critical: "red" }[l] as any) ?? "default";
 
 // All data here is live from the backend (paper simulation). No mock widgets.
-export default function Overview(_props: OverviewProps) {
+export default function Overview() {
   const risk = useLive<RiskSummary>("/risk/summary", 2500);
   const positions = useLive<LedgerPosition[]>("/paper/positions", 2500);
   const logs = useLive<LogRow[]>("/ledger/logs?limit=12", 2500);

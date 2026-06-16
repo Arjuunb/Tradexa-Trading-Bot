@@ -1,72 +1,63 @@
-import { useState } from "react";
-import type { Strategy } from "../types";
-import Icon from "../components/common/Icon";
-import Modal from "../components/common/Modal";
-import Sparkline from "../components/chart/Sparkline";
 import { Badge, PageHeader } from "../components/common/ui";
-import { strategies } from "../data/mock";
-import { useApp } from "../app-context";
+import Card from "../components/common/Card";
+import Icon from "../components/common/Icon";
+import { useLive, type StrategyList, type StrategyPerformance } from "../lib/api";
 
-const riskTone = (r: string): "green" | "amber" | "red" =>
-  r === "Low" ? "green" : r === "Medium" ? "amber" : "red";
-
+// Real strategies the engine can run, plus the live performance of the active one.
 export default function StrategiesPage() {
-  const [modal, setModal] = useState<{ s: Strategy; mode: string } | null>(null);
-  const app = useApp();
+  const list = useLive<StrategyList>("/strategy/list", 5000);
+  const perf = useLive<StrategyPerformance>("/strategy/performance", 4000);
+  const active = list.data?.active;
 
   return (
     <>
-      <PageHeader
-        title="Strategies"
-        subtitle={`${strategies.length} strategies in your library`}
-        actions={<button className="btn btn-primary" onClick={() => app.toast("Strategy builder coming soon", "info")}><Icon name="plus" size={15} /> Create Strategy</button>}
-      />
+      <PageHeader title="Strategies" subtitle="engine strategies · paper mode" />
 
-      <div className="strategy-grid">
-        {strategies.map((s) => (
-          <div className="card strategy-card" key={s.id}>
-            <div className="strategy-head">
-              <div className="strategy-avatar" style={{ background: `${s.color}22`, color: s.color }}>
-                <Icon name="layers" size={18} />
-              </div>
-              <div className="strategy-title">
-                <b>{s.name}</b>
-                <span className="dim">{s.desc}</span>
-              </div>
-              <Badge text={`${s.risk} risk`} tone={riskTone(s.risk)} />
-            </div>
+      {list.error && !list.data && (
+        <div className="card" style={{ borderColor: "#ef4444" }}>
+          <Icon name="warning" size={15} className="neg" /> Backend not reachable.
+        </div>
+      )}
 
-            <div className="strategy-spark"><Sparkline data={s.spark} color={s.color} height={48} /></div>
-
-            <div className="strategy-stats">
-              <div><span className="dim">Win rate</span><b className="pos">{s.winRate}%</b></div>
-              <div><span className="dim">Profit factor</span><b>{s.profitFactor}</b></div>
-              <div><span className="dim">Avg R:R</span><b>{s.avgRR}</b></div>
-              <div><span className="dim">Backtests</span><b>{s.backtests}</b></div>
-              <div><span className="dim">Last used</span><b>{s.lastUsed}</b></div>
-            </div>
-
-            <div className="strategy-actions">
-              <button className="btn btn-ghost sm" onClick={() => setModal({ s, mode: "Rules" })}>View Rules</button>
-              <button className="btn btn-ghost sm" onClick={() => setModal({ s, mode: "Edit" })}>Edit</button>
-              <button className="btn btn-soft sm" onClick={() => app.backtest(s.name)}>Backtest</button>
-            </div>
-          </div>
-        ))}
+      <div className="card">
+        <div className="tablewrap">
+          <table className="data-table">
+            <thead><tr><th>Strategy</th><th>Description</th><th>Status</th></tr></thead>
+            <tbody>
+              {(list.data?.strategies ?? []).map((s) => (
+                <tr key={s.key}>
+                  <td><b>{s.label}</b></td>
+                  <td className="dim">{s.desc}</td>
+                  <td>{s.key === active
+                    ? <Badge text={`Active · ${list.data?.timeframe}`} tone="green" />
+                    : <Badge text="Available" tone="default" />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="dim" style={{ marginTop: 8 }}>
+          The active strategy is set on the backend (HUB_AUTO_STRATEGY). Validated reference
+          (BTC/ETH 4h, walk-forward, fees+slippage): trend strategies profit factor ~1.2 out-of-sample.
+        </p>
       </div>
 
-      <Modal open={!!modal} title={modal ? `${modal.s.name} — ${modal.mode}` : ""} onClose={() => setModal(null)}>
-        {modal?.mode === "Rules" && (
-          <ul className="rules-list">
-            <li>Entry: signal confirmed on the {modal.s.name.split(" ")[0]} condition.</li>
-            <li>Stop-loss: ATR-based, {modal.s.avgRR}R target.</li>
-            <li>Risk: {modal.s.risk}. Skip trade if daily loss limit hit.</li>
-          </ul>
-        )}
-        {modal?.mode === "Edit" && <p className="dim">Strategy parameter editing connects to the engine in a later phase.</p>}
-        {modal?.mode === "Backtest" && <p className="dim">Use the Backtesting page to run a full backtest of {modal.s.name}.</p>}
-        <div className="modal-actions"><button className="btn btn-ghost" onClick={() => setModal(null)}>Close</button></div>
-      </Modal>
+      {perf.data && (
+        <Card title={`Live Performance — ${perf.data.strategy}`} subtitle={`${perf.data.mode} · ${perf.data.trades} paper trades`}>
+          <div className="tablewrap">
+            <table className="data-table">
+              <tbody>
+                <tr><td className="dim">Win rate</td><td>{perf.data.win_rate.toFixed(1)}%</td>
+                    <td className="dim">Profit factor</td><td className={perf.data.profit_factor >= 1 ? "pos" : "neg"}>{perf.data.profit_factor.toFixed(2)}</td></tr>
+                <tr><td className="dim">Realized P&amp;L</td><td className={perf.data.realized_pnl >= 0 ? "pos" : "neg"}>${perf.data.realized_pnl.toFixed(2)}</td>
+                    <td className="dim">Max drawdown</td><td className="amber">{perf.data.max_drawdown_pct.toFixed(1)}%</td></tr>
+                <tr><td className="dim">Expectancy</td><td>${perf.data.expectancy.toFixed(2)}/trade</td>
+                    <td className="dim">Worst streak</td><td>{perf.data.longest_losing_streak} losses</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </>
   );
 }

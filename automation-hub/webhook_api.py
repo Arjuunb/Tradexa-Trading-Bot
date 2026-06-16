@@ -247,6 +247,24 @@ def risk_summary():
     }
 
 
+_STRATEGY_CATALOG = [
+    {"key": "brain", "label": "Decision Brain",
+     "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},
+    {"key": "supertrend", "label": "Supertrend", "desc": "ATR trend-following indicator"},
+    {"key": "donchian", "label": "Donchian Breakout", "desc": "Classic Turtle channel breakout"},
+    {"key": "ensemble", "label": "Confirmation Ensemble",
+     "desc": "Trades only when 2 of 3 agree (EMA + Supertrend + Donchian)"},
+    {"key": "ema", "label": "EMA Crossover", "desc": "Simple fast/slow EMA cross"},
+]
+
+
+@router.get("/strategy/list")
+def strategy_list():
+    """Real list of selectable engine strategies + which one is active."""
+    return {"active": settings.auto_strategy, "timeframe": engine.timeframe,
+            "strategies": _STRATEGY_CATALOG}
+
+
 @router.get("/strategy/performance")
 def strategy_performance():
     """The bot's live paper-trading track record (real executed trades)."""

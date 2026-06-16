@@ -1,19 +1,12 @@
 import { useMemo, useState } from "react";
-import type { Bot } from "../types";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatusBadge } from "../components/common/ui";
 import { useApp } from "../app-context";
 import { apiPost, useLive, type EngineStatus, type LiveBot } from "../lib/api";
 
-interface BotsPageProps {
-  bots: Bot[];
-  setBots: React.Dispatch<React.SetStateAction<Bot[]>>;
-  onCreate: () => void;
-}
-
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
 
-export default function BotsPage(_props: BotsPageProps) {
+export default function BotsPage() {
   const app = useApp();
   const bots = useLive<LiveBot[]>("/bots/live", 2000);
   const engine = useLive<EngineStatus>("/engine/status", 2000);
@@ -68,7 +61,7 @@ export default function BotsPage(_props: BotsPageProps) {
             <thead>
               <tr>
                 <th>Bot</th><th>Strategy</th><th>Symbol</th><th>TF</th>
-                <th>Position</th><th>Trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Status</th>
+                <th>Position</th><th>Trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -87,10 +80,11 @@ export default function BotsPage(_props: BotsPageProps) {
                   <td className="dim">{(b.win_rate * 100).toFixed(0)}%</td>
                   <td className={b.realized_pnl >= 0 ? "pos" : "neg"}>{money(b.realized_pnl)}</td>
                   <td><StatusBadge status={b.status} /></td>
+                  <td><button className="icon-btn sm" title="View details" onClick={() => app.viewBot(b.id)}><Icon name="chart" size={14} /></button></td>
                 </tr>
               ))}
               {visible.length === 0 && (
-                <tr><td colSpan={9} className="dim ta-center" style={{ padding: 24 }}>
+                <tr><td colSpan={10} className="dim ta-center" style={{ padding: 24 }}>
                   {bots.loading ? "Loading…" : "No bots match your search."}
                 </td></tr>
               )}

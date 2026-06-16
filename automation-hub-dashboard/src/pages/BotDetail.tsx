@@ -1,115 +1,77 @@
-import type { Bot, BotStatus } from "../types";
 import Card from "../components/common/Card";
-import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
-import { Badge, PageHeader, StatCard, StatusBadge } from "../components/common/ui";
+import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { botHealth, decisions, strategies } from "../data/mock";
-import BotHealthPanel from "../components/safety/BotHealthPanel";
-import DecisionFeed from "../components/safety/DecisionFeed";
+import {
+  useLive, hhmmss,
+  type LiveBot, type LogRow, type PaperTradeRow,
+} from "../lib/api";
 
 interface Props {
-  bot: Bot | undefined;
-  setBots: React.Dispatch<React.SetStateAction<Bot[]>>;
+  botId: string;
 }
 
-const money = (n: number) => (n === 0 ? "$0.00" : `${n > 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`);
+const money = (n: number | null | undefined) => `${(n ?? 0) >= 0 ? "+" : "-"}$${Math.abs(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-// Deterministic equity curve synthesised from the bot's total P&L (no RNG, so
-// it stays stable across re-renders).
-function botEquity(bot: Bot): number[] {
-  const base = 10000;
-  const end = base + bot.totalPnl;
-  const n = 12;
-  return Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1);
-    const wobble = Math.sin(i * 1.7) * Math.abs(bot.totalPnl) * 0.05;
-    return Math.round(base + (end - base) * t + wobble);
-  });
-}
-
-const sampleTrades = (bot: Bot) => [
-  { id: "d1", time: "10:24", side: "Long", entry: 100, exit: 102, pnl: bot.todayPnl * 0.4, result: "Win" },
-  { id: "d2", time: "09:58", side: "Short", entry: 102, exit: 101, pnl: bot.todayPnl * 0.35, result: "Win" },
-  { id: "d3", time: "09:31", side: "Long", entry: 99, exit: 98, pnl: -Math.abs(bot.todayPnl) * 0.2, result: "Loss" },
-];
-
-export default function BotDetail({ bot, setBots }: Props) {
+// Real per-symbol view from the live engine + ledger (paper). No mock.
+export default function BotDetail({ botId }: Props) {
   const app = useApp();
+  const bots = useLive<LiveBot[]>("/bots/live", 2500);
+  const trades = useLive<PaperTradeRow[]>("/paper/trades", 3000);
+  const logs = useLive<LogRow[]>("/ledger/logs?limit=60", 3000);
 
-  if (!bot) {
-    return (
-      <>
-        <PageHeader title="Bot not found" actions={<button className="btn btn-ghost" onClick={() => app.go("Bots")}>← Bots</button>} />
-        <div className="empty-state">This bot no longer exists.</div>
-      </>
-    );
-  }
-
-  const setStatus = (status: BotStatus) => {
-    setBots((p) => p.map((b) => (b.id === bot.id ? { ...b, status } : b)));
-    app.toast(`${bot.name} ${status.toLowerCase()}`, status === "Stopped" ? "error" : "success");
-  };
-  const active = bot.status === "Running" || bot.status === "Live";
-  const stratName = strategies.find((s) => s.name.startsWith(bot.strategy))?.name ?? strategies[0].name;
-  const labels = ["", "", "", "", "", "", "", "", "", "", "", ""];
+  const bot = (bots.data ?? []).find((b) => b.id === botId);
+  const symTrades = (trades.data ?? []).filter((t) => t.symbol === botId);
+  const symLogs = (logs.data ?? []).filter((l) => l.symbol === botId);
 
   return (
     <>
       <PageHeader
-        title={bot.name}
-        subtitle={`${bot.strategy} · ${bot.pair} · ${bot.timeframe}`}
-        actions={
-          <div className="row-actions">
-            <button className="btn btn-ghost" onClick={() => app.go("Bots")}>← Bots</button>
-            {active
-              ? <button className="btn btn-warn" onClick={() => setStatus("Paused")}><Icon name="pause" size={14} /> Pause</button>
-              : <button className="btn btn-primary" onClick={() => setStatus("Running")}><Icon name="play" size={14} /> Start</button>}
-            <button className="btn btn-ghost" onClick={() => setStatus("Stopped")}><Icon name="close" size={14} /> Stop</button>
-            <button className="btn btn-soft" onClick={() => app.backtest(stratName)}><Icon name="history" size={14} /> Backtest</button>
-          </div>
-        }
+        title={bot ? bot.name : botId}
+        subtitle={bot ? `${bot.strategy} · ${bot.timeframe} · paper` : "symbol"}
+        actions={<button className="btn btn-ghost" onClick={() => app.go("Bots")}><Icon name="chart" size={14} /> Back to Bots</button>}
       />
 
-      <div className="stat-row six">
-        <StatCard label="Status" value={bot.status} />
-        <StatCard label="Today P&L" value={money(bot.todayPnl)} tone={bot.todayPnl >= 0 ? "green" : "red"} />
-        <StatCard label="Total P&L" value={money(bot.totalPnl)} tone={bot.totalPnl >= 0 ? "green" : "red"} />
-        <StatCard label="Risk / trade" value={`${bot.riskPct}%`} />
-        <StatCard label="Strategy" value={bot.strategy} />
-        <StatCard label="Symbol" value={bot.pair} />
+      {!bot && !bots.loading && (
+        <div className="card"><div className="dim">No live data for {botId}. {bots.error ? "Backend not reachable." : ""}</div></div>
+      )}
+
+      <div className="stat-row">
+        <StatCard label="Position" value={bot?.open ? `${bot.side} ${bot.size.toFixed(4)}` : "flat"} tone={bot?.open ? (bot.side === "long" ? "green" : "red") : "default"} sub={bot?.open ? `entry ${bot.entry.toLocaleString()}` : ""} />
+        <StatCard label="Realized P&L" value={money(bot?.realized_pnl)} tone={(bot?.realized_pnl ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Trades" value={String(bot?.num_trades ?? 0)} />
+        <StatCard label="Win Rate" value={`${((bot?.win_rate ?? 0) * 100).toFixed(0)}%`} />
+        <StatCard label="Status" value={bot?.status ?? "—"} tone={bot?.status === "Running" ? "green" : bot?.status === "Paused" ? "amber" : "red"} />
       </div>
 
-      <div className="grid-2-1">
-        <Card title="Equity Curve" subtitle={bot.name} right={<StatusBadge status={bot.status} />} className="span-2">
-          <div className="chart-md">
-            <AreaLine labels={labels} series={[{ name: "Equity", data: botEquity(bot), color: "#8b5cf6" }]} yFormatter={(v) => `$${(v / 1000).toFixed(1)}K`} valueFormatter={(v) => `$${v.toLocaleString()}`} />
-          </div>
-        </Card>
-        <BotHealthPanel h={botHealth[bot.id] ?? botHealth.default} />
-      </div>
-
-      <Card title="Decision Log" subtitle="Why this bot did (or didn't) trade">
-        <DecisionFeed items={decisions.filter((d) => d.symbol === bot.pair).length ? decisions.filter((d) => d.symbol === bot.pair) : decisions.slice(0, 3)} />
-      </Card>
-
-      <Card title="Recent Trades">
+      <Card title="Trade History" subtitle={`${symTrades.length} closed trades`}>
         <div className="tablewrap">
           <table className="data-table">
-            <thead><tr><th>Time</th><th>Pair</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Result</th></tr></thead>
+            <thead><tr><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>R:R</th><th>Closed</th></tr></thead>
             <tbody>
-              {sampleTrades(bot).map((t) => (
+              {symTrades.map((t) => (
                 <tr key={t.id}>
-                  <td className="dim">{t.time}</td><td>{bot.pair}</td>
-                  <td><Badge text={t.side} tone={t.side === "Long" ? "green" : "red"} /></td>
-                  <td>{t.entry}</td><td>{t.exit}</td>
-                  <td className={t.pnl >= 0 ? "pos" : "neg"}>{money(t.pnl)}</td>
-                  <td><Badge text={t.result} tone={t.result === "Win" ? "green" : "red"} /></td>
+                  <td><Badge text={t.side} tone={t.side === "long" ? "green" : "red"} /></td>
+                  <td>{t.entry.toLocaleString()}</td>
+                  <td>{t.exit !== null ? t.exit.toLocaleString() : "—"}</td>
+                  <td className={(t.pnl ?? 0) >= 0 ? "pos" : "neg"}>{money(t.pnl)}</td>
+                  <td>{t.rr !== null && t.rr !== undefined ? `${t.rr.toFixed(2)}R` : "—"}</td>
+                  <td className="dim mono">{hhmmss(t.closed_at)}</td>
                 </tr>
               ))}
+              {symTrades.length === 0 && <tr><td colSpan={6} className="dim ta-center" style={{ padding: 16 }}>No closed trades yet.</td></tr>}
             </tbody>
           </table>
         </div>
+      </Card>
+
+      <Card title="Decision Log">
+        <ul className="activity">
+          {symLogs.slice(0, 20).map((l) => (
+            <li key={l.id}><span className="dim mono">{hhmmss(l.ts)}</span> <span className="dim">{l.stage}</span> {l.message}</li>
+          ))}
+          {symLogs.length === 0 && <li className="dim">No decisions for {botId} yet.</li>}
+        </ul>
       </Card>
     </>
   );

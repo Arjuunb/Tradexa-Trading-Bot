@@ -6,7 +6,7 @@ import { useLive, hhmmss, API_BASE, type StrategyPerformance } from "../lib/api"
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-export default function BacktestingPage(_props: { initialStrategy?: string }) {
+export default function BacktestingPage() {
   const { data, error } = useLive<StrategyPerformance>("/strategy/performance", 3000);
   const offline = error && !data;
 

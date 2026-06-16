@@ -124,6 +124,8 @@ export interface StrategyPerformance {
   equity_curve: EquityCurvePoint[];
   recent: PaperTradeRow[];
 }
+export interface StrategyInfo { key: string; label: string; desc: string; }
+export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {
   id: string; symbol: string; name: string; strategy: string; timeframe: string;
   status: "Running" | "Paused" | "Stopped"; open: boolean; side: string | null;
