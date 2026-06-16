@@ -67,6 +67,8 @@ class Settings:
     auto_interval: float = field(default_factory=lambda: float(os.environ.get("HUB_AUTO_INTERVAL", "2.0")))
     auto_timeframe: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_TIMEFRAME", "4h"))
     auto_strategy: str = field(default_factory=lambda: os.environ.get("HUB_AUTO_STRATEGY", "brain"))
+    use_live_data: bool = field(default_factory=lambda: os.environ.get("HUB_USE_LIVE_DATA", "").lower() in ("1", "true", "yes"))
+    live_poll_s: float = field(default_factory=lambda: float(os.environ.get("HUB_LIVE_POLL", "60")))
 
     # --- market-quality gate (fail-closed pre-trade safety) ---
     quality_min_stop_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_QUALITY_MIN_STOP", "0.0005")))

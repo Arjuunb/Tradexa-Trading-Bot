@@ -35,6 +35,12 @@ def _default_strategy_factory(symbol: str):
     return DecisionBrain(symbol)
 
 
+def _default_fetcher(symbol: str, timeframe: str, limit: int):
+    """Return (bars, source). Real candles when HUB_USE_LIVE_DATA=1, else local."""
+    from data.market_data import get_bars
+    return get_bars(symbol, n=limit, timeframe=timeframe)
+
+
 class AutoStrategyEngine:
     def __init__(
         self,
@@ -48,6 +54,9 @@ class AutoStrategyEngine:
         warmup: int = 150,
         live_bars: int = 250,
         strategy_factory: Callable[[str], object] = _default_strategy_factory,
+        live: bool = False,
+        live_poll_s: float = 60.0,
+        fetcher: Optional[Callable[[str, str, int], tuple]] = None,
     ):
         self.pipeline = pipeline
         self.paper = paper
@@ -58,6 +67,11 @@ class AutoStrategyEngine:
         self.warmup = warmup
         self.live_bars = live_bars
         self.strategy_factory = strategy_factory
+        # Live forward mode: poll for NEW closed candles and trade only those
+        # (vs. replaying a historical batch). Real forward paper-trading.
+        self.live = live
+        self.live_poll_s = live_poll_s
+        self._fetcher = fetcher or _default_fetcher
         # Human-readable label for the active strategy (shown on the Bots page).
         try:
             probe = strategy_factory(self.symbols[0]) if self.symbols else None
@@ -107,12 +121,25 @@ class AutoStrategyEngine:
             "symbols": self.symbols,
             "timeframe": self.timeframe,
             "interval": self.interval,
+            "mode": "live" if self.live else "replay",
+            "strategy": self.strategy_label,
             "started_at": self.started_at,
             **self.stats,
         }
 
     # ----------------------------------------------------------- worker
     def _run(self) -> None:
+        try:
+            if self.live:
+                self._run_live()
+            else:
+                self._run_replay()
+        except Exception as e:  # noqa: BLE001 — never let the engine thread crash silently
+            self.ledger.log(level="error", stage="engine", message=f"Engine error: {e}")
+        finally:
+            self.running = False
+
+    def _run_replay(self) -> None:
         from data.market_data import get_bars
 
         strategies: dict[str, object] = {}
@@ -123,27 +150,64 @@ class AutoStrategyEngine:
             seeds[sym] = 1
             self._load_batch(sym, strategies, live, seeds, get_bars)
 
-        try:
-            while not self._stop.is_set():
-                advanced = False
-                for sym in self.symbols:
-                    if self._stop.is_set():
-                        break
-                    if not live[sym]:
-                        self._load_batch(sym, strategies, live, seeds, get_bars)
-                    if not live[sym]:
-                        continue
-                    bar = live[sym].pop(0)
-                    self._process_bar(sym, bar, strategies[sym])
-                    self.stats["bars"] += 1
-                    advanced = True
-                if not advanced:
+        while not self._stop.is_set():
+            advanced = False
+            for sym in self.symbols:
+                if self._stop.is_set():
                     break
-                self._stop.wait(self.interval)
-        except Exception as e:  # noqa: BLE001 — never let the engine thread crash silently
-            self.ledger.log(level="error", stage="engine", message=f"Engine error: {e}")
-        finally:
-            self.running = False
+                if not live[sym]:
+                    self._load_batch(sym, strategies, live, seeds, get_bars)
+                if not live[sym]:
+                    continue
+                bar = live[sym].pop(0)
+                self._process_bar(sym, bar, strategies[sym])
+                self.stats["bars"] += 1
+                advanced = True
+            if not advanced:
+                break
+            self._stop.wait(self.interval)
+
+    # ------------------------------------------------------ live forward mode
+    def _run_live(self) -> None:
+        """Warm up on history WITHOUT trading, then act only on NEW closed
+        candles as they arrive — genuine forward paper-trading."""
+        strategies: dict[str, object] = {}
+        last_ts: dict[str, object] = {}
+
+        for sym in self.symbols:
+            bars, src = self._fetcher(sym, self.timeframe, self.warmup + self.live_bars)
+            strat = self.strategy_factory(sym)
+            closed = bars[:-1]                     # last candle may be in-progress
+            for b in closed:                       # warm indicators, do NOT trade history
+                strat.bars.append(b)
+            strategies[sym] = strat
+            last_ts[sym] = closed[-1].timestamp if closed else None
+            self.ledger.log(level="info", stage="engine", symbol=sym,
+                            message=f"{sym}: {src} — warmed {len(closed)} bars; "
+                                    f"watching for new {self.timeframe} candles")
+
+        while not self._stop.is_set():
+            for sym in self.symbols:
+                if self._stop.is_set():
+                    break
+                try:
+                    bars, _ = self._fetcher(sym, self.timeframe, max(self.warmup + 5, 60))
+                except Exception as e:  # noqa: BLE001 — a fetch hiccup shouldn't stop the engine
+                    self.ledger.log(level="warning", stage="engine", symbol=sym,
+                                    message=f"{sym}: live fetch failed ({e})")
+                    continue
+                last_ts[sym] = self._ingest(sym, strategies[sym], bars, last_ts[sym])
+            self._stop.wait(self.live_poll_s)
+
+    def _ingest(self, sym, strat, bars, last_ts):
+        """Process only CLOSED bars newer than ``last_ts``; return updated last_ts."""
+        closed = bars[:-1] if len(bars) > 1 else []   # drop in-progress last candle
+        for b in closed:
+            if last_ts is None or b.timestamp > last_ts:
+                self._process_bar(sym, b, strat)
+                self.stats["bars"] += 1
+                last_ts = b.timestamp
+        return last_ts
 
     def _load_batch(self, sym, strategies, live, seeds, get_bars) -> None:
         bars, src = get_bars(sym, n=self.warmup + self.live_bars,

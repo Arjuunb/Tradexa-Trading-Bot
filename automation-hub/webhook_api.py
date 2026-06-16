@@ -69,6 +69,8 @@ engine = AutoStrategyEngine(
     timeframe=settings.auto_timeframe,
     interval=settings.auto_interval,
     strategy_factory=_make_strategy,
+    live=settings.use_live_data,
+    live_poll_s=settings.live_poll_s,
 )
 
 router = APIRouter()
