@@ -35,6 +35,9 @@ def make_strategy(name: str, threshold: float, rr: float):
         return SupertrendStrategy("BT", rr_target=rr)
     if name == "donchian":
         return DonchianStrategy("BT", rr_target=rr)
+    if name == "ensemble":
+        from strategies.ensemble_strategy import ConfirmationEnsemble
+        return ConfirmationEnsemble("BT", rr_target=rr)
     return DecisionBrain("BT", conviction_threshold=threshold, rr_target=rr)
 
 
@@ -160,7 +163,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="DecisionBrain backtest / walk-forward")
     ap.add_argument("csv")
     ap.add_argument("--group", type=int, default=1, help="bars per resampled candle (16 = 15m->4h)")
-    ap.add_argument("--strategy", choices=("brain", "supertrend", "donchian"), default="brain")
+    ap.add_argument("--strategy", choices=("brain", "supertrend", "donchian", "ensemble"), default="brain")
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--rr", type=float, default=2.5)
     ap.add_argument("--walk-forward", action="store_true")

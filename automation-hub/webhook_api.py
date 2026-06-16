@@ -46,6 +46,9 @@ def _make_strategy(symbol: str):
     if s == "donchian":
         from strategies.donchian_strategy import DonchianStrategy
         return DonchianStrategy(symbol)
+    if s == "ensemble":
+        from strategies.ensemble_strategy import ConfirmationEnsemble
+        return ConfirmationEnsemble(symbol)
     from strategies.brain_strategy import DecisionBrain
     return DecisionBrain(symbol)
 
