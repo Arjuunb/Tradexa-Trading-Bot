@@ -45,6 +45,10 @@ store = SqliteStore(settings.db_path)
 store.seed_admin(settings.username, settings.password)
 manager = BotManager(store=store)
 
+# Kyros Phase 1: TradingView webhook -> paper-execution -> ledger API.
+from webhook_api import router as webhook_router  # noqa: E402
+app.include_router(webhook_router)
+
 # Phase 8: process-wide event hub for the live (SSE) dashboard.
 from dashboard.stream import HubEventHub, sse_format  # noqa: E402
 hub_events = HubEventHub()

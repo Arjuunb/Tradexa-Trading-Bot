@@ -53,6 +53,13 @@ class Settings:
     db_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_DB_PATH", str(BASE_DIR / "logs" / "hub.db")))
 
+    # --- Kyros Phase 1: webhook + ledger ---
+    webhook_secret: str = field(default_factory=lambda: os.environ.get("HUB_WEBHOOK_SECRET", "dev-webhook-secret"))
+    exposure_limit_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_EXPOSURE_LIMIT", "0.05")))
+    ledger_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_LEDGER_PATH", str(BASE_DIR / "logs" / "ledger.db")))
+    dedup_window_s: int = field(default_factory=lambda: int(os.environ.get("HUB_DEDUP_WINDOW", "300")))
+
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.environ.get("TELEGRAM_CHAT_ID", ""))
