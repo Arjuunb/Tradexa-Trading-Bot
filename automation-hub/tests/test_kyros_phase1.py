@@ -266,3 +266,66 @@ def test_ledger_read_endpoints(client):
     assert isinstance(client.get("/paper/trades").json(), list)
     assert client.get("/ledger/logs").json()
     assert isinstance(client.get("/ledger/alerts").json(), list)
+
+
+# ----------------------------------------------------- dashboard wiring (UI)
+@pytest.fixture()
+def hub_client():
+    """Logged-in dashboard client with the Kyros singletons swapped for an
+    isolated in-memory ledger/paper/controls so UI pages reflect live state."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    import app as hub_app
+    import webhook_api
+    from bots.manager import BotManager
+    from dashboard.stream import HubEventHub
+
+    hub_app.manager = BotManager()
+    hub_app.hub_events = HubEventHub()
+    hub_app._sessions.clear()
+
+    led = SqliteLedger(":memory:")
+    webhook_api.ledger = led
+    webhook_api.controls = TradingControl()
+    webhook_api.paper = PaperExecutionEngine(led, 10_000)
+    webhook_api.pipeline = SignalPipeline(
+        led, webhook_api.paper, webhook_api.controls,
+        equity=10_000, risk_per_trade_pct=0.01, exposure_limit_pct=0.05)
+
+    c = TestClient(hub_app.app, follow_redirects=False)
+    r = c.post("/login", data={"username": "admin", "password": "admin"})
+    assert r.status_code == 303
+    return c
+
+
+def test_paper_page_reflects_open_position(hub_client):
+    hub_client.post("/webhook/tradingview", json=_alert(),
+                    headers={"X-Webhook-Secret": SECRET})
+    body = hub_client.get("/paper-trading").text
+    assert "BTCUSDT" in body and "Open Positions" in body
+    assert "Emergency Controls" in body
+
+
+def test_ui_emergency_controls_block_entries(hub_client):
+    r = hub_client.post("/paper-trading/pause")
+    assert r.status_code == 303
+    assert webhook_api_state(hub_client) == "Paused"
+    # paused -> a new webhook entry is rejected
+    res = hub_client.post("/webhook/tradingview", json=_alert(),
+                          headers={"X-Webhook-Secret": SECRET}).json()
+    assert res["accepted"] is False and res["stage"] == "controls"
+    hub_client.post("/paper-trading/resume")
+    assert webhook_api_state(hub_client) == "Active"
+
+
+def webhook_api_state(hub_client) -> str:
+    return hub_client.get("/controls/state").json()["state"]
+
+
+def test_alerts_and_logs_pages(hub_client):
+    hub_client.post("/webhook/tradingview", json=_alert(),
+                    headers={"X-Webhook-Secret": SECRET})
+    alerts = hub_client.get("/alerts").text
+    assert "Paper trade opened" in alerts
+    logs = hub_client.get("/logs").text
+    assert "Decision Log" in logs and "execution" in logs

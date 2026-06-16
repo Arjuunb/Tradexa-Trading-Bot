@@ -46,6 +46,10 @@ store.seed_admin(settings.username, settings.password)
 manager = BotManager(store=store)
 
 # Kyros Phase 1: TradingView webhook -> paper-execution -> ledger API.
+# `webhook_api` also owns the process-wide paper account / ledger / control
+# switch singletons; the dashboard pages below read them via the module so they
+# always reflect live webhook activity.
+import webhook_api  # noqa: E402
 from webhook_api import router as webhook_router  # noqa: E402
 app.include_router(webhook_router)
 
@@ -373,24 +377,104 @@ def strategies_page(request: Request):
 
 @app.get("/paper-trading", response_class=HTMLResponse)
 def paper_page(request: Request):
-    from database.models import BotState
-    bots = [b for b in manager.list() if b.runtime.state == BotState.PAPER]
-    if bots:
-        rows = "".join(
-            f"<tr><td><b>{w.esc(b.config.name)}</b></td>"
-            f"<td>{b.runtime.metrics.get('num_trades',0)}</td>"
-            f"<td>{b.runtime.metrics.get('win_rate',0)*100:.0f}%</td>"
-            f"<td class='{'pos' if b.runtime.pnl_today>=0 else 'neg'}'>"
-            f"{settings.currency}{b.runtime.pnl_today:,.2f}</td></tr>"
-            for b in bots
+    """Live paper account driven by the TradingView webhook -> paper engine.
+
+    KPIs + emergency controls + open positions + closed-trade history, all read
+    from the Kyros ledger (the source of truth)."""
+    paper, controls = webhook_api.paper, webhook_api.controls
+    cur = settings.currency
+    realized = paper.realized_pnl()
+    positions = paper.positions()
+    history = paper.history()
+
+    kpis = ('<div class="kpis">'
+            + w.kpi("Balance", f"{cur}{paper.balance():,.2f}")
+            + w.kpi("Realized P&L", f"{cur}{realized:,.2f}",
+                    "pos" if realized >= 0 else "neg")
+            + w.kpi("Open Positions", str(len(positions)))
+            + w.kpi("Trading State", w.state_badge(controls.state))
+            + '</div>')
+
+    # Emergency controls (paper mode) — session-gated POSTs operate the same
+    # control switch the webhook pipeline consults before every entry.
+    controls_card = (
+        '<div class="card"><h2>Emergency Controls</h2>'
+        '<div class="rowbtns" style="justify-content:flex-start;gap:8px">'
+        '<form class="inline" method="post" action="/paper-trading/pause">'
+        '<button class="btn btn-warn" type="submit">⏸ Pause All</button></form>'
+        '<form class="inline" method="post" action="/paper-trading/stop">'
+        '<button class="btn btn-danger" type="submit">■ Stop All</button></form>'
+        '<form class="inline" method="post" action="/paper-trading/resume">'
+        '<button class="btn" type="submit">▶ Resume Trading</button></form>'
+        '</div>'
+        f'<p class="dim" style="margin-top:10px">Current state: '
+        f'<b>{w.esc(controls.state)}</b>. Pause/Stop block new webhook entries; '
+        'open positions still close on exit signals. Paper mode only.</p></div>')
+
+    if positions:
+        prows = "".join(
+            f"<tr><td><b>{w.esc(p['symbol'])}</b></td>"
+            f"<td>{w.esc(str(p['side']).title())}</td>"
+            f"<td>{p['size']:.6f}</td><td>{cur}{p['entry']:,.2f}</td>"
+            f"<td>{(cur + format(p['stop'], ',.2f')) if p.get('stop') else '—'}</td></tr>"
+            for p in positions
         )
-        inner = (f'<div class="card"><h2>Paper Bots</h2><table><thead><tr><th>Bot</th>'
-                 f'<th>Trades</th><th>Win rate</th><th>P&L today</th></tr></thead>'
-                 f'<tbody>{rows}</tbody></table></div>')
+        pos_card = (f'<div class="card"><h2>Open Positions</h2><table><thead><tr>'
+                    f'<th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th>'
+                    f'<th>Stop</th></tr></thead><tbody>{prows}</tbody></table></div>')
     else:
-        inner = ('<div class="card"><div class="empty">No paper bots running. '
-                 'Create a bot (paper mode) and press Start.</div></div>')
-    return _simple_page(request, "Paper Trading", "paper", inner)
+        pos_card = ('<div class="card"><h2>Open Positions</h2>'
+                    '<div class="empty">No open positions. Send a TradingView '
+                    'webhook to <code>/webhook/tradingview</code> to open one.</div></div>')
+
+    if history:
+        hrows = "".join(
+            f"<tr><td><b>{w.esc(t['symbol'])}</b></td>"
+            f"<td>{w.esc(str(t['side']).title())}</td>"
+            f"<td>{cur}{t['entry']:,.2f}</td>"
+            f"<td>{cur}{(t.get('exit') or 0):,.2f}</td>"
+            f"<td class='{'pos' if (t.get('pnl') or 0)>=0 else 'neg'}'>"
+            f"{cur}{(t.get('pnl') or 0):,.2f}</td>"
+            f"<td>{(t.get('rr') if t.get('rr') is not None else 0):.2f}R</td></tr>"
+            for t in history
+        )
+        hist_card = (f'<div class="card"><h2>Trade History</h2><table><thead><tr>'
+                     f'<th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th>'
+                     f'<th>P&L</th><th>R:R</th></tr></thead>'
+                     f'<tbody>{hrows}</tbody></table></div>')
+    else:
+        hist_card = ('<div class="card"><h2>Trade History</h2>'
+                     '<div class="empty">No closed trades yet.</div></div>')
+
+    return _simple_page(request, "Paper Trading", "paper",
+                        kpis + controls_card + pos_card + hist_card)
+
+
+# --------------------------------------------- emergency controls (UI, session-gated)
+def _control_action(request: Request, action, level: str, message: str):
+    if not _user(request):
+        return RedirectResponse("/login", status_code=303)
+    action()
+    webhook_api.ledger.log(level=level, stage="controls", message=message)
+    return RedirectResponse("/paper-trading", status_code=303)
+
+
+@app.post("/paper-trading/pause")
+def ui_pause_all(request: Request):
+    return _control_action(request, webhook_api.controls.pause_all,
+                           "warning", "PAUSE ALL — entries blocked (dashboard)")
+
+
+@app.post("/paper-trading/stop")
+def ui_stop_all(request: Request):
+    return _control_action(request, webhook_api.controls.stop_all,
+                           "warning", "STOP ALL — trading halted (dashboard)")
+
+
+@app.post("/paper-trading/resume")
+def ui_resume(request: Request):
+    return _control_action(request, webhook_api.controls.resume,
+                           "info", "RESUME — trading active (dashboard)")
 
 
 @app.get("/risk-center", response_class=HTMLResponse)
@@ -443,19 +527,68 @@ def analytics_page(request: Request, bot: str = ""):
                         render_analytics(manager, bot_id=bot or None))
 
 
+def _level_badge(level: str) -> str:
+    cls = {"error": "b-err", "warning": "b-pause", "info": "b-paper"}.get(
+        str(level).lower(), "b-new")
+    return f'<span class="badge {cls}">{w.esc(str(level).upper())}</span>'
+
+
 @app.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request):
+    # Decision log from the ledger: every pipeline stage (controls/dedup/risk/
+    # sizing/execution) records why a webhook signal executed or was rejected.
+    decisions = webhook_api.ledger.get_logs(200)
+    if decisions:
+        drows = "".join(
+            f"<tr><td class='dim'>{w.esc((d.get('ts') or '')[:19].replace('T',' '))}</td>"
+            f"<td>{_level_badge(d.get('level'))}</td>"
+            f"<td>{w.esc(d.get('stage') or '')}</td>"
+            f"<td>{w.esc(d.get('symbol') or '')}</td>"
+            f"<td>{w.esc(d.get('message') or '')}</td></tr>"
+            for d in decisions
+        )
+        decision_card = (f'<div class="card"><h2>Decision Log</h2><table><thead><tr>'
+                         f'<th>Time</th><th>Level</th><th>Stage</th><th>Symbol</th>'
+                         f'<th>Message</th></tr></thead><tbody>{drows}</tbody></table></div>')
+    else:
+        decision_card = ('<div class="card"><h2>Decision Log</h2>'
+                         '<div class="empty">No webhook decisions yet. Signals sent to '
+                         '<code>/webhook/tradingview</code> appear here with their outcome.</div></div>')
+
+    # Engine runtime events (backtest/live runner) — kept as a secondary feed.
     lines = []
     for b in manager.list():
         for ev in b.runtime.events[-40:]:
             lines.append(f"[{b.config.name}] {ev.get('type')} "
                          f"{ev.get('symbol','')} {ev.get('reason','')}".strip())
-    inner = ('<div class="card"><h2>Logs</h2>'
-             + ('<pre style="white-space:pre-wrap;color:#9fb0c0">'
-                + w.esc("\n".join(lines[-200:])) + '</pre>'
-                if lines else '<div class="empty">No logs yet.</div>')
-             + '</div>')
-    return _simple_page(request, "Logs", "logs", inner)
+    engine_card = ('<div class="card"><h2>Engine Events</h2>'
+                   + ('<pre style="white-space:pre-wrap;color:#9fb0c0">'
+                      + w.esc("\n".join(lines[-200:])) + '</pre>'
+                      if lines else '<div class="empty">No engine events yet.</div>')
+                   + '</div>')
+    return _simple_page(request, "Logs", "logs", decision_card + engine_card)
+
+
+@app.get("/alerts", response_class=HTMLResponse)
+def alerts_page(request: Request):
+    alerts = webhook_api.ledger.get_alerts(100)
+    if alerts:
+        rows = "".join(
+            f"<tr><td class='dim'>{w.esc((a.get('ts') or '')[:19].replace('T',' '))}</td>"
+            f"<td>{_level_badge(a.get('severity'))}</td>"
+            f"<td>{w.esc(a.get('category') or '')}</td>"
+            f"<td><b>{w.esc(a.get('title') or '')}</b></td>"
+            f"<td class='dim'>{w.esc(a.get('detail') or '')}</td></tr>"
+            for a in alerts
+        )
+        inner = (f'<div class="card"><h2>Alerts</h2><table><thead><tr><th>Time</th>'
+                 f'<th>Severity</th><th>Category</th><th>Title</th><th>Detail</th>'
+                 f'</tr></thead><tbody>{rows}</tbody></table></div>')
+    else:
+        inner = ('<div class="card"><h2>Alerts</h2>'
+                 '<div class="empty">No alerts yet. Trade executions, rejections and '
+                 'risk events raise alerts here.</div></div>')
+    return _simple_page(request, "Alerts", "alerts", inner)
 
 
 @app.get("/live-trading", response_class=HTMLResponse)
