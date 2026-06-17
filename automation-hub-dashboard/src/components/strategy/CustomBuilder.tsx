@@ -5,8 +5,8 @@ import AreaLine from "../chart/AreaLine";
 import { Badge, Field } from "../common/ui";
 import { useApp } from "../../app-context";
 import {
-  apiDelete, apiPostJson, useLive, hhmmss,
-  type CustomRule, type CustomSpec, type SimResult,
+  apiDelete, apiGet, apiPostJson, useLive, hhmmss,
+  type CompareResult, type CustomRule, type CustomSpec, type SimResult, type StrategyList,
 } from "../../lib/api";
 
 type FieldDef = [string, "num" | "sel", number | string[]];
@@ -18,6 +18,10 @@ const RULE_DEFS: Record<string, { label: string; fields: FieldDef[] }> = {
   breakout: { label: "Breakout (price action)", fields: [["lookback", "num", 20], ["dir", "sel", ["up", "down"]]] },
   volume: { label: "Volume vs average", fields: [["period", "num", 20], ["op", "sel", ["above", "below"]]] },
   atr_filter: { label: "Volatility (ATR) filter", fields: [["period", "num", 14], ["op", "sel", ["below", "above"]], ["value_pct", "num", 4]] },
+  pullback: { label: "Pullback to EMA (price action)", fields: [["period", "num", 20], ["dir", "sel", ["up", "down"]]] },
+  support_bounce: { label: "Support / Resistance (price action)", fields: [["lookback", "num", 30], ["dir", "sel", ["support", "resistance"]], ["tolerance_pct", "num", 0.5]] },
+  liquidity_sweep: { label: "Liquidity sweep (price action)", fields: [["lookback", "num", 20], ["dir", "sel", ["down", "up"]]] },
+  fair_value_gap: { label: "Fair value gap (price action)", fields: [["dir", "sel", ["up", "down"]]] },
 };
 
 function newRule(type: string): CustomRule {
@@ -44,6 +48,10 @@ function describe(s: CustomSpec): string {
       breakout: `price breaks the ${r.lookback}-bar ${r.dir === "up" ? "high" : "low"}`,
       volume: `volume is ${r.op} its ${r.period}-bar average`,
       atr_filter: `volatility is ${r.op} ${r.value_pct}%`,
+      pullback: `price pulls back to the ${r.period} EMA (${r.dir})`,
+      support_bounce: `price reacts at the ${r.lookback}-bar ${r.dir}`,
+      liquidity_sweep: `price sweeps the ${r.lookback}-bar ${r.dir === "down" ? "lows" : "highs"} and reverses`,
+      fair_value_gap: `a ${r.dir === "up" ? "bullish" : "bearish"} fair-value gap forms`,
     };
     return r.negate ? `NOT (${m[r.type] ?? r.type})` : m[r.type] ?? r.type;
   };
@@ -61,6 +69,9 @@ export default function CustomBuilder() {
   const [sim, setSim] = useState<SimResult | null>(null);
   const [running, setRunning] = useState(false);
   const saved = useLive<CustomSpec[]>("/strategy/custom", 6000);
+  const prebuilt = useLive<StrategyList>("/strategy/list", 0 || 30000);
+  const [cmpKey, setCmpKey] = useState("brain");
+  const [cmp, setCmp] = useState<CompareResult | null>(null);
 
   useEffect(() => { setSim(null); }, [spec.entry, spec.symbol, spec.timeframe, spec.side, spec.stop, spec.target]);
 
@@ -82,6 +93,15 @@ export default function CustomBuilder() {
   const load = (s: CustomSpec) => { setSpec(s); setSim(null); app.toast(`Loaded "${s.name}"`, "info"); };
   const duplicate = async (id: string) => { try { await apiPostJson(`/strategy/custom/${id}/duplicate`, {}); saved.refetch(); app.toast("Duplicated", "success"); } catch { app.toast("Failed", "error"); } };
   const remove = async (id: string) => { try { await apiDelete(`/strategy/custom/${id}`); saved.refetch(); app.toast("Deleted", "info"); } catch { app.toast("Failed", "error"); } };
+  const deploy = async (id: string, name: string) => {
+    if (!window.confirm(`Deploy "${name}" to PAPER trading? The engine switches to this strategy (paper only — never live).`)) return;
+    try { await apiPostJson(`/strategy/custom/${id}/deploy`, {}); app.toast(`"${name}" deployed to paper trading`, "success"); }
+    catch { app.toast("Deploy failed", "error"); }
+  };
+  const compare = async () => {
+    try { setCmp(await apiGet<CompareResult>(`/strategy/compare?symbol=${spec.symbol}&timeframe=${spec.timeframe}&strategy=${cmpKey}&bars=3000`)); }
+    catch { app.toast("Compare failed", "error"); }
+  };
 
   const r = sim?.results;
   const curve = (r?.equity_curve ?? []).map((p) => p.equity);
@@ -210,6 +230,29 @@ export default function CustomBuilder() {
               </table>
             </div>
           </Card>
+
+          <Card title="Compare vs Pre-built" subtitle={`same data · ${sim!.symbol} ${sim!.timeframe}`}>
+            <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, marginBottom: 10 }}>
+              <select value={cmpKey} onChange={(e) => setCmpKey(e.target.value)} style={{ width: 200 }}>
+                {(prebuilt.data?.strategies ?? [{ key: "brain", label: "Decision Brain" }]).map((s: any) => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+              <button className="btn btn-soft" onClick={compare}><Icon name="chart" size={14} /> Compare</button>
+            </div>
+            {cmp && (
+              <div className="tablewrap">
+                <table className="data-table">
+                  <thead><tr><th>Metric</th><th>Your Strategy</th><th>{cmp.strategy}</th></tr></thead>
+                  <tbody>
+                    <tr><td className="dim">Total trades</td><td>{r.total_trades}</td><td>{cmp.metrics.total_trades}</td></tr>
+                    <tr><td className="dim">Win rate</td><td>{r.win_rate}%</td><td>{cmp.metrics.win_rate}%</td></tr>
+                    <tr><td className="dim">Profit factor</td><td className={r.profit_factor >= 1 ? "pos" : "neg"}>{r.profit_factor.toFixed(2)}</td><td className={cmp.metrics.profit_factor >= 1 ? "pos" : "neg"}>{cmp.metrics.profit_factor.toFixed(2)}</td></tr>
+                    <tr><td className="dim">Net (R)</td><td className={r.net_r >= 0 ? "pos" : "neg"}>{r.net_r}R</td><td className={cmp.metrics.net_r >= 0 ? "pos" : "neg"}>{cmp.metrics.net_r}R</td></tr>
+                    <tr><td className="dim">Max drawdown (R)</td><td>{r.max_drawdown_r}R</td><td>{cmp.metrics.max_drawdown_r}R</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         </>
       )}
 
@@ -226,6 +269,7 @@ export default function CustomBuilder() {
                   <td><div className="row-actions">
                     <button className="icon-btn sm" title="Load / edit" onClick={() => load(s)}><Icon name="settings" size={14} /></button>
                     <button className="icon-btn sm" title="Duplicate" onClick={() => duplicate(s.id!)}><Icon name="layers" size={14} /></button>
+                    <button className="icon-btn sm ok" title="Deploy to paper trading" onClick={() => deploy(s.id!, s.name)}><Icon name="play" size={14} /></button>
                     <button className="icon-btn sm neg" title="Delete" onClick={() => remove(s.id!)}><Icon name="close" size={14} /></button>
                   </div></td>
                 </tr>

@@ -408,6 +408,45 @@ def custom_duplicate(sid: str, x_webhook_secret: Optional[str] = Header(default=
     return dup
 
 
+@router.post("/strategy/custom/{sid}/deploy")
+def custom_deploy(sid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Deploy a saved custom strategy to PAPER trading (never live)."""
+    _check_secret(x_webhook_secret)
+    spec = custom_store.get(sid)
+    if not spec:
+        raise HTTPException(404, "Strategy not found")
+    from strategies.custom_adapter import CustomStrategyAdapter
+    name = spec.get("name", "Strategy")
+    engine.reconfigure(
+        symbols=[spec.get("symbol", "BTCUSDT")],
+        timeframe=spec.get("timeframe", "4h"),
+        strategy_factory=lambda sym, _s=spec: CustomStrategyAdapter(sym, _s),
+        label=f"Custom: {name}",
+    )
+    ledger.log(level="info", stage="engine", message=f"Deployed custom strategy '{name}' to paper trading")
+    ledger.add_alert(severity="info", category="system", title="Custom strategy deployed",
+                     detail=f"{name} — paper mode (simulation only, no live broker)")
+    return {"deployed": True, "status": engine.status()}
+
+
+@router.get("/strategy/compare")
+def strategy_compare(symbol: str = "BTCUSDT", timeframe: str = "4h",
+                     strategy: str = "brain", bars: int = 3000):
+    """Backtest a pre-built strategy on the same data, to compare vs a custom one."""
+    from data.market_data import get_bars
+    from backtest import run as _run, _metrics
+    rows, source = get_bars(symbol, n=max(300, min(int(bars), 10000)), timeframe=timeframe)
+    m = _metrics(_run(rows, strategy=strategy))
+    return {
+        "strategy": strategy, "data_source": source, "symbol": symbol, "timeframe": timeframe,
+        "metrics": {
+            "total_trades": m.trades, "win_rate": round(m.win_rate, 1),
+            "profit_factor": round(m.profit_factor, 2), "net_r": round(m.net_r, 2),
+            "max_drawdown_r": round(m.max_dd_r, 1), "avg_r": round(m.avg_r, 3),
+        },
+    }
+
+
 @router.get("/strategy/list")
 def strategy_list():
     """Real list of selectable engine strategies + which one is active."""

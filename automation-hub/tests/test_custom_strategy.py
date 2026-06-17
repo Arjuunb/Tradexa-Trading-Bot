@@ -101,6 +101,32 @@ def test_simulate_endpoint_uses_real_data(client):
     assert "results" in body and "warnings" in body and "description" in body
 
 
+def test_price_action_rules_evaluate():
+    from strategies.custom import _rule
+    bars = _bars()
+    i = len(bars) - 1
+    for rt in ("pullback", "support_bounce", "liquidity_sweep", "fair_value_gap"):
+        ok, why = _rule({"type": rt}, bars, i)
+        assert isinstance(ok, bool)  # evaluates without error
+
+
+def test_deploy_custom_to_paper(client):
+    saved = client.post("/strategy/custom", json=EXAMPLE, headers={"X-Webhook-Secret": SECRET}).json()
+    r = client.post(f"/strategy/custom/{saved['id']}/deploy", headers={"X-Webhook-Secret": SECRET})
+    assert r.status_code == 200 and r.json()["deployed"] is True
+    import webhook_api
+    assert webhook_api.engine.symbols == [EXAMPLE["symbol"]]
+    assert "Custom" in webhook_api.engine.strategy_label
+    webhook_api.engine.stop()
+
+
+def test_compare_endpoint(client):
+    r = client.get("/strategy/compare", params={"symbol": "BTCUSDT", "timeframe": "4h", "strategy": "brain", "bars": 1500})
+    assert r.status_code == 200
+    m = r.json()["metrics"]
+    assert all(k in m for k in ("total_trades", "win_rate", "profit_factor", "net_r"))
+
+
 def test_custom_crud_endpoints_gated(client):
     assert client.post("/strategy/custom", json=EXAMPLE).status_code == 401
     saved = client.post("/strategy/custom", json=EXAMPLE, headers={"X-Webhook-Secret": SECRET}).json()

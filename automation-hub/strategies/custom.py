@@ -20,7 +20,8 @@ from typing import Optional
 
 from bot.data.indicators import atr, ema, rsi
 
-RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter")
+RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter",
+              "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap")
 WARMUP = 210  # enough history for SMA200 etc.
 
 
@@ -105,6 +106,45 @@ def _rule(rule: dict, bars, i: int) -> tuple[bool, str]:
         below = pct < val
         ok = below if p.get("op", "below") == "below" else (not below)
         return ok, f"ATR {pct*100:.1f}%"
+
+    # ---- price action ----
+    if t == "pullback":  # bounce off a moving average in the trend's direction
+        n = int(p.get("period", 20))
+        if len(closes) < n + 1:
+            return False, ""
+        ev = ema(closes, n)[-1]
+        if p.get("dir", "up") == "up":
+            return (closes[-1] > ev and bars[i].low <= ev), f"pullback to EMA{n}"
+        return (closes[-1] < ev and bars[i].high >= ev), f"pullback to EMA{n}"
+
+    if t == "support_bounce":  # price reacting at a recent support/resistance level
+        lb = int(p.get("lookback", 30)); tol = float(p.get("tolerance_pct", 0.5)) / 100.0
+        if i < lb:
+            return False, ""
+        prior = bars[i - lb:i]
+        if p.get("dir", "support") == "support":
+            lvl = min(b.low for b in prior)
+            return (lvl <= bars[i].close <= lvl * (1 + tol)), f"near {lb}-bar support"
+        lvl = max(b.high for b in prior)
+        return (lvl * (1 - tol) <= bars[i].close <= lvl), f"near {lb}-bar resistance"
+
+    if t == "liquidity_sweep":  # wick beyond a level then reclaim (stop hunt)
+        lb = int(p.get("lookback", 20))
+        if i < lb:
+            return False, ""
+        prior = bars[i - lb:i]
+        if p.get("dir", "down") == "down":  # sweep lows, reclaim -> bullish
+            lo = min(b.low for b in prior)
+            return (bars[i].low < lo and bars[i].close > lo), "swept lows + reclaim"
+        hi = max(b.high for b in prior)
+        return (bars[i].high > hi and bars[i].close < hi), "swept highs + reject"
+
+    if t == "fair_value_gap":  # 3-candle imbalance
+        if i < 2:
+            return False, ""
+        if p.get("dir", "up") == "up":
+            return (bars[i - 2].high < bars[i].low), "bullish FVG"
+        return (bars[i - 2].low > bars[i].high), "bearish FVG"
 
     return False, ""
 
@@ -307,6 +347,10 @@ def _phrase_rule(r: dict) -> str:
         "breakout": f"price breaks the {r.get('lookback',20)}-bar {'high' if r.get('dir','up')=='up' else 'low'}",
         "volume": f"volume is {r.get('op','above')} its {r.get('period',20)}-bar average",
         "atr_filter": f"volatility (ATR) is {r.get('op','below')} {r.get('value_pct',4)}%",
+        "pullback": f"price pulls back to the {r.get('period',20)} EMA in the {r.get('dir','up')} direction",
+        "support_bounce": f"price reacts at the {r.get('lookback',30)}-bar {r.get('dir','support')}",
+        "liquidity_sweep": f"price sweeps the {r.get('lookback',20)}-bar {'lows' if r.get('dir','down')=='down' else 'highs'} and reverses",
+        "fair_value_gap": f"a {'bullish' if r.get('dir','up')=='up' else 'bearish'} fair-value gap forms",
     }.get(t, t or "a condition")
     return f"NOT ({s})" if neg else s
 

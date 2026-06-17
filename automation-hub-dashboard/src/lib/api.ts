@@ -184,6 +184,11 @@ export interface SimResult {
   description: string; data_source: string; symbol: string; timeframe: string; label: string;
 }
 
+export interface CompareResult {
+  strategy: string; data_source: string; symbol: string; timeframe: string;
+  metrics: { total_trades: number; win_rate: number; profit_factor: number; net_r: number; max_drawdown_r: number; avg_r: number };
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

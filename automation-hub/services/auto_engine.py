@@ -115,6 +115,19 @@ class AutoStrategyEngine:
         self.ledger.log(level="info", stage="engine", message="Autonomous engine stopped")
         return True
 
+    def reconfigure(self, *, symbols, timeframe, strategy_factory, label) -> dict:
+        """Swap the running strategy / symbols / timeframe and restart (paper).
+        Used to deploy a user-built custom strategy from the Strategy Builder."""
+        self.stop()
+        self.symbols = list(symbols)
+        self.timeframe = timeframe
+        self.strategy_factory = strategy_factory
+        self.strategy_label = label
+        self._targets.clear()
+        self.stats = {"bars": 0, "signals": 0, "trades": 0, "rejections": 0}
+        self.start()
+        return self.status()
+
     def status(self) -> dict:
         return {
             "running": self.running,
