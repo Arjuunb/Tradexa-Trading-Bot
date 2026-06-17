@@ -3,13 +3,21 @@
 Wraps a custom rule spec as a HubStrategy so the autonomous engine can paper-
 trade it — the bridge from the Strategy Builder to paper trading. The pipeline
 still applies all risk checks (market quality, sizing, exposure, drawdown halt).
+
+When the spec enables it (``quality_filter``, on by default), the same TradeBrain
+used in simulation scores each setup BEFORE it becomes a signal: blocked or
+sub-threshold setups are suppressed (and logged via ``on_block`` if provided),
+and the quality score scales the signal's confidence so the pipeline sizes good
+setups larger than marginal ones. This makes paper trading take the same
+fewer, higher-quality trades that simulation does.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from bot.types import Bar, Signal, SignalType
 from strategies.base_strategy import HubStrategy
+from strategies.brain import TradeBrain, detect_reversal
 from strategies.custom import WARMUP, _stop_distance, _target_distance, evaluate
 
 
@@ -17,13 +25,21 @@ class CustomStrategyAdapter(HubStrategy):
     name = "custom"
     label = "Custom"
 
-    def __init__(self, symbol: str, spec: dict, *, max_history: int = 700, **params):
+    def __init__(self, symbol: str, spec: dict, *, max_history: int = 700,
+                 brain: Optional[TradeBrain] = None, min_score: Optional[int] = None,
+                 on_block: Optional[Callable[[dict], None]] = None, **params):
         target = spec.get("target") or {}
         params.setdefault("rr_target", float(target.get("rr", 1.5)) if target.get("type", "rr") == "rr" else 1.5)
         super().__init__(symbol, **params)
         self.spec = spec
         self.max_history = max_history
         self.label = f"Custom: {spec.get('name', 'Strategy')}"
+        # Quality filter (on unless the spec disables it).
+        self._use_brain = spec.get("quality_filter", True)
+        self.brain = brain or (TradeBrain() if self._use_brain else None)
+        self.min_score = int(spec.get("min_score", 60) if min_score is None else min_score)
+        self.on_block = on_block
+        self._reversal = detect_reversal(spec)
 
     def generate(self, bar: Bar) -> Optional[Signal]:
         if len(self.bars) > self.max_history:
@@ -47,8 +63,26 @@ class CustomStrategyAdapter(HubStrategy):
         else:
             direction, stop, take = SignalType.SHORT, entry + risk_abs, entry - tgt
 
+        reason = "; ".join(reasons) or "custom entry"
+        confidence = 1.0
+
+        # ---- trade-quality brain gate (same logic as simulation) ----
+        if self.brain is not None:
+            v = self.brain.evaluate(self.bars, i, side=side, entry=entry, stop=stop,
+                                    target=take, reversal=self._reversal)
+            if not v.allowed or v.score < self.min_score:
+                if self.on_block:
+                    self.on_block({
+                        "symbol": self.symbol, "side": side, "score": v.score,
+                        "regime": v.regime, "htf_bias": v.htf_bias,
+                        "reason": (v.blocks[0] if v.blocks else f"low quality score {v.score} < {self.min_score}"),
+                        "timestamp": bar.timestamp.isoformat(),
+                    })
+                return None
+            confidence = max(0.0, min(1.0, v.score / 100.0))
+            reason = f"{reason} | score {v.score} ({v.grade}), {v.regime}, HTF {v.htf_bias}"
+
         sig = Signal(timestamp=bar.timestamp, symbol=self.symbol, type=direction,
-                     entry=entry, stop_loss=stop, take_profit=take,
-                     reason="; ".join(reasons) or "custom entry")
-        sig.confidence = 1.0
+                     entry=entry, stop_loss=stop, take_profit=take, reason=reason)
+        sig.confidence = confidence
         return sig

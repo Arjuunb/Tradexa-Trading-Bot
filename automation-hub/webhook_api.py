@@ -618,10 +618,19 @@ def custom_deploy(sid: str, x_webhook_secret: Optional[str] = Header(default=Non
         raise HTTPException(404, "Strategy not found")
     from strategies.custom_adapter import CustomStrategyAdapter
     name = spec.get("name", "Strategy")
+
+    def _log_block(info: dict):
+        """Record a brain-blocked paper setup to the decision log (avoiding bad
+        trades is part of the edge — make it visible)."""
+        ledger.log(level="info", stage="brain",
+                   message=(f"{info['symbol']} {info['side']} blocked — {info['reason']} "
+                            f"(score {info['score']}, {info['regime']}, HTF {info['htf_bias']})"),
+                   symbol=info["symbol"])
+
     engine.reconfigure(
         symbols=[spec.get("symbol", "BTCUSDT")],
         timeframe=spec.get("timeframe", "4h"),
-        strategy_factory=lambda sym, _s=spec: CustomStrategyAdapter(sym, _s),
+        strategy_factory=lambda sym, _s=spec: CustomStrategyAdapter(sym, _s, on_block=_log_block),
         label=f"Custom: {name}",
     )
     ledger.log(level="info", stage="engine", message=f"Deployed custom strategy '{name}' to paper trading")

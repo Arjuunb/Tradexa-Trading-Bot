@@ -179,3 +179,52 @@ def test_walk_forward_honest_verdict():
     # never claims reliable unless out-of-sample profit factor >= 1
     if rep["verdict"] == "reliable":
         assert rep["validation"]["profit_factor"] >= 1
+
+
+# --------------------------------------------------------------- paper adapter
+def test_adapter_brain_blocks_and_logs():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "1h", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "rsi", "op": "below", "value": 100}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "min_score": 60}
+    blocks = []
+    ad = CustomStrategyAdapter("BTCUSDT", spec, on_block=blocks.append)
+    bars = _downtrend(n=400)  # longs into a downtrend -> brain should block
+    sig = None
+    for b in bars:
+        sig = ad.on_bar(b) or sig
+    assert blocks, "expected at least one blocked setup logged"
+    assert {"symbol", "side", "score", "regime", "reason"}.issubset(blocks[0])
+
+
+def test_adapter_quality_scales_confidence():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "1h", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "ema_cross", "fast": 20, "slow": 50, "dir": "above"}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "min_score": 40}
+    ad = CustomStrategyAdapter("BTCUSDT", spec)
+    got = None
+    for b in _uptrend(n=400):
+        s = ad.on_bar(b)
+        if s is not None:
+            got = s
+            break
+    assert got is not None
+    assert 0.0 <= got.confidence <= 1.0
+    assert "score" in got.reason
+
+
+def test_adapter_filter_can_be_disabled():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "1h", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "rsi", "op": "below", "value": 100}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "quality_filter": False}
+    ad = CustomStrategyAdapter("BTCUSDT", spec)
+    assert ad.brain is None
+    sig = None
+    for b in _downtrend(n=400):
+        sig = ad.on_bar(b) or sig
+    assert sig is not None  # without the brain, longs into a downtrend are taken
