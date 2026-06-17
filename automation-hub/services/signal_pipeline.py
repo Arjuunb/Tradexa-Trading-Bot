@@ -65,6 +65,10 @@ class SignalPipeline:
         max_daily_loss_pct: float = 0.0,
         session_start: int = 0,
         session_end: int = 24,
+        max_weekly_loss_pct: float = 0.0,
+        max_trades_per_day: int = 0,
+        max_consecutive_losses: int = 0,
+        cooldown_after_loss_min: int = 0,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -83,6 +87,10 @@ class SignalPipeline:
         self.max_daily_loss_pct = max_daily_loss_pct
         self.session_start = session_start
         self.session_end = session_end
+        self.max_weekly_loss_pct = max_weekly_loss_pct
+        self.max_trades_per_day = max_trades_per_day
+        self.max_consecutive_losses = max_consecutive_losses
+        self.cooldown_after_loss_min = cooldown_after_loss_min
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -188,6 +196,32 @@ class SignalPipeline:
                 return reject("daily_loss", f"Daily loss limit hit ({today:+.2f} ≤ -{limit:.2f})")
             steps.append(Step("daily_loss", True, f"today {today:+.2f} / -{limit:.2f}"))
 
+        # 3g. weekly-loss limit (resets each ISO week)
+        if self.max_weekly_loss_pct > 0:
+            wk = self._week_pnl()
+            wlimit = self.max_weekly_loss_pct * self.paper.starting_balance
+            if wk <= -wlimit:
+                return reject("weekly_loss", f"Weekly loss limit hit ({wk:+.2f} ≤ -{wlimit:.2f})")
+            steps.append(Step("weekly_loss", True, f"week {wk:+.2f} / -{wlimit:.2f}"))
+
+        # 3h. stop after N consecutive losses -> auto-halt new entries until Resume
+        if self.max_consecutive_losses > 0 and not self._halted:
+            streak = self._consecutive_losses()
+            if streak >= self.max_consecutive_losses:
+                self._engage_halt(f"{streak} consecutive losses (limit {self.max_consecutive_losses})")
+                return reject("risk_guard", f"Auto-halt: {self._halt_reason}")
+
+        # 3i. cooldown after a losing trade
+        if self.cooldown_after_loss_min > 0:
+            secs = self._since_last_loss()
+            if secs is not None and secs < self.cooldown_after_loss_min * 60:
+                left = int((self.cooldown_after_loss_min * 60 - secs) / 60) + 1
+                return reject("cooldown", f"Cooldown after loss — ~{left}m left")
+
+        # 3j. max trades per UTC day
+        if self.max_trades_per_day > 0 and self._opens_today() >= self.max_trades_per_day:
+            return reject("max_trades", f"Max {self.max_trades_per_day} trades/day reached")
+
         # 4. risk: position sizing from stop distance, scaled by conviction
         #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%).
         if stop is None or stop == entry:
@@ -257,6 +291,46 @@ class SignalPipeline:
         """Net realized P&L for the current UTC day (resets at the day boundary)."""
         day = datetime.now(timezone.utc).date().isoformat()
         return self._pnl_on_day(self.paper.history(), day)
+
+    def _week_pnl(self) -> float:
+        """Net realized P&L for the current ISO week (resets each week)."""
+        y, w, _ = datetime.now(timezone.utc).isocalendar()
+        total = 0.0
+        for t in self.paper.history():
+            try:
+                d = datetime.fromisoformat((t.get("closed_at") or "").replace("Z", "+00:00"))
+                ty, tw, _ = d.isocalendar()
+                if ty == y and tw == w:
+                    total += t.get("pnl") or 0.0
+            except Exception:  # noqa: BLE001
+                continue
+        return total
+
+    def _consecutive_losses(self) -> int:
+        n = 0
+        for t in sorted(self.paper.history(), key=lambda x: x.get("closed_at") or "", reverse=True):
+            if (t.get("pnl") or 0.0) < 0:
+                n += 1
+            else:
+                break
+        return n
+
+    def _since_last_loss(self) -> Optional[float]:
+        """Seconds since the most recent losing trade closed, or None."""
+        losses = [t for t in self.paper.history() if (t.get("pnl") or 0.0) < 0 and t.get("closed_at")]
+        if not losses:
+            return None
+        last = max(losses, key=lambda t: t["closed_at"])
+        try:
+            d = datetime.fromisoformat(last["closed_at"].replace("Z", "+00:00"))
+            return (datetime.now(timezone.utc) - d).total_seconds()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _opens_today(self) -> int:
+        day = datetime.now(timezone.utc).date().isoformat()
+        return sum(1 for t in self.ledger.get_paper_trades()
+                   if (t.get("opened_at") or "")[:10] == day)
 
     def _drawdown_trip(self) -> Optional[str]:
         """Return a reason if realized-equity drawdown (since the last baseline)

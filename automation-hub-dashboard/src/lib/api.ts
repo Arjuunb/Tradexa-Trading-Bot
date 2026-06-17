@@ -49,6 +49,8 @@ export interface BotSettings {
     risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number;
     max_open_positions: number; dedup_window_s: number;
     max_daily_loss_pct: number; session_start: number; session_end: number;
+    max_weekly_loss_pct: number; max_trades_per_day: number;
+    max_consecutive_losses: number; cooldown_after_loss_min: number;
   };
   readonly: {
     strategy: string; strategy_key: string; timeframe: string; symbols: string[];

@@ -83,6 +83,11 @@ class Settings:
     # trading-session window in UTC hours (start inclusive, end exclusive). 0..24 = always.
     session_start: int = field(default_factory=lambda: int(os.environ.get("HUB_SESSION_START", "0")))
     session_end: int = field(default_factory=lambda: int(os.environ.get("HUB_SESSION_END", "24")))
+    # more critical-risk guards (all 0 = disabled)
+    max_weekly_loss_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_MAX_WEEKLY_LOSS", "0")))
+    max_trades_per_day: int = field(default_factory=lambda: int(os.environ.get("HUB_MAX_TRADES_DAY", "0")))
+    max_consecutive_losses: int = field(default_factory=lambda: int(os.environ.get("HUB_MAX_CONSEC_LOSSES", "0")))
+    cooldown_after_loss_min: int = field(default_factory=lambda: int(os.environ.get("HUB_COOLDOWN_MIN", "0")))
     settings_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
     custom_path: str = field(default_factory=lambda: os.environ.get(

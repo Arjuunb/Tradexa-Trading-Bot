@@ -25,6 +25,10 @@ export default function SettingsPage() {
         daily: (data.editable.max_daily_loss_pct * 100).toString(),
         sstart: String(data.editable.session_start),
         send: String(data.editable.session_end),
+        weekly: (data.editable.max_weekly_loss_pct * 100).toString(),
+        maxday: String(data.editable.max_trades_per_day),
+        consec: String(data.editable.max_consecutive_losses),
+        cooldown: String(data.editable.cooldown_after_loss_min),
       });
     }
   }, [data, f]);
@@ -43,6 +47,10 @@ export default function SettingsPage() {
         max_daily_loss_pct: Number(f.daily) / 100,
         session_start: Math.round(Number(f.sstart)),
         session_end: Math.round(Number(f.send)),
+        max_weekly_loss_pct: Number(f.weekly) / 100,
+        max_trades_per_day: Math.round(Number(f.maxday)),
+        max_consecutive_losses: Math.round(Number(f.consec)),
+        cooldown_after_loss_min: Math.round(Number(f.cooldown)),
       });
       app.toast("Settings saved & applied (persisted on backend)", "success");
       refetch();
@@ -103,6 +111,28 @@ export default function SettingsPage() {
             <Field label="Session end (hour)"><input value={f.send ?? ""} onChange={set("send")} inputMode="numeric" /></Field>
           </div>
           <p className="dim" style={{ marginTop: 8 }}>0 to 24 = trade all day. Entries outside the window are skipped; exits are never blocked.</p>
+        </Card>
+      </div>
+
+      <div className="grid-2-eq">
+        <Card title="Loss Limits & Circuit Breakers" subtitle="editable · 0 = disabled">
+          <div className="form-grid-2">
+            <Field label="Weekly loss limit (%)" hint="resets each ISO week"><input value={f.weekly ?? ""} onChange={set("weekly")} inputMode="decimal" /></Field>
+            <Field label="Max trades / day"><input value={f.maxday ?? ""} onChange={set("maxday")} inputMode="numeric" /></Field>
+            <Field label="Stop after N consecutive losses" hint="auto-halts until Resume"><input value={f.consec ?? ""} onChange={set("consec")} inputMode="numeric" /></Field>
+            <Field label="Cooldown after loss (min)"><input value={f.cooldown ?? ""} onChange={set("cooldown")} inputMode="numeric" /></Field>
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>These block NEW entries only; open positions always exit. Consecutive-loss halt requires a manual Resume.</p>
+        </Card>
+
+        <Card title="Account Protection — Progression" subtitle="enforced order">
+          <div className="risk-list">
+            <Ro k="1. Backtest" v="any strategy (historical, isolated)" />
+            <Ro k="2. Simulation" v="real historical data · labelled SIMULATION" />
+            <Ro k="3. Paper trading" v="live engine · paper only" badge={<Badge text="ACTIVE" tone="blue" />} />
+            <Ro k="4. Live trading" v="requires a live broker (not connected)" badge={<Badge text="LOCKED" tone="red" />} />
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>A new strategy can never trade live directly. Live execution is disabled until a broker is wired.</p>
         </Card>
       </div>
 

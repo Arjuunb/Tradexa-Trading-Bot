@@ -60,3 +60,40 @@ def test_daily_loss_disabled_by_default():
     pipe.process(_alert(aid="o1", entry=100, stop=90))
     pipe.process(_alert(aid="c1", symbol="BTCUSDT", side="CLOSE", entry=40, stop=None))
     assert pipe.process(_alert(aid="o2", symbol="ETHUSDT")).accepted
+
+
+def test_max_trades_per_day():
+    pipe, paper = _pipe(max_trades_per_day=1)
+    assert pipe.process(_alert(aid="o1", symbol="BTCUSDT")).accepted
+    # second open today -> blocked
+    res = pipe.process(_alert(aid="o2", symbol="ETHUSDT"))
+    assert not res.accepted and res.stage == "max_trades"
+
+
+def test_consecutive_loss_auto_halt():
+    pipe, paper = _pipe(max_consecutive_losses=2)
+    # two losing round-trips
+    for sym, n in (("BTCUSDT", "1"), ("ETHUSDT", "2")):
+        pipe.process(_alert(aid="o" + n, symbol=sym, entry=100, stop=90))
+        pipe.process(_alert(aid="c" + n, symbol=sym, side="CLOSE", entry=40, stop=None))
+    # third entry -> auto-halted after 2 consecutive losses
+    res = pipe.process(_alert(aid="o3", symbol="SOLUSDT"))
+    assert not res.accepted and res.stage == "risk_guard"
+    assert pipe.halted and "consecutive" in pipe.halt_reason.lower()
+
+
+def test_cooldown_after_loss():
+    pipe, paper = _pipe(cooldown_after_loss_min=60)
+    pipe.process(_alert(aid="o1", symbol="BTCUSDT", entry=100, stop=90))
+    pipe.process(_alert(aid="c1", symbol="BTCUSDT", side="CLOSE", entry=40, stop=None))
+    # the loss just closed (wall-clock now) -> still in cooldown
+    res = pipe.process(_alert(aid="o2", symbol="ETHUSDT"))
+    assert not res.accepted and res.stage == "cooldown"
+
+
+def test_weekly_loss_limit():
+    pipe, paper = _pipe(max_weekly_loss_pct=0.05)
+    pipe.process(_alert(aid="o1", symbol="BTCUSDT", entry=100, stop=90))
+    pipe.process(_alert(aid="c1", symbol="BTCUSDT", side="CLOSE", entry=40, stop=None))
+    res = pipe.process(_alert(aid="o2", symbol="ETHUSDT"))
+    assert not res.accepted and res.stage == "weekly_loss"

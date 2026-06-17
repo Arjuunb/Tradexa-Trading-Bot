@@ -46,6 +46,10 @@ pipeline = SignalPipeline(
     max_daily_loss_pct=settings.max_daily_loss_pct,
     session_start=settings.session_start,
     session_end=settings.session_end,
+    max_weekly_loss_pct=settings.max_weekly_loss_pct,
+    max_trades_per_day=settings.max_trades_per_day,
+    max_consecutive_losses=settings.max_consecutive_losses,
+    cooldown_after_loss_min=settings.cooldown_after_loss_min,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
@@ -85,9 +89,10 @@ from services.runtime_settings import load_overrides, save_overrides  # noqa: E4
 def _apply_setting(key: str, value) -> None:
     if key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
-    elif key in ("max_open_positions", "session_start", "session_end"):
+    elif key in ("max_open_positions", "session_start", "session_end",
+                 "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min"):
         setattr(pipeline, key, int(value))
-    else:  # risk_per_trade_pct / exposure_limit_pct / max_drawdown_pct / max_daily_loss_pct
+    else:  # *_pct float settings
         setattr(pipeline, key, float(value))
 
 
@@ -106,6 +111,10 @@ class SettingsUpdate(BaseModel):
     max_daily_loss_pct: Optional[float] = None
     session_start: Optional[int] = None
     session_end: Optional[int] = None
+    max_weekly_loss_pct: Optional[float] = None
+    max_trades_per_day: Optional[int] = None
+    max_consecutive_losses: Optional[int] = None
+    cooldown_after_loss_min: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -301,6 +310,10 @@ def get_settings():
             "max_daily_loss_pct": pipeline.max_daily_loss_pct,
             "session_start": pipeline.session_start,
             "session_end": pipeline.session_end,
+            "max_weekly_loss_pct": pipeline.max_weekly_loss_pct,
+            "max_trades_per_day": pipeline.max_trades_per_day,
+            "max_consecutive_losses": pipeline.max_consecutive_losses,
+            "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -362,6 +375,18 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
             raise HTTPException(400, "session_end must be in [0, 24]")
         pipeline.session_end = int(body.session_end)
         changed["session_end"] = int(body.session_end)
+    if body.max_weekly_loss_pct is not None:
+        if not (0 <= body.max_weekly_loss_pct <= 1):
+            raise HTTPException(400, "max_weekly_loss_pct must be in [0, 1]")
+        pipeline.max_weekly_loss_pct = float(body.max_weekly_loss_pct)
+        changed["max_weekly_loss_pct"] = float(body.max_weekly_loss_pct)
+    for k in ("max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min"):
+        v = getattr(body, k)
+        if v is not None:
+            if not (0 <= v <= 1000):
+                raise HTTPException(400, f"{k} must be in [0, 1000]")
+            setattr(pipeline, k, int(v))
+            changed[k] = int(v)
 
     current = {
         "risk_per_trade_pct": pipeline.risk_per_trade_pct,
@@ -372,6 +397,10 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
         "max_daily_loss_pct": pipeline.max_daily_loss_pct,
         "session_start": pipeline.session_start,
         "session_end": pipeline.session_end,
+        "max_weekly_loss_pct": pipeline.max_weekly_loss_pct,
+        "max_trades_per_day": pipeline.max_trades_per_day,
+        "max_consecutive_losses": pipeline.max_consecutive_losses,
+        "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
     }
     save_overrides(settings.settings_path, current)
     ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")
