@@ -97,3 +97,19 @@ def test_weekly_loss_limit():
     pipe.process(_alert(aid="c1", symbol="BTCUSDT", side="CLOSE", entry=40, stop=None))
     res = pipe.process(_alert(aid="o2", symbol="ETHUSDT"))
     assert not res.accepted and res.stage == "weekly_loss"
+
+
+def test_trading_days_guard():
+    # mask with only Monday (bit0) allowed = 1
+    pipe, paper = _pipe(trading_days_mask=1)
+    # 2026-01-01 is a Thursday (weekday 3) -> blocked
+    res = pipe.process(_alert(aid="o1", ts="2026-01-01T10:00:00+00:00"))
+    assert not res.accepted and res.stage == "trading_day"
+    # 2026-01-05 is a Monday (weekday 0) -> allowed
+    ok = pipe.process(_alert(aid="o2", ts="2026-01-05T10:00:00+00:00"))
+    assert ok.accepted
+
+
+def test_trading_days_all_is_noop():
+    pipe, _ = _pipe(trading_days_mask=127)
+    assert pipe.process(_alert(aid="o1", ts="2026-01-01T10:00:00+00:00")).accepted

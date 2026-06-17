@@ -50,6 +50,7 @@ pipeline = SignalPipeline(
     max_trades_per_day=settings.max_trades_per_day,
     max_consecutive_losses=settings.max_consecutive_losses,
     cooldown_after_loss_min=settings.cooldown_after_loss_min,
+    trading_days_mask=settings.trading_days_mask,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
@@ -90,7 +91,8 @@ def _apply_setting(key: str, value) -> None:
     if key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
     elif key in ("max_open_positions", "session_start", "session_end",
-                 "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min"):
+                 "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
+                 "trading_days_mask"):
         setattr(pipeline, key, int(value))
     else:  # *_pct float settings
         setattr(pipeline, key, float(value))
@@ -115,6 +117,7 @@ class SettingsUpdate(BaseModel):
     max_trades_per_day: Optional[int] = None
     max_consecutive_losses: Optional[int] = None
     cooldown_after_loss_min: Optional[int] = None
+    trading_days_mask: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -347,6 +350,7 @@ def get_settings():
             "max_trades_per_day": pipeline.max_trades_per_day,
             "max_consecutive_losses": pipeline.max_consecutive_losses,
             "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
+            "trading_days_mask": pipeline.trading_days_mask,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -420,6 +424,11 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
                 raise HTTPException(400, f"{k} must be in [0, 1000]")
             setattr(pipeline, k, int(v))
             changed[k] = int(v)
+    if body.trading_days_mask is not None:
+        if not (0 <= body.trading_days_mask <= 127):
+            raise HTTPException(400, "trading_days_mask must be in [0, 127]")
+        pipeline.trading_days_mask = int(body.trading_days_mask)
+        changed["trading_days_mask"] = int(body.trading_days_mask)
 
     current = {
         "risk_per_trade_pct": pipeline.risk_per_trade_pct,
@@ -434,6 +443,7 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
         "max_trades_per_day": pipeline.max_trades_per_day,
         "max_consecutive_losses": pipeline.max_consecutive_losses,
         "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
+        "trading_days_mask": pipeline.trading_days_mask,
     }
     save_overrides(settings.settings_path, current)
     ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")
@@ -555,6 +565,23 @@ def strategy_compare(symbol: str = "BTCUSDT", timeframe: str = "4h",
             "max_drawdown_r": round(m.max_dd_r, 1), "avg_r": round(m.avg_r, 3),
         },
     }
+
+
+class SymbolsUpdate(BaseModel):
+    symbols: list[str]
+
+
+@router.post("/market/symbols")
+def set_symbols(body: SymbolsUpdate, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Set the engine's traded symbols (the active watchlist) and restart it."""
+    _check_secret(x_webhook_secret)
+    syms = [s.strip().upper() for s in body.symbols if s.strip()]
+    if not syms:
+        raise HTTPException(400, "At least one symbol is required")
+    engine.reconfigure(symbols=syms, timeframe=engine.timeframe,
+                       strategy_factory=engine.strategy_factory, label=engine.strategy_label)
+    ledger.log(level="info", stage="audit", message=f"Watchlist applied: {', '.join(syms)}")
+    return {"applied": True, "symbols": engine.symbols}
 
 
 @router.get("/strategy/list")

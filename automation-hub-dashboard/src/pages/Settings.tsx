@@ -3,7 +3,10 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPostJson, useLive, type BotSettings } from "../lib/api";
+import { apiPostJson, useLive, type BotSettings, type EngineStatus } from "../lib/api";
+
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SESSIONS: Record<string, [number, number]> = { London: [7, 16], "New York": [12, 21], Asia: [0, 9], "24h": [0, 24] };
 
 // Real configuration. Risk/position params are editable, applied live, and
 // persisted on the backend (survive restart). Everything else is env-set and
@@ -11,8 +14,26 @@ import { apiPostJson, useLive, type BotSettings } from "../lib/api";
 export default function SettingsPage() {
   const app = useApp();
   const { data, error, refetch } = useLive<BotSettings>("/settings", 8000);
+  const engine = useLive<EngineStatus>("/engine/status", 5000);
   const [f, setF] = useState<Record<string, string>>({});
+  const [days, setDays] = useState<boolean[]>([]);
+  const [symbols, setSymbols] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (data && days.length === 0) {
+      const m = data.editable.trading_days_mask;
+      setDays(Array.from({ length: 7 }, (_, i) => !!((m >> i) & 1)));
+    }
+  }, [data, days]);
+  useEffect(() => { if (engine.data && symbols === "") setSymbols(engine.data.symbols.join(", ")); }, [engine.data, symbols]);
+
+  const applySymbols = async () => {
+    const list = symbols.split(",").map((s) => s.trim()).filter(Boolean);
+    try { await apiPostJson("/market/symbols", { symbols: list }); app.toast(`Watchlist applied: ${list.join(", ")}`, "success"); }
+    catch { app.toast("Apply failed", "error"); }
+  };
+  const preset = (name: string) => { const [s, e] = SESSIONS[name]; setF((p) => ({ ...p, sstart: String(s), send: String(e) })); };
 
   useEffect(() => {
     if (data && Object.keys(f).length === 0) {
@@ -51,6 +72,7 @@ export default function SettingsPage() {
         max_trades_per_day: Math.round(Number(f.maxday)),
         max_consecutive_losses: Math.round(Number(f.consec)),
         cooldown_after_loss_min: Math.round(Number(f.cooldown)),
+        trading_days_mask: days.reduce((acc, on, i) => (on ? acc | (1 << i) : acc), 0),
       });
       app.toast("Settings saved & applied (persisted on backend)", "success");
       refetch();
@@ -106,11 +128,31 @@ export default function SettingsPage() {
         </Card>
 
         <Card title="Trading Session (UTC)" subtitle="editable · entries only inside the window">
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+            {Object.keys(SESSIONS).map((s) => <button key={s} className="chip-btn" onClick={() => preset(s)}>{s}</button>)}
+          </div>
           <div className="form-grid-2">
             <Field label="Session start (hour)"><input value={f.sstart ?? ""} onChange={set("sstart")} inputMode="numeric" /></Field>
             <Field label="Session end (hour)"><input value={f.send ?? ""} onChange={set("send")} inputMode="numeric" /></Field>
           </div>
-          <p className="dim" style={{ marginTop: 8 }}>0 to 24 = trade all day. Entries outside the window are skipped; exits are never blocked.</p>
+          <p className="dim" style={{ marginTop: 8 }}>Presets are UTC; 0 to 24 = all day. Entries outside the window are skipped; exits are never blocked.</p>
+        </Card>
+      </div>
+
+      <div className="grid-2-eq">
+        <Card title="Market — Watchlist (Symbols)" subtitle="editable · restarts the engine">
+          <Field label="Traded symbols (comma-separated)"><input value={symbols} onChange={(e) => setSymbols(e.target.value.toUpperCase())} /></Field>
+          <button className="btn btn-soft" style={{ marginTop: 8 }} onClick={applySymbols}><Icon name="check" size={14} /> Apply watchlist</button>
+          <p className="dim" style={{ marginTop: 8 }}>Sets which symbols the engine trades (paper). Restart-to-persist via HUB_AUTO_SYMBOLS.</p>
+        </Card>
+
+        <Card title="Allowed Trading Days (UTC)" subtitle="editable · entries only on enabled days">
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap" }}>
+            {DAY_NAMES.map((d, i) => (
+              <button key={d} className={`chip-btn ${days[i] ? "active" : ""}`} onClick={() => setDays((p) => p.map((v, j) => (j === i ? !v : v)))}>{d}</button>
+            ))}
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>Click to toggle. Disabled days block new entries (exits still run). Saved with the risk settings.</p>
         </Card>
       </div>
 

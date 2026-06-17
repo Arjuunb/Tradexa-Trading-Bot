@@ -69,6 +69,7 @@ class SignalPipeline:
         max_trades_per_day: int = 0,
         max_consecutive_losses: int = 0,
         cooldown_after_loss_min: int = 0,
+        trading_days_mask: int = 127,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -91,6 +92,7 @@ class SignalPipeline:
         self.max_trades_per_day = max_trades_per_day
         self.max_consecutive_losses = max_consecutive_losses
         self.cooldown_after_loss_min = cooldown_after_loss_min
+        self.trading_days_mask = trading_days_mask
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -179,6 +181,13 @@ class SignalPipeline:
         if self._halted:
             return reject("risk_guard", f"Auto-halt: {self._halt_reason}")
         steps.append(Step("risk_guard", True, "within risk limits"))
+
+        # 3d2. allowed trading days (UTC weekday) — blocks entries on disabled days
+        if self.trading_days_mask != 127:
+            wd = self._entry_weekday(payload.get("timestamp"))
+            if not (self.trading_days_mask >> wd) & 1:
+                return reject("trading_day", "Today is not an allowed trading day")
+            steps.append(Step("trading_day", True, "allowed day"))
 
         # 3e. trading-session window (UTC hours) — blocks entries outside hours
         if self.session_start != 0 or self.session_end != 24:
@@ -282,6 +291,15 @@ class SignalPipeline:
         except Exception:  # noqa: BLE001 — unparseable -> use now
             pass
         return datetime.now(timezone.utc).hour
+
+    @staticmethod
+    def _entry_weekday(ts: Optional[str]) -> int:
+        try:
+            if ts:
+                return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc).weekday()
+        except Exception:  # noqa: BLE001
+            pass
+        return datetime.now(timezone.utc).weekday()
 
     @staticmethod
     def _pnl_on_day(trades, day: str) -> float:

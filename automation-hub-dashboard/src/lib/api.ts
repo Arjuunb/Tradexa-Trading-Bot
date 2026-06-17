@@ -51,6 +51,7 @@ export interface BotSettings {
     max_daily_loss_pct: number; session_start: number; session_end: number;
     max_weekly_loss_pct: number; max_trades_per_day: number;
     max_consecutive_losses: number; cooldown_after_loss_min: number;
+    trading_days_mask: number;
   };
   readonly: {
     strategy: string; strategy_key: string; timeframe: string; symbols: string[];

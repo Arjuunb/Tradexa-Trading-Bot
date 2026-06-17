@@ -88,6 +88,8 @@ class Settings:
     max_trades_per_day: int = field(default_factory=lambda: int(os.environ.get("HUB_MAX_TRADES_DAY", "0")))
     max_consecutive_losses: int = field(default_factory=lambda: int(os.environ.get("HUB_MAX_CONSEC_LOSSES", "0")))
     cooldown_after_loss_min: int = field(default_factory=lambda: int(os.environ.get("HUB_COOLDOWN_MIN", "0")))
+    # allowed trading days bitmask (bit 0=Mon .. 6=Sun). 127 = all days.
+    trading_days_mask: int = field(default_factory=lambda: int(os.environ.get("HUB_TRADING_DAYS", "127")))
     settings_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
     custom_path: str = field(default_factory=lambda: os.environ.get(
