@@ -1,13 +1,16 @@
 import Icon from "../common/Icon";
-import { useLive, type EngineStatus, type PaperAccount } from "../../lib/api";
+import Sparkline from "../chart/Sparkline";
+import { useLive, type EngineStatus, type EquityCurveData, type PaperAccount } from "../../lib/api";
 
 const money = (n: number | undefined) => `${(n ?? 0) >= 0 ? "+" : "-"}$${Math.abs(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function MetricCards() {
   const engine = useLive<EngineStatus>("/engine/status", 2000);
   const account = useLive<PaperAccount>("/paper/account", 2000);
+  const eq = useLive<EquityCurveData>("/paper/equity-curve", 4000);
   const e = engine.data;
   const a = account.data;
+  const curve = (eq.data?.points ?? []).map((p) => p.equity);
 
   const cards = [
     { key: "engine", label: "Engine", value: e?.running ? "Running" : "Stopped", sub: e ? `${e.symbols.length} symbols · ${e.timeframe}` : "—", color: e?.running ? "#22c55e" : "#ef4444", tone: e?.running ? "green" : "" },
@@ -41,7 +44,11 @@ export default function MetricCards() {
         <div className="metric-main">
           <span className={`metric-value ${realized >= 0 ? "pos" : "neg"}`}>{money(realized)}</span>
         </div>
-        <span className="metric-sub dim">Balance ${(a?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        {curve.length > 1 ? (
+          <div className="metric-spark"><Sparkline data={curve} color={realized >= 0 ? "#22c55e" : "#ef4444"} height={34} /></div>
+        ) : (
+          <span className="metric-sub dim">Balance ${(a?.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import Icon, { NAV_ICON } from "../common/Icon";
+import Logo from "../common/Logo";
 import { NAV_LABELS } from "../../app-context";
 import { useLive, type RiskSummary } from "../../lib/api";
 
@@ -16,7 +17,7 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <div className="brand">
-        <span className="brand-mark">A</span>
+        <span className="brand-mark"><Logo size={30} /></span>
         <span className="brand-name">Automation Hub</span>
       </div>
 

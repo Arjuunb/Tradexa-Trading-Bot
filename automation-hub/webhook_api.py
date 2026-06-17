@@ -75,10 +75,21 @@ engine = AutoStrategyEngine(
     live_poll_s=settings.live_poll_s,
 )
 
-# Apply persisted runtime overrides (risk/exposure/drawdown) on top of env defaults.
+# Apply persisted runtime overrides on top of env defaults.
 from services.runtime_settings import load_overrides, save_overrides  # noqa: E402
+
+
+def _apply_setting(key: str, value) -> None:
+    if key == "dedup_window_s":
+        pipeline.dedup.window_seconds = int(value)
+    elif key == "max_open_positions":
+        pipeline.max_open_positions = int(value)
+    else:  # risk_per_trade_pct / exposure_limit_pct / max_drawdown_pct
+        setattr(pipeline, key, float(value))
+
+
 for _k, _v in load_overrides(settings.settings_path).items():
-    setattr(pipeline, _k, _v)
+    _apply_setting(_k, _v)
 
 router = APIRouter()
 
@@ -87,6 +98,8 @@ class SettingsUpdate(BaseModel):
     risk_per_trade_pct: Optional[float] = None
     exposure_limit_pct: Optional[float] = None
     max_drawdown_pct: Optional[float] = None
+    max_open_positions: Optional[int] = None
+    dedup_window_s: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -277,6 +290,8 @@ def get_settings():
             "risk_per_trade_pct": pipeline.risk_per_trade_pct,
             "exposure_limit_pct": pipeline.exposure_limit_pct,
             "max_drawdown_pct": pipeline.max_drawdown_pct,
+            "max_open_positions": pipeline.max_open_positions,
+            "dedup_window_s": pipeline.dedup.window_seconds,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -284,12 +299,12 @@ def get_settings():
             "timeframe": engine.timeframe,
             "symbols": engine.symbols,
             "starting_cash": paper.starting_balance,
-            "max_open_positions": pipeline.max_open_positions,
-            "dedup_window_s": settings.dedup_window_s,
             "data_source": "live (ccxt)" if engine.live else "synthetic / replay",
+            "poll_seconds": engine.live_poll_s if engine.live else None,
             "mode": "paper",
             "broker_connected": False,
             "webhook_secret_set": bool(settings.webhook_secret),
+            "telegram_configured": bool(settings.telegram_token),
         },
     }
 
@@ -313,11 +328,23 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
             raise HTTPException(400, "max_drawdown_pct must be in (0, 1]")
         pipeline.max_drawdown_pct = body.max_drawdown_pct
         changed["max_drawdown_pct"] = body.max_drawdown_pct
+    if body.max_open_positions is not None:
+        if not (1 <= body.max_open_positions <= 50):
+            raise HTTPException(400, "max_open_positions must be in [1, 50]")
+        pipeline.max_open_positions = int(body.max_open_positions)
+        changed["max_open_positions"] = int(body.max_open_positions)
+    if body.dedup_window_s is not None:
+        if not (0 <= body.dedup_window_s <= 86400):
+            raise HTTPException(400, "dedup_window_s must be in [0, 86400]")
+        pipeline.dedup.window_seconds = int(body.dedup_window_s)
+        changed["dedup_window_s"] = int(body.dedup_window_s)
 
     current = {
         "risk_per_trade_pct": pipeline.risk_per_trade_pct,
         "exposure_limit_pct": pipeline.exposure_limit_pct,
         "max_drawdown_pct": pipeline.max_drawdown_pct,
+        "max_open_positions": pipeline.max_open_positions,
+        "dedup_window_s": pipeline.dedup.window_seconds,
     }
     save_overrides(settings.settings_path, current)
     ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")

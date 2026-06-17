@@ -39,11 +39,14 @@ export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export interface BotSettings {
-  editable: { risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number };
+  editable: {
+    risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number;
+    max_open_positions: number; dedup_window_s: number;
+  };
   readonly: {
     strategy: string; strategy_key: string; timeframe: string; symbols: string[];
-    starting_cash: number; max_open_positions: number; dedup_window_s: number;
-    data_source: string; mode: string; broker_connected: boolean; webhook_secret_set: boolean;
+    starting_cash: number; data_source: string; poll_seconds: number | null; mode: string;
+    broker_connected: boolean; webhook_secret_set: boolean; telegram_configured: boolean;
   };
 }
 
