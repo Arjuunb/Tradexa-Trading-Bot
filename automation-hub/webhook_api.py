@@ -351,6 +351,63 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
     return {"saved": True, "editable": current}
 
 
+# ------------------------------------------------- custom strategy builder
+from services.custom_store import CustomStore  # noqa: E402
+custom_store = CustomStore(settings.custom_path)
+
+
+class SimRequest(BaseModel):
+    spec: dict
+    bars: int = 3000
+
+
+@router.post("/strategy/custom/simulate")
+def custom_simulate(body: SimRequest):
+    """Run a user-built strategy spec over REAL historical data (simulation only)."""
+    from strategies.custom import simulate, validate, describe
+    from data.market_data import get_bars
+    spec = body.spec
+    symbol = spec.get("symbol", "BTCUSDT")
+    timeframe = spec.get("timeframe", "4h")
+    n = max(300, min(int(body.bars or 3000), 10000))
+    rows, source = get_bars(symbol, n=n, timeframe=timeframe)
+    results = simulate(spec, rows)
+    return {
+        "results": results,
+        "warnings": validate(spec, results),
+        "description": describe(spec),
+        "data_source": source,
+        "symbol": symbol, "timeframe": timeframe,
+        "label": "Simulation Result",
+    }
+
+
+@router.get("/strategy/custom")
+def custom_list():
+    return custom_store.list()
+
+
+@router.post("/strategy/custom")
+def custom_save(spec: dict, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    return custom_store.save(spec)
+
+
+@router.delete("/strategy/custom/{sid}")
+def custom_delete(sid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    return {"deleted": custom_store.delete(sid)}
+
+
+@router.post("/strategy/custom/{sid}/duplicate")
+def custom_duplicate(sid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    dup = custom_store.duplicate(sid)
+    if dup is None:
+        raise HTTPException(404, "Strategy not found")
+    return dup
+
+
 @router.get("/strategy/list")
 def strategy_list():
     """Real list of selectable engine strategies + which one is active."""
