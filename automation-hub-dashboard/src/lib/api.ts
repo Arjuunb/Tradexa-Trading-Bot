@@ -240,6 +240,13 @@ export interface StrategyHealthData {
   };
 }
 
+export interface EngineDiagnostics {
+  status: string; headline: string; detail: string; severity: "info" | "warning" | "critical";
+  running: boolean; mode: string; timeframe: string; data_source: string | null;
+  bars: number; signals: number; trades: number; rejections: number;
+  last_bar_ts: string | null; last_activity_age_s: number | null;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

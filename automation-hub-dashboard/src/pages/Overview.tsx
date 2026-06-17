@@ -7,11 +7,13 @@ import MyBots from "../components/bots/MyBots";
 import ActivityFeed from "../components/activity/ActivityFeed";
 import RiskCenter from "../components/risk/RiskCenter";
 import RecentAlerts from "../components/alerts/RecentAlerts";
+import WhyNoTrades from "../components/cards/WhyNoTrades";
 
 // The polished layout — every card is now backed by live backend data (paper).
 export default function Overview() {
   return (
     <>
+      <WhyNoTrades />
       <MetricCards />
 
       <div className="grid-mid">

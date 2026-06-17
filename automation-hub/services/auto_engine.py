@@ -87,6 +87,11 @@ class AutoStrategyEngine:
         self.stats = {"bars": 0, "signals": 0, "trades": 0, "rejections": 0}
         self._targets: dict[str, float] = {}
         self._seq = itertools.count(1)
+        # Activity tracking — used to explain *why* no trades are happening
+        # (e.g. a stalled live feed that never delivers a new candle).
+        self.last_bar_ts: Optional[str] = None      # timestamp of the last bar acted on
+        self.last_activity: Optional[str] = None    # wall-clock of the last processed bar
+        self.last_source: Optional[str] = None       # data source ("live (ccxt)" / "bundled sample" / …)
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> bool:
@@ -137,6 +142,9 @@ class AutoStrategyEngine:
             "mode": "live" if self.live else "replay",
             "strategy": self.strategy_label,
             "started_at": self.started_at,
+            "last_bar_ts": self.last_bar_ts,
+            "last_activity": self.last_activity,
+            "data_source": self.last_source,
             **self.stats,
         }
 
@@ -189,6 +197,7 @@ class AutoStrategyEngine:
 
         for sym in self.symbols:
             bars, src = self._fetcher(sym, self.timeframe, self.warmup + self.live_bars)
+            self.last_source = src
             strat = self.strategy_factory(sym)
             closed = bars[:-1]                     # last candle may be in-progress
             for b in closed:                       # warm indicators, do NOT trade history
@@ -204,7 +213,15 @@ class AutoStrategyEngine:
                 if self._stop.is_set():
                     break
                 try:
-                    bars, _ = self._fetcher(sym, self.timeframe, max(self.warmup + 5, 60))
+                    bars, src = self._fetcher(sym, self.timeframe, max(self.warmup + 5, 60))
+                    self.last_source = src
+                    # Live mode but the feed isn't actually live -> it will never
+                    # deliver a NEW candle, so warn loudly instead of going quiet.
+                    if self.live and src != "live (ccxt)":
+                        self.ledger.log(level="warning", stage="engine", symbol=sym,
+                                        message=(f"{sym}: live feed unavailable — using '{src}'. "
+                                                 f"No new {self.timeframe} candles will arrive; "
+                                                 f"no trades will fire. Use replay mode or a reachable feed."))
                 except Exception as e:  # noqa: BLE001 — a fetch hiccup shouldn't stop the engine
                     self.ledger.log(level="warning", stage="engine", symbol=sym,
                                     message=f"{sym}: live fetch failed ({e})")
@@ -225,6 +242,7 @@ class AutoStrategyEngine:
     def _load_batch(self, sym, strategies, live, seeds, get_bars) -> None:
         bars, src = get_bars(sym, n=self.warmup + self.live_bars,
                              timeframe=self.timeframe, seed=seeds[sym])
+        self.last_source = src
         seeds[sym] += 1
         if sym not in strategies:
             strategies[sym] = self.strategy_factory(sym)
@@ -238,6 +256,13 @@ class AutoStrategyEngine:
             live[sym] = list(bars)
 
     def _process_bar(self, sym: str, bar, strategy) -> None:
+        from datetime import datetime, timezone
+        # record activity so diagnostics can tell a live trade from a stalled feed
+        try:
+            self.last_bar_ts = bar.timestamp.isoformat()
+        except Exception:  # noqa: BLE001
+            self.last_bar_ts = str(getattr(bar, "timestamp", ""))
+        self.last_activity = datetime.now(timezone.utc).isoformat()
         # 1. stop-loss / take-profit exits against this bar's range.
         self._check_exit(sym, bar)
         # 2. strategy decision on the new bar.
@@ -309,3 +334,58 @@ class AutoStrategyEngine:
                             message=f"Pipeline error on {payload.get('symbol')}: {e}",
                             symbol=payload.get("symbol", ""))
             return None
+
+
+# Approx seconds per candle, to judge whether a live feed has stalled.
+_TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+               "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400}
+
+
+def explain_inactivity(*, running: bool, trading_state: str, mode: str, timeframe: str,
+                       bars: int, signals: int, trades: int, rejections: int,
+                       data_source: Optional[str], last_activity_age_s: Optional[float]) -> dict:
+    """Plain-English answer to 'why isn't the bot trading?'. Pure + testable.
+
+    Returns {status, headline, detail, severity}. ``status`` is a stable code the
+    UI can switch on; ``severity`` is info|warning|critical.
+    """
+    def out(status, headline, detail, severity="info"):
+        return {"status": status, "headline": headline, "detail": detail, "severity": severity}
+
+    if not running:
+        return out("stopped", "The engine is not running.",
+                   "Start it from the Paper Trading page to begin scanning the market.", "warning")
+    if trading_state and trading_state.lower() != "active":
+        return out("halted", f"Trading is {trading_state}.",
+                   "New entries are blocked. Resume from Risk Manager / Safety Center.", "warning")
+    if bars == 0:
+        return out("no_data", "No market data has been processed yet.",
+                   "The data feed may be unavailable, or the engine just started warming up.", "warning")
+
+    tf_s = _TF_SECONDS.get(timeframe, 3600)
+    if mode == "live" and data_source and data_source != "live (ccxt)":
+        return out("stale_feed", "Live mode is on, but the live feed is unavailable on this host.",
+                   (f"It fell back to '{data_source}' (static historical data). Exchanges like "
+                    f"Binance often block cloud/datacenter IPs, so no NEW {timeframe} candle ever "
+                    f"arrives — which is why no trades fire and the balance never changes. "
+                    f"Switch to replay mode (unset HUB_USE_LIVE_DATA) for a live demo, or point at a "
+                    f"reachable data source."), "critical")
+    if mode == "live" and last_activity_age_s is not None and last_activity_age_s > 1.5 * tf_s:
+        hrs = last_activity_age_s / 3600
+        return out("waiting_candles", f"Waiting for the next {timeframe} candle.",
+                   (f"The last new candle was ~{hrs:.1f}h ago. On {timeframe} there are only a few "
+                    f"candles per day, so trades are infrequent by design. Use a lower timeframe "
+                    f"(e.g. 15m/1h) for more activity."), "info")
+    if signals == 0 and bars > 0:
+        return out("no_setup", f"Scanned {bars} bars — no valid setup yet.",
+                   "The strategy and quality filter are waiting for a high-quality entry. Fewer, "
+                   "better trades is the intended behaviour.", "info")
+    if trades == 0 and rejections > 0:
+        return out("all_blocked", f"Found setups, but all {rejections} were blocked.",
+                   "Risk/quality filters rejected every candidate. Check the Logs page for the exact "
+                   "reasons (e.g. against higher-timeframe trend, choppy regime, weak reward:risk).", "warning")
+    if trades == 0:
+        return out("warming_up", "Engine active — no trades yet.",
+                   "Still warming up or waiting for the first qualifying setup.", "info")
+    return out("active", f"Engine healthy — {trades} trades taken.",
+               f"{signals} signals, {rejections} blocked by filters.", "info")

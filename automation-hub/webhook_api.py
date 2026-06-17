@@ -241,6 +241,41 @@ def system_status():
     }
 
 
+@router.get("/engine/diagnostics")
+def engine_diagnostics():
+    """Plain-English answer to 'why isn't the bot trading?' — built from real
+    engine activity (running state, data feed, bars/signals/rejections, and how
+    long since the last new candle)."""
+    from datetime import datetime, timezone
+    from services.auto_engine import explain_inactivity
+    st = engine.status()
+    age = None
+    if st.get("last_activity"):
+        try:
+            la = datetime.fromisoformat(str(st["last_activity"]).replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - la).total_seconds()
+        except (ValueError, TypeError):
+            age = None
+    verdict = explain_inactivity(
+        running=st.get("running", False), trading_state=controls.state,
+        mode=st.get("mode", "replay"), timeframe=st.get("timeframe", "4h"),
+        bars=st.get("bars", 0), signals=st.get("signals", 0),
+        trades=st.get("trades", 0), rejections=st.get("rejections", 0),
+        data_source=st.get("data_source"), last_activity_age_s=age,
+    )
+    return {
+        **verdict,
+        "running": st.get("running", False),
+        "mode": st.get("mode"),
+        "timeframe": st.get("timeframe"),
+        "data_source": st.get("data_source"),
+        "bars": st.get("bars", 0), "signals": st.get("signals", 0),
+        "trades": st.get("trades", 0), "rejections": st.get("rejections", 0),
+        "last_bar_ts": st.get("last_bar_ts"),
+        "last_activity_age_s": round(age, 0) if age is not None else None,
+    }
+
+
 # ------------------------------------------------------------- read (dashboard)
 @router.get("/controls/state")
 def control_state():
