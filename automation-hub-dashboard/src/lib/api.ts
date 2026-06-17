@@ -175,6 +175,24 @@ export interface CustomSpec {
 export interface SimTrade {
   side: string; entry: number; exit: number; stop: number; target: number;
   r: number; result: string; reason: string; entry_time: string; exit_time: string;
+  // brain tags (present when the quality filter ran)
+  score?: number; grade?: string; regime?: string; htf_bias?: string; setup_type?: string;
+  exit_reason?: string; bars_held?: number; passed?: string[]; failed?: string[];
+}
+export interface BlockedTrade {
+  time: string; side: string; score: number; regime: string; htf_bias: string;
+  reason: string; blocks: string[];
+}
+export interface SimDiagnosis {
+  summary: string; headline_problem: string;
+  avg_quality_score?: number | null; avg_losing_setup_score?: number | null;
+  loss_reasons: Record<string, number>; blocked_reasons: Record<string, number>;
+  blocked_count?: number;
+  worst_regime?: { name: string; trades: number; net_r: number; win_rate: number } | null;
+  worst_session?: { name: string; trades: number; net_r: number; win_rate: number } | null;
+  exit_pattern?: Record<string, number>; stop_hit_losses?: number;
+  avg_win_to_loss?: number | null; overtrading: boolean; trades_per_day?: number;
+  choppy_markets: boolean; recommendations: string[];
 }
 export interface SimResult {
   results: {
@@ -183,12 +201,17 @@ export interface SimResult {
     avg_rr: number; avg_win_r: number; avg_loss_r: number; best_r: number; worst_r: number;
     max_consecutive_wins: number; max_consecutive_losses: number; end_balance: number; span_days: number;
     equity_curve: { t: string | null; equity: number }[]; trades: SimTrade[];
+    // new metrics + brain output
+    expectancy_r?: number; sharpe?: number; recovery_factor?: number; avg_hold_bars?: number;
+    long_net_r?: number; short_net_r?: number; long_trades?: number; short_trades?: number;
+    blocked_count?: number; blocked?: BlockedTrade[]; diagnosis?: SimDiagnosis;
   };
   warnings: { level: string; message: string }[];
   sizing?: {
     model: string; equity: number; risk_pct: number; entry: number; stop_distance: number;
     risk_dollars: number; position_size: number; notional: number; leverage_x: number;
   };
+  brain?: { quality_filter: boolean; min_score: number; blocked_count: number };
   description: string; data_source: string; symbol: string; timeframe: string; label: string;
 }
 

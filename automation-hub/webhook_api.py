@@ -508,15 +508,30 @@ class SimRequest(BaseModel):
 
 @router.post("/strategy/custom/simulate")
 def custom_simulate(body: SimRequest):
-    """Run a user-built strategy spec over REAL historical data (simulation only)."""
+    """Run a user-built strategy spec over REAL historical data (simulation only).
+
+    The TradeBrain quality filter is ON by default so weak setups are blocked
+    and reported. Pass ``spec["quality_filter"] = false`` to see raw, unfiltered
+    results, or set ``spec["min_score"]`` to tune the threshold (default 60).
+    """
     from strategies.custom import simulate, validate, describe, _stop_distance
+    from strategies.brain import TradeBrain
+    from strategies.diagnosis import diagnose
     from data.market_data import get_bars
     spec = body.spec
     symbol = spec.get("symbol", "BTCUSDT")
     timeframe = spec.get("timeframe", "4h")
     n = max(300, min(int(body.bars or 3000), 10000))
     rows, source = get_bars(symbol, n=n, timeframe=timeframe)
-    results = simulate(spec, rows)
+
+    use_brain = spec.get("quality_filter", True)
+    min_score = int(spec.get("min_score", 60))
+    brain = TradeBrain() if use_brain else None
+    # Default to safer exits (break-even after +1R) unless the spec overrides.
+    if use_brain and "exit" not in spec:
+        spec = {**spec, "exit": {"breakeven_at_r": 1.0}}
+    results = simulate(spec, rows, brain=brain, min_score=min_score if use_brain else 0)
+    results["diagnosis"] = diagnose(results, results.get("blocked"))
 
     # Pre-trade position-sizing calculation on the latest bar (real numbers).
     equity = settings.starting_cash
@@ -540,7 +555,27 @@ def custom_simulate(body: SimRequest):
         "data_source": source,
         "symbol": symbol, "timeframe": timeframe,
         "label": "Simulation Result",
+        "brain": {"quality_filter": bool(use_brain), "min_score": min_score,
+                  "blocked_count": results.get("blocked_count", 0)},
     }
+
+
+@router.post("/strategy/custom/optimize")
+def custom_optimize(body: SimRequest):
+    """Train/test optimisation. Honest: flags results overfit unless the unseen
+    validation period also improves. Optimises min score / RR / ATR stop only."""
+    from strategies.optimize import walk_forward
+    from data.market_data import get_bars
+    spec = body.spec
+    symbol = spec.get("symbol", "BTCUSDT")
+    timeframe = spec.get("timeframe", "4h")
+    n = max(600, min(int(body.bars or 4000), 10000))
+    rows, source = get_bars(symbol, n=n, timeframe=timeframe)
+    report = walk_forward(spec, rows)
+    report["data_source"] = source
+    report["symbol"] = symbol
+    report["timeframe"] = timeframe
+    return report
 
 
 @router.get("/strategy/custom")

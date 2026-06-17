@@ -250,8 +250,18 @@ def _in_session(ts, session: dict) -> bool:
 
 
 def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
-             starting_balance: float = 10_000.0) -> dict:
-    """Run a custom strategy spec over historical bars. SIMULATION ONLY."""
+             starting_balance: float = 10_000.0, brain=None, min_score: int = 0) -> dict:
+    """Run a custom strategy spec over historical bars. SIMULATION ONLY.
+
+    When a ``brain`` (TradeBrain) is supplied, each candidate entry is scored;
+    setups that are blocked or below ``min_score`` are skipped and recorded in
+    the returned ``blocked`` log. With no brain the behaviour is unchanged.
+
+    ``spec["exit"]`` may enable improved exits (all optional, default off):
+        breakeven_at_r  move the stop to entry once price is +N·risk in profit
+        trail_atr       trail the stop by N·ATR once break-even is armed
+        time_stop_bars  close at market after N bars if neither stop nor target hit
+    """
     side = spec.get("side", "long")
     entry_tree = spec.get("entry") or {"op": "AND", "rules": []}
     stop_cfg = spec.get("stop") or {"type": "atr", "mult": 1.5, "period": 14}
@@ -259,36 +269,67 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
     risk_pct = float(spec.get("risk_per_trade_pct", 0.01))
     max_per_day = int(spec.get("max_trades_per_day", 0) or 0)
     session = spec.get("session")
+    exit_cfg = spec.get("exit") or {}
+    be_at = float(exit_cfg.get("breakeven_at_r", 0) or 0)
+    trail_atr = float(exit_cfg.get("trail_atr", 0) or 0)
+    time_stop = int(exit_cfg.get("time_stop_bars", 0) or 0)
+    atr_period = int(stop_cfg.get("period", 14))
+    reversal = bool(spec.get("reversal")) if brain is None else None
     cost = fee + slippage
 
     pos = None
     trades: list[dict] = []
+    blocked: list[dict] = []
     day_count: dict[str, int] = {}
+    recent_losses = 0  # consecutive losses, for the brain's streak guard
 
     for i in range(WARMUP, len(bars)):
         bar = bars[i]
         if pos is not None:
-            exit_px = result = None
+            # dynamic stop management (break-even, ATR trail) — opt-in
+            if be_at or trail_atr:
+                a = atr(bars[:i + 1], atr_period)
+                if pos["side"] == "long":
+                    fav = bar.high - pos["entry"]
+                    if be_at and not pos["be"] and fav >= be_at * pos["risk"]:
+                        pos["stop"] = max(pos["stop"], pos["entry"]); pos["be"] = True
+                    if trail_atr and pos["be"] and a > 0:
+                        pos["stop"] = max(pos["stop"], bar.high - trail_atr * a)
+                else:
+                    fav = pos["entry"] - bar.low
+                    if be_at and not pos["be"] and fav >= be_at * pos["risk"]:
+                        pos["stop"] = min(pos["stop"], pos["entry"]); pos["be"] = True
+                    if trail_atr and pos["be"] and a > 0:
+                        pos["stop"] = min(pos["stop"], bar.low + trail_atr * a)
+
+            exit_px = exit_reason = None
             if pos["side"] == "long":
                 if bar.low <= pos["stop"]:
-                    exit_px, result = pos["stop"], "loss"
+                    exit_px, exit_reason = pos["stop"], ("breakeven" if pos["be"] and pos["stop"] >= pos["entry"] else "stop")
                 elif bar.high >= pos["target"]:
-                    exit_px, result = pos["target"], "win"
+                    exit_px, exit_reason = pos["target"], "target"
             else:
                 if bar.high >= pos["stop"]:
-                    exit_px, result = pos["stop"], "loss"
+                    exit_px, exit_reason = pos["stop"], ("breakeven" if pos["be"] and pos["stop"] <= pos["entry"] else "stop")
                 elif bar.low <= pos["target"]:
-                    exit_px, result = pos["target"], "win"
+                    exit_px, exit_reason = pos["target"], "target"
+            if exit_px is None and time_stop and (i - pos["idx"]) >= time_stop:
+                exit_px, exit_reason = bar.close, "time"
             if exit_px is not None:
                 move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
                 r = move / pos["risk"] - cost * pos["entry"] * 2 / pos["risk"]
-                trades.append({
+                rec = {
                     "side": pos["side"], "entry": round(pos["entry"], 6), "exit": round(exit_px, 6),
                     "stop": round(pos["stop"], 6), "target": round(pos["target"], 6),
                     "r": round(r, 3), "result": "win" if r > 0 else "loss",
-                    "reason": pos["reason"],
+                    "reason": pos["reason"], "exit_reason": exit_reason,
                     "entry_time": pos["time"].isoformat(), "exit_time": bar.timestamp.isoformat(),
-                })
+                    "bars_held": i - pos["idx"],
+                }
+                if pos.get("brain"):
+                    rec.update(pos["brain"])
+                trades.append(rec)
+                recent_losses = 0 if r > 0 else recent_losses + 1
                 pos = None
 
         if pos is None:
@@ -308,15 +349,39 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                     stop, target = entry_px - risk_abs, entry_px + tgt
                 else:
                     stop, target = entry_px + risk_abs, entry_px - tgt
+
+                brain_tag = None
+                if brain is not None:
+                    is_rev = reversal if reversal is not None else _detect_reversal(spec)
+                    v = brain.evaluate(bars, i, side=side, entry=entry_px, stop=stop,
+                                       target=target, reversal=is_rev, recent_losses=recent_losses)
+                    if not v.allowed or v.score < min_score:
+                        blocked.append({
+                            "time": bar.timestamp.isoformat(), "side": side,
+                            "score": v.score, "regime": v.regime, "htf_bias": v.htf_bias,
+                            "blocks": v.blocks or [f"score {v.score} < {min_score}"],
+                            "reason": (v.blocks[0] if v.blocks else f"low quality score {v.score}"),
+                        })
+                        continue
+                    brain_tag = {"score": v.score, "grade": v.grade, "regime": v.regime,
+                                 "htf_bias": v.htf_bias, "setup_type": v.setup_type,
+                                 "passed": v.passed, "failed": v.failed}
+
                 pos = {"side": side, "entry": entry_px, "stop": stop, "target": target,
                        "risk": risk_abs, "reason": "; ".join(reasons) or "entry conditions met",
-                       "time": bar.timestamp}
+                       "time": bar.timestamp, "idx": i, "be": False, "brain": brain_tag}
                 day_count[day] = day_count.get(day, 0) + 1
 
-    return _results(trades, starting_balance, risk_pct, bars)
+    return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
 
 
-def _results(trades: list, start: float, risk_pct: float, bars) -> dict:
+def _detect_reversal(spec: dict) -> bool:
+    """Local reversal check (avoids a hard import of brain at module load)."""
+    from strategies.brain import detect_reversal
+    return detect_reversal(spec)
+
+
+def _results(trades: list, start: float, risk_pct: float, bars, blocked: list | None = None) -> dict:
     rs = [t["r"] for t in trades]
     n = len(rs)
     wins = [r for r in rs if r > 0]
@@ -347,6 +412,21 @@ def _results(trades: list, start: float, risk_pct: float, bars) -> dict:
     avg_win = (gp / len(wins)) if wins else 0.0
     avg_loss = (gl / len(losses)) if losses else 0.0
     span_days = ((bars[-1].timestamp - bars[WARMUP].timestamp).days) if len(bars) > WARMUP else 0
+    # --- extra performance metrics (expectancy / Sharpe / recovery / hold) ---
+    net_r = sum(rs)
+    expectancy = (net_r / n) if n else 0.0          # average R per trade
+    if n >= 2:
+        m = net_r / n
+        var = sum((r - m) ** 2 for r in rs) / (n - 1)
+        sd = var ** 0.5
+        sharpe = (m / sd * (n ** 0.5)) if sd > 0 else 0.0   # per-trade Sharpe, annualised by sqrt(N)
+    else:
+        sharpe = 0.0
+    recovery = (net_r / ddR) if ddR > 0 else (net_r if net_r > 0 else 0.0)
+    holds = [t.get("bars_held", 0) for t in trades if "bars_held" in t]
+    avg_hold = round(sum(holds) / len(holds), 1) if holds else 0.0
+    longs = [t["r"] for t in trades if t.get("side") == "long"]
+    shorts = [t["r"] for t in trades if t.get("side") == "short"]
     return {
         "simulation": True,
         "data_points": len(bars),
@@ -354,8 +434,8 @@ def _results(trades: list, start: float, risk_pct: float, bars) -> dict:
         "win_rate": round(len(wins) / n * 100, 1) if n else 0.0,
         "wins": len(wins), "losses": len(losses),
         "profit_factor": round(gp / gl, 2) if gl else (gp and 99.0 or 0.0),
-        "net_r": round(sum(rs), 2),
-        "net_pct": round(sum(rs) * risk_pct * 100, 1),
+        "net_r": round(net_r, 2),
+        "net_pct": round(net_r * risk_pct * 100, 1),
         "max_drawdown_r": round(ddR, 1),
         "max_drawdown_pct": round(ddp * 100, 1),
         "avg_rr": round(avg_win / avg_loss, 2) if avg_loss else 0.0,
@@ -365,8 +445,17 @@ def _results(trades: list, start: float, risk_pct: float, bars) -> dict:
         "max_consecutive_wins": mcw, "max_consecutive_losses": mcl,
         "end_balance": round(bal, 2),
         "span_days": span_days,
+        # --- new metrics ---
+        "expectancy_r": round(expectancy, 3),
+        "sharpe": round(sharpe, 2),
+        "recovery_factor": round(recovery, 2),
+        "avg_hold_bars": avg_hold,
+        "long_trades": len(longs), "short_trades": len(shorts),
+        "long_net_r": round(sum(longs), 2), "short_net_r": round(sum(shorts), 2),
+        "blocked_count": len(blocked or []),
         "equity_curve": curve,
         "trades": trades[-200:],
+        "blocked": (blocked or [])[-200:],
     }
 
 
