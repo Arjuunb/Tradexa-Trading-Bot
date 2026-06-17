@@ -78,6 +78,11 @@ class Settings:
 
     # --- automatic capital protection (drawdown circuit breaker) ---
     max_drawdown_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_MAX_DRAWDOWN", "0.20")))
+    # daily-loss kill switch (% of starting equity; 0 = disabled). Resets each UTC day.
+    max_daily_loss_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_MAX_DAILY_LOSS", "0")))
+    # trading-session window in UTC hours (start inclusive, end exclusive). 0..24 = always.
+    session_start: int = field(default_factory=lambda: int(os.environ.get("HUB_SESSION_START", "0")))
+    session_end: int = field(default_factory=lambda: int(os.environ.get("HUB_SESSION_END", "24")))
     settings_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
     custom_path: str = field(default_factory=lambda: os.environ.get(

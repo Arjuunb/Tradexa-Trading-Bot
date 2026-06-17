@@ -11,8 +11,9 @@ import json
 from pathlib import Path
 
 EDITABLE = ("risk_per_trade_pct", "exposure_limit_pct", "max_drawdown_pct",
-            "max_open_positions", "dedup_window_s")
-_INT_KEYS = {"max_open_positions", "dedup_window_s"}
+            "max_open_positions", "dedup_window_s", "max_daily_loss_pct",
+            "session_start", "session_end")
+_INT_KEYS = {"max_open_positions", "dedup_window_s", "session_start", "session_end"}
 
 
 def _cast(key, value):

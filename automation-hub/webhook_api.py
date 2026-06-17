@@ -43,6 +43,9 @@ pipeline = SignalPipeline(
     quality=quality,
     max_drawdown_pct=settings.max_drawdown_pct,
     max_open_positions=settings.max_open_positions,
+    max_daily_loss_pct=settings.max_daily_loss_pct,
+    session_start=settings.session_start,
+    session_end=settings.session_end,
 )
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
@@ -82,9 +85,9 @@ from services.runtime_settings import load_overrides, save_overrides  # noqa: E4
 def _apply_setting(key: str, value) -> None:
     if key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
-    elif key == "max_open_positions":
-        pipeline.max_open_positions = int(value)
-    else:  # risk_per_trade_pct / exposure_limit_pct / max_drawdown_pct
+    elif key in ("max_open_positions", "session_start", "session_end"):
+        setattr(pipeline, key, int(value))
+    else:  # risk_per_trade_pct / exposure_limit_pct / max_drawdown_pct / max_daily_loss_pct
         setattr(pipeline, key, float(value))
 
 
@@ -100,6 +103,9 @@ class SettingsUpdate(BaseModel):
     max_drawdown_pct: Optional[float] = None
     max_open_positions: Optional[int] = None
     dedup_window_s: Optional[int] = None
+    max_daily_loss_pct: Optional[float] = None
+    session_start: Optional[int] = None
+    session_end: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -292,6 +298,9 @@ def get_settings():
             "max_drawdown_pct": pipeline.max_drawdown_pct,
             "max_open_positions": pipeline.max_open_positions,
             "dedup_window_s": pipeline.dedup.window_seconds,
+            "max_daily_loss_pct": pipeline.max_daily_loss_pct,
+            "session_start": pipeline.session_start,
+            "session_end": pipeline.session_end,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -338,6 +347,21 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
             raise HTTPException(400, "dedup_window_s must be in [0, 86400]")
         pipeline.dedup.window_seconds = int(body.dedup_window_s)
         changed["dedup_window_s"] = int(body.dedup_window_s)
+    if body.max_daily_loss_pct is not None:
+        if not (0 <= body.max_daily_loss_pct <= 1):
+            raise HTTPException(400, "max_daily_loss_pct must be in [0, 1]")
+        pipeline.max_daily_loss_pct = float(body.max_daily_loss_pct)
+        changed["max_daily_loss_pct"] = float(body.max_daily_loss_pct)
+    if body.session_start is not None:
+        if not (0 <= body.session_start <= 24):
+            raise HTTPException(400, "session_start must be in [0, 24]")
+        pipeline.session_start = int(body.session_start)
+        changed["session_start"] = int(body.session_start)
+    if body.session_end is not None:
+        if not (0 <= body.session_end <= 24):
+            raise HTTPException(400, "session_end must be in [0, 24]")
+        pipeline.session_end = int(body.session_end)
+        changed["session_end"] = int(body.session_end)
 
     current = {
         "risk_per_trade_pct": pipeline.risk_per_trade_pct,
@@ -345,6 +369,9 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
         "max_drawdown_pct": pipeline.max_drawdown_pct,
         "max_open_positions": pipeline.max_open_positions,
         "dedup_window_s": pipeline.dedup.window_seconds,
+        "max_daily_loss_pct": pipeline.max_daily_loss_pct,
+        "session_start": pipeline.session_start,
+        "session_end": pipeline.session_end,
     }
     save_overrides(settings.settings_path, current)
     ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")

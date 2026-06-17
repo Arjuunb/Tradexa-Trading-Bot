@@ -22,6 +22,9 @@ export default function SettingsPage() {
         drawdown: (data.editable.max_drawdown_pct * 100).toString(),
         maxpos: String(data.editable.max_open_positions),
         dedup: String(data.editable.dedup_window_s),
+        daily: (data.editable.max_daily_loss_pct * 100).toString(),
+        sstart: String(data.editable.session_start),
+        send: String(data.editable.session_end),
       });
     }
   }, [data, f]);
@@ -37,6 +40,9 @@ export default function SettingsPage() {
         max_drawdown_pct: Number(f.drawdown) / 100,
         max_open_positions: Math.round(Number(f.maxpos)),
         dedup_window_s: Math.round(Number(f.dedup)),
+        max_daily_loss_pct: Number(f.daily) / 100,
+        session_start: Math.round(Number(f.sstart)),
+        session_end: Math.round(Number(f.send)),
       });
       app.toast("Settings saved & applied (persisted on backend)", "success");
       refetch();
@@ -80,6 +86,23 @@ export default function SettingsPage() {
             <Field label="Max open positions"><input value={f.maxpos ?? ""} onChange={set("maxpos")} inputMode="numeric" /></Field>
             <Field label="Duplicate window (s)" hint="reject repeat alert_id within this window"><input value={f.dedup ?? ""} onChange={set("dedup")} inputMode="numeric" /></Field>
           </div>
+        </Card>
+      </div>
+
+      <div className="grid-2-eq">
+        <Card title="Daily Loss Limit" subtitle="editable · auto-resets each UTC day">
+          <div className="form-grid-2">
+            <Field label="Max daily loss (%)" hint="0 = disabled; halts new entries for the day"><input value={f.daily ?? ""} onChange={set("daily")} inputMode="decimal" /></Field>
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>When today's realized loss exceeds this, new entries are blocked until the next UTC day. Open positions still exit.</p>
+        </Card>
+
+        <Card title="Trading Session (UTC)" subtitle="editable · entries only inside the window">
+          <div className="form-grid-2">
+            <Field label="Session start (hour)"><input value={f.sstart ?? ""} onChange={set("sstart")} inputMode="numeric" /></Field>
+            <Field label="Session end (hour)"><input value={f.send ?? ""} onChange={set("send")} inputMode="numeric" /></Field>
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>0 to 24 = trade all day. Entries outside the window are skipped; exits are never blocked.</p>
         </Card>
       </div>
 

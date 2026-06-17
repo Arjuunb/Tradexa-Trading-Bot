@@ -10,6 +10,7 @@ shows exactly why a trade executed or was rejected. No real broker is touched.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 from database.models import RiskRules
@@ -61,6 +62,9 @@ class SignalPipeline:
         quality: Optional[MarketQualityGate] = None,
         max_drawdown_pct: float = 0.20,
         max_open_positions: int = 3,
+        max_daily_loss_pct: float = 0.0,
+        session_start: int = 0,
+        session_end: int = 24,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -75,6 +79,10 @@ class SignalPipeline:
         # entries, never exits) + a cap on concurrent positions.
         self.max_drawdown_pct = max_drawdown_pct
         self.max_open_positions = max_open_positions
+        # Daily-loss kill switch (resets each UTC day) + trading-session window.
+        self.max_daily_loss_pct = max_daily_loss_pct
+        self.session_start = session_start
+        self.session_end = session_end
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -164,6 +172,22 @@ class SignalPipeline:
             return reject("risk_guard", f"Auto-halt: {self._halt_reason}")
         steps.append(Step("risk_guard", True, "within risk limits"))
 
+        # 3e. trading-session window (UTC hours) — blocks entries outside hours
+        if self.session_start != 0 or self.session_end != 24:
+            hour = self._entry_hour(payload.get("timestamp"))
+            if not (self.session_start <= hour < self.session_end):
+                return reject("session", f"Outside session {self.session_start:02d}:00–{self.session_end:02d}:00 UTC")
+            steps.append(Step("session", True, "within trading hours"))
+
+        # 3f. daily-loss kill switch — blocks NEW entries once today's loss exceeds
+        #     the limit; resets automatically at the next UTC day.
+        if self.max_daily_loss_pct > 0:
+            today = self._today_pnl()
+            limit = self.max_daily_loss_pct * self.paper.starting_balance
+            if today <= -limit:
+                return reject("daily_loss", f"Daily loss limit hit ({today:+.2f} ≤ -{limit:.2f})")
+            steps.append(Step("daily_loss", True, f"today {today:+.2f} / -{limit:.2f}"))
+
         # 4. risk: position sizing from stop distance, scaled by conviction
         #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%).
         if stop is None or stop == entry:
@@ -215,6 +239,24 @@ class SignalPipeline:
         self._halt_reason = ""
         self._dd_base_balance = self.paper.balance()
         self._dd_base_count = len(self.paper.history())
+
+    @staticmethod
+    def _entry_hour(ts: Optional[str]) -> int:
+        try:
+            if ts:
+                return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).astimezone(timezone.utc).hour
+        except Exception:  # noqa: BLE001 — unparseable -> use now
+            pass
+        return datetime.now(timezone.utc).hour
+
+    @staticmethod
+    def _pnl_on_day(trades, day: str) -> float:
+        return sum((t.get("pnl") or 0.0) for t in trades if (t.get("closed_at") or "")[:10] == day)
+
+    def _today_pnl(self) -> float:
+        """Net realized P&L for the current UTC day (resets at the day boundary)."""
+        day = datetime.now(timezone.utc).date().isoformat()
+        return self._pnl_on_day(self.paper.history(), day)
 
     def _drawdown_trip(self) -> Optional[str]:
         """Return a reason if realized-equity drawdown (since the last baseline)

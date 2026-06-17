@@ -32,6 +32,9 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
         <b>{label}</b>
         <span className="sep">·</span>
         <span className="dim">{detail}</span>
+        {data?.strategy?.startsWith("Custom") && (
+          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(139,92,246,0.18)", color: "#a78bfa" }}>CUSTOM</span>
+        )}
       </div>
 
       <div className="topbar-right">
