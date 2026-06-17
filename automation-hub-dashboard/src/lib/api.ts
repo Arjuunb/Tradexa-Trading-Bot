@@ -141,6 +141,7 @@ export interface EquityCurvePoint { t: string | null; equity: number; }
 export interface StrategyPerformance {
   strategy: string; mode: string;
   trades: number; win_rate: number; profit_factor: number; expectancy: number;
+  wins: number; losses: number; breakeven: number; gross_win: number; gross_loss: number;
   avg_win: number; avg_loss: number; best: number; worst: number;
   realized_pnl: number; starting_balance: number; balance: number;
   max_drawdown_abs: number; max_drawdown_pct: number; longest_losing_streak: number;

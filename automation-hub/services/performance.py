@@ -46,6 +46,11 @@ def summarize(trades: list[dict], starting_balance: float, recent: int = 25) -> 
     return {
         "trades": n,
         "win_rate": round(len(wins) / n * 100, 1) if n else 0.0,
+        "wins": len(wins),
+        "losses": len(losses),
+        "breakeven": n - len(wins) - len(losses),
+        "gross_win": round(gross_win, 2),
+        "gross_loss": round(gross_loss, 2),
         "profit_factor": round(gross_win / gross_loss, 2) if gross_loss else (gross_win and 99.0 or 0.0),
         "expectancy": _safe(realized / n) if n else 0.0,
         "avg_win": _safe(gross_win / len(wins)) if wins else 0.0,
