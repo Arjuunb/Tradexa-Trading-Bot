@@ -197,6 +197,11 @@ export interface CompareResult {
   metrics: { total_trades: number; win_rate: number; profit_factor: number; net_r: number; max_drawdown_r: number; avg_r: number };
 }
 
+export interface NotifStatus {
+  telegram_configured: boolean; notify_trades: boolean; notify_risk: boolean;
+  email: string; discord: string;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

@@ -3,7 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPostJson, useLive, type BotSettings, type EngineStatus } from "../lib/api";
+import { API_BASE, apiPost, apiPostJson, useLive, type BotSettings, type EngineStatus, type NotifStatus } from "../lib/api";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SESSIONS: Record<string, [number, number]> = { London: [7, 16], "New York": [12, 21], Asia: [0, 9], "24h": [0, 24] };
@@ -34,6 +34,17 @@ export default function SettingsPage() {
     catch { app.toast("Apply failed", "error"); }
   };
   const preset = (name: string) => { const [s, e] = SESSIONS[name]; setF((p) => ({ ...p, sstart: String(s), send: String(e) })); };
+
+  const notif = useLive<NotifStatus>("/notifications/status", 6000);
+  const toggleNotif = async (key: "notify_trades" | "notify_risk") => {
+    const cur = notif.data; if (!cur) return;
+    try { await apiPostJson("/notifications", { [key]: !cur[key] }); notif.refetch(); }
+    catch { app.toast("Update failed", "error"); }
+  };
+  const testNotif = async () => {
+    try { const r = await apiPost<{ sent: boolean; configured: boolean }>("/notifications/test"); app.toast(r.sent ? "Telegram test sent ✅" : (r.configured ? "Send failed (network?)" : "Telegram not configured"), r.sent ? "success" : "error"); }
+    catch { app.toast("Test failed", "error"); }
+  };
 
   useEffect(() => {
     if (data && Object.keys(f).length === 0) {
@@ -175,6 +186,29 @@ export default function SettingsPage() {
             <Ro k="4. Live trading" v="requires a live broker (not connected)" badge={<Badge text="LOCKED" tone="red" />} />
           </div>
           <p className="dim" style={{ marginTop: 8 }}>A new strategy can never trade live directly. Live execution is disabled until a broker is wired.</p>
+        </Card>
+      </div>
+
+      <div className="grid-2-eq">
+        <Card title="Notifications" subtitle="Telegram · editable" right={<button className="btn btn-soft" onClick={testNotif}><Icon name="external" size={14} /> Send test</button>}>
+          <div className="risk-list">
+            <Ro k="Telegram" v={notif.data?.telegram_configured ? "configured" : "not configured"} badge={<Badge text={notif.data?.telegram_configured ? "ON" : "OFF"} tone={notif.data?.telegram_configured ? "green" : "default"} />} />
+            <Ro k="Email" v={notif.data?.email ?? "—"} />
+            <Ro k="Discord" v={notif.data?.discord ?? "—"} />
+          </div>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginTop: 10 }}>
+            <button className={`chip-btn ${notif.data?.notify_trades ? "active" : ""}`} onClick={() => toggleNotif("notify_trades")}>Trade alerts</button>
+            <button className={`chip-btn ${notif.data?.notify_risk ? "active" : ""}`} onClick={() => toggleNotif("notify_risk")}>Risk alerts</button>
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>Telegram needs TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (env). In-app alerts are always on (Alert Center). Email/Discord need extra credentials.</p>
+        </Card>
+
+        <Card title="Audit & Logs" subtitle="export the full trail">
+          <p className="dim">Every settings change, strategy edit, deploy and engine event is recorded to the decision log.</p>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginTop: 10 }}>
+            <a className="btn btn-soft" href={`${API_BASE}/ledger/logs/export?fmt=csv`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Logs CSV</a>
+            <a className="btn btn-soft" href={`${API_BASE}/paper/trades/export?fmt=csv`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Trades CSV</a>
+          </div>
         </Card>
       </div>
 

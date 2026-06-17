@@ -93,6 +93,8 @@ class SignalPipeline:
         self.max_consecutive_losses = max_consecutive_losses
         self.cooldown_after_loss_min = cooldown_after_loss_min
         self.trading_days_mask = trading_days_mask
+        # Optional notification hook: callable(kind, title, detail). Best-effort.
+        self.notifier = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -156,6 +158,7 @@ class SignalPipeline:
                             message=f"{symbol} closed @ {entry} (PnL {fill.pnl:+.2f})", symbol=symbol)
             self.ledger.add_alert(severity="info", category="trade",
                                   title=f"Position closed — {symbol}", detail=f"PnL {fill.pnl:+.2f}")
+            self._notify("trade", f"📉 {symbol} closed", f"PnL {fill.pnl:+.2f}")
             steps.append(Step("execution", True, f"closed PnL {fill.pnl:+.2f}"))
             # A losing close may breach drawdown -> halt future entries (not exits).
             if not self._halted:
@@ -263,6 +266,7 @@ class SignalPipeline:
         self.ledger.add_alert(severity="info", category="trade",
                               title=f"Paper trade opened — {symbol}",
                               detail=(brain_reason or f"{side} {size:.6f} @ {entry}"))
+        self._notify("trade", f"📈 {symbol} {side} opened", f"{size:.6f} @ {entry}")
         steps.append(Step("execution", True, f"opened {size:.6f} @ {entry}"))
         return PipelineResult(True, "execution", "paper trade opened", steps, fill.__dict__)
 
@@ -370,6 +374,13 @@ class SignalPipeline:
                     f"({max_drawdown(eq) * 100:.1f}% > {self.max_drawdown_pct * 100:.0f}%)")
         return None
 
+    def _notify(self, kind: str, title: str, detail: str = "") -> None:
+        if self.notifier:
+            try:
+                self.notifier(kind, title, detail)
+            except Exception:  # noqa: BLE001 — notifications never break trading
+                pass
+
     def _engage_halt(self, reason: str) -> None:
         self._halted = True
         self._halt_reason = reason
@@ -377,3 +388,4 @@ class SignalPipeline:
                         message=f"AUTO-HALT — {reason}; new entries blocked until Resume")
         self.ledger.add_alert(severity="critical", category="risk",
                               title="Auto-halt — drawdown circuit breaker", detail=reason)
+        self._notify("risk", "🛑 Auto-halt", reason)

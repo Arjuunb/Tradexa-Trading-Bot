@@ -52,6 +52,11 @@ pipeline = SignalPipeline(
     cooldown_after_loss_min=settings.cooldown_after_loss_min,
     trading_days_mask=settings.trading_days_mask,
 )
+# Telegram notifications (best-effort) -> routed from pipeline events.
+from services.notifier import Notifier  # noqa: E402
+notifier = Notifier(settings.telegram_token, settings.telegram_chat_id)
+pipeline.notifier = notifier.dispatch
+
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
 # the simple EMA crossover instead.
@@ -88,7 +93,9 @@ from services.runtime_settings import load_overrides, save_overrides  # noqa: E4
 
 
 def _apply_setting(key: str, value) -> None:
-    if key == "dedup_window_s":
+    if key in ("notify_trades", "notify_risk"):
+        setattr(notifier, key, bool(int(value)))
+    elif key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
     elif key in ("max_open_positions", "session_start", "session_end",
                  "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
@@ -96,6 +103,26 @@ def _apply_setting(key: str, value) -> None:
         setattr(pipeline, key, int(value))
     else:  # *_pct float settings
         setattr(pipeline, key, float(value))
+
+
+def _settings_snapshot() -> dict:
+    return {
+        "risk_per_trade_pct": pipeline.risk_per_trade_pct,
+        "exposure_limit_pct": pipeline.exposure_limit_pct,
+        "max_drawdown_pct": pipeline.max_drawdown_pct,
+        "max_open_positions": pipeline.max_open_positions,
+        "dedup_window_s": pipeline.dedup.window_seconds,
+        "max_daily_loss_pct": pipeline.max_daily_loss_pct,
+        "session_start": pipeline.session_start,
+        "session_end": pipeline.session_end,
+        "max_weekly_loss_pct": pipeline.max_weekly_loss_pct,
+        "max_trades_per_day": pipeline.max_trades_per_day,
+        "max_consecutive_losses": pipeline.max_consecutive_losses,
+        "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
+        "trading_days_mask": pipeline.trading_days_mask,
+        "notify_trades": 1 if notifier.notify_trades else 0,
+        "notify_risk": 1 if notifier.notify_risk else 0,
+    }
 
 
 for _k, _v in load_overrides(settings.settings_path).items():
@@ -430,24 +457,43 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
         pipeline.trading_days_mask = int(body.trading_days_mask)
         changed["trading_days_mask"] = int(body.trading_days_mask)
 
-    current = {
-        "risk_per_trade_pct": pipeline.risk_per_trade_pct,
-        "exposure_limit_pct": pipeline.exposure_limit_pct,
-        "max_drawdown_pct": pipeline.max_drawdown_pct,
-        "max_open_positions": pipeline.max_open_positions,
-        "dedup_window_s": pipeline.dedup.window_seconds,
-        "max_daily_loss_pct": pipeline.max_daily_loss_pct,
-        "session_start": pipeline.session_start,
-        "session_end": pipeline.session_end,
-        "max_weekly_loss_pct": pipeline.max_weekly_loss_pct,
-        "max_trades_per_day": pipeline.max_trades_per_day,
-        "max_consecutive_losses": pipeline.max_consecutive_losses,
-        "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
-        "trading_days_mask": pipeline.trading_days_mask,
+    snap = _settings_snapshot()
+    save_overrides(settings.settings_path, snap)
+    ledger.log(level="info", stage="audit", message=f"Settings updated: {changed}")
+    return {"saved": True, "editable": snap}
+
+
+class NotifUpdate(BaseModel):
+    notify_trades: Optional[bool] = None
+    notify_risk: Optional[bool] = None
+
+
+@router.get("/notifications/status")
+def notifications_status():
+    return {
+        "telegram_configured": notifier.configured,
+        "notify_trades": notifier.notify_trades,
+        "notify_risk": notifier.notify_risk,
+        "email": "not configured", "discord": "not configured",
     }
-    save_overrides(settings.settings_path, current)
-    ledger.log(level="info", stage="settings", message=f"Settings updated: {changed}")
-    return {"saved": True, "editable": current}
+
+
+@router.post("/notifications/test")
+def notifications_test(x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    sent = notifier.send("✅ Automation Hub — test notification")
+    return {"sent": sent, "configured": notifier.configured}
+
+
+@router.post("/notifications")
+def notifications_update(body: NotifUpdate, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    if body.notify_trades is not None:
+        notifier.notify_trades = bool(body.notify_trades)
+    if body.notify_risk is not None:
+        notifier.notify_risk = bool(body.notify_risk)
+    save_overrides(settings.settings_path, _settings_snapshot())
+    return {"notify_trades": notifier.notify_trades, "notify_risk": notifier.notify_risk}
 
 
 # ------------------------------------------------- custom strategy builder

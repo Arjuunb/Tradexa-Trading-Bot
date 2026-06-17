@@ -14,10 +14,10 @@ EDITABLE = ("risk_per_trade_pct", "exposure_limit_pct", "max_drawdown_pct",
             "max_open_positions", "dedup_window_s", "max_daily_loss_pct",
             "session_start", "session_end", "max_weekly_loss_pct",
             "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
-            "trading_days_mask")
+            "trading_days_mask", "notify_trades", "notify_risk")
 _INT_KEYS = {"max_open_positions", "dedup_window_s", "session_start", "session_end",
              "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
-             "trading_days_mask"}
+             "trading_days_mask", "notify_trades", "notify_risk"}
 
 
 def _cast(key, value):
