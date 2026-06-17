@@ -225,6 +225,17 @@ export interface NotifStatus {
   email: string; discord: string;
 }
 
+export interface StrategyHealthData {
+  strategy: string;
+  health: {
+    status: "Healthy" | "Degrading" | "Unhealthy";
+    recent: { n: number; win_rate: number; profit_factor: number; expectancy: number; avg_rr: number; max_drawdown: number; consecutive_losses: number };
+    previous: { n: number; win_rate: number; profit_factor: number; expectancy: number; avg_rr: number; max_drawdown: number; consecutive_losses: number };
+    warnings: { metric: string; severity: string; detail: string }[];
+  };
+  brain: { blocked: number; taken: number; total: number; block_rate: number; top_reasons: Record<string, number> };
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

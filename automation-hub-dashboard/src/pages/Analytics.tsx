@@ -3,6 +3,7 @@ import AreaLine from "../components/chart/AreaLine";
 import BarChart from "../components/chart/BarChart";
 import Doughnut from "../components/chart/Doughnut";
 import Icon from "../components/common/Icon";
+import StrategyHealth from "../components/cards/StrategyHealth";
 import { PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE, type PaperTradeRow, type StrategyPerformance } from "../lib/api";
 
@@ -67,6 +68,8 @@ export default function AnalyticsPage() {
                     centerTone={(data?.win_rate ?? 0) >= 50 ? "pos" : "default"} />
         </Card>
       </div>
+
+      <StrategyHealth />
 
       <Card title="Daily P&L" subtitle="realized P&L grouped by close date">
         {days.length > 0 ? (

@@ -691,6 +691,39 @@ def strategy_performance():
     return stats
 
 
+@router.get("/strategy/health")
+def strategy_health():
+    """Strategy health (rolling deterioration check) + the brain's block rate:
+    how many setups the quality filter took vs avoided in paper."""
+    from services.strategy_health import StrategyHealthMonitor
+    hist = [{**t, "r": (t.get("rr") if t.get("rr") is not None else 0.0)} for t in paper.history()]
+    health = StrategyHealthMonitor().evaluate(hist)
+
+    logs = ledger.get_logs(limit=1000)
+    blocked = sum(1 for l in logs if l.get("stage") == "brain")
+    taken = sum(1 for l in logs if l.get("stage") == "execution"
+                and "opened" in (l.get("message") or ""))
+    total = blocked + taken
+    # most common block reasons (text after the em dash, before the parenthesis)
+    from collections import Counter
+    reasons: Counter = Counter()
+    for l in logs:
+        if l.get("stage") == "brain":
+            msg = l.get("message") or ""
+            r = msg.split("blocked — ", 1)[-1].split("(")[0].strip() if "blocked — " in msg else "blocked"
+            reasons[r] += 1
+
+    return {
+        "strategy": engine.strategy_label,
+        "health": health.to_dict(),
+        "brain": {
+            "blocked": blocked, "taken": taken, "total": total,
+            "block_rate": round(blocked / total * 100, 1) if total else 0.0,
+            "top_reasons": dict(reasons.most_common(6)),
+        },
+    }
+
+
 @router.get("/bots/live")
 def bots_live():
     """Each engine symbol as a live 'bot' with real per-symbol stats."""

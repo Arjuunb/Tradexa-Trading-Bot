@@ -228,3 +228,16 @@ def test_adapter_filter_can_be_disabled():
     for b in _downtrend(n=400):
         sig = ad.on_bar(b) or sig
     assert sig is not None  # without the brain, longs into a downtrend are taken
+
+
+def test_strategy_health_endpoint():
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import webhook_api
+    app = FastAPI(); app.include_router(webhook_api.router)
+    body = TestClient(app).get("/strategy/health").json()
+    assert "health" in body and "brain" in body
+    for k in ("blocked", "taken", "total", "block_rate", "top_reasons"):
+        assert k in body["brain"]
+    assert body["health"]["status"] in ("Healthy", "Degrading", "Unhealthy")
