@@ -30,7 +30,7 @@ export default function RiskCenter() {
           </div>
         ))}
       </div>
-      <button className="link-row" type="button" onClick={() => app.go("Risk Center")}>
+      <button className="link-row" type="button" onClick={() => app.go("Risk Manager")}>
         View Full Risk <Icon name="chevron" size={14} />
       </button>
     </Card>

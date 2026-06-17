@@ -13,6 +13,13 @@ import LogsPage from "./pages/Logs";
 import AlertsPage from "./pages/Alerts";
 import SettingsPage from "./pages/Settings";
 import BotDetail from "./pages/BotDetail";
+import MarketsPage from "./pages/Markets";
+import SimulationPage from "./pages/Simulation";
+import LiveTradingPage from "./pages/LiveTrading";
+import PortfolioPage from "./pages/Portfolio";
+import AnalyticsPage from "./pages/Analytics";
+import AIAssistantPage from "./pages/AIAssistant";
+import SafetyCenterPage from "./pages/SafetyCenter";
 import { AppContext, parseHash, slug } from "./app-context";
 
 export default function App() {
@@ -41,14 +48,22 @@ export default function App() {
 
   const renderPage = () => {
     switch (active) {
-      case "Bots": return <BotsPage />;
+      case "Markets": return <MarketsPage />;
       case "Strategies": return <StrategiesPage />;
-      case "Paper Trading": return <PaperTradingPage />;
       case "Backtesting": return <BacktestingPage />;
-      case "Risk Center": return <RiskCenterPage />;
+      case "Simulation": return <SimulationPage />;
+      case "Paper Trading": return <PaperTradingPage />;
+      case "Live Trading": return <LiveTradingPage />;
+      case "Portfolio": return <PortfolioPage />;
+      case "Analytics": return <AnalyticsPage />;
+      case "AI Assistant": return <AIAssistantPage />;
+      case "Risk Manager": return <RiskCenterPage />;
       case "Logs": return <LogsPage />;
-      case "Alerts": return <AlertsPage />;
       case "Settings": return <SettingsPage />;
+      case "Safety Center": return <SafetyCenterPage />;
+      // legacy routes (not in the main nav, still reachable by hash)
+      case "Bots": return <BotsPage />;
+      case "Alerts": return <AlertsPage />;
       case "BotDetail": return <BotDetail botId={route.botId} />;
       default: return <Overview />;
     }

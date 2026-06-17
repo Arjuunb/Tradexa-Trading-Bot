@@ -17,10 +17,16 @@ export const AppContext = createContext<AppApi>({
 
 export const useApp = () => useContext(AppContext);
 
+// The 14 sidebar pages (the standalone trading-bot workspace layout).
 export const NAV_LABELS = [
-  "Overview", "Bots", "Strategies", "Paper Trading", "Backtesting",
-  "Risk Center", "Logs", "Alerts", "Settings",
+  "Overview", "Markets", "Strategies", "Backtesting", "Simulation",
+  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
+  "Risk Manager", "Logs", "Settings", "Safety Center",
 ] as const;
+
+// Extra routes reachable by hash but not shown in the main nav (kept so the
+// existing Bots / Alerts / BotDetail views still work).
+const EXTRA_ROUTES = ["Bots", "Alerts"] as const;
 
 export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");
 
@@ -33,6 +39,6 @@ export const parseHash = (): Route => {
   const h = window.location.hash.replace(/^#\/?/, "").trim();
   const m = h.match(/^bot\/(.+)$/);
   if (m) return { page: "BotDetail", botId: m[1] };
-  const found = NAV_LABELS.find((n) => slug(n) === h);
+  const found = [...NAV_LABELS, ...EXTRA_ROUTES].find((n) => slug(n) === h);
   return { page: found ?? "Overview", botId: "" };
 };

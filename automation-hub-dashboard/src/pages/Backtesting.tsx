@@ -1,14 +1,20 @@
+import { useEffect } from "react";
 import Card from "../components/common/Card";
 import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE, type StrategyPerformance } from "../lib/api";
+import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function BacktestingPage() {
   const { data, error } = useLive<StrategyPerformance>("/strategy/performance", 3000);
   const offline = error && !data;
+
+  // A real strategy track record counts as recorded backtest evidence for the
+  // safety flow (Backtest -> Simulation -> Paper -> Live).
+  useEffect(() => { if ((data?.trades ?? 0) > 0) markDone("backtest"); }, [data?.trades]);
 
   const curve = data?.equity_curve ?? [];
   const labels = curve.map((p, i) => (i === 0 ? "start" : hhmmss(p.t)));

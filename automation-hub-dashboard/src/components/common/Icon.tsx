@@ -32,6 +32,12 @@ const PATHS: Record<string, string> = {
   shield: "M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3z",
   chart: "M3 3v18h18M7 14l3-3 3 3 5-6",
   settings: "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3 12.6 2 2 0 1 1 3 11h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 3.6V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 .9 2.4",
+  globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.5 3.8 5.6 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.6-3.8-9s1.3-6.5 3.8-9z",
+  refresh: "M3 3v5h5M3.05 13a9 9 0 1 0 2.5-6.5L3 8",
+  rocket: "M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2c.9-.9.9-2.3 0-3.2a2.2 2.2 0 0 0-3 .2zM9 13l-2-2c1-4 4-8 9-8 0 5-4 8-8 9zM14.5 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z",
+  wallet: "M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zM3 7l2-3h11M16 13h.01",
+  bot: "M12 2v3M5 8h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM9 13h.01M15 13h.01M9 17h6",
+  lock: "M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4",
 };
 
 export default function Icon({ name, size = 18, className, color }: IconProps) {
@@ -56,13 +62,20 @@ export default function Icon({ name, size = 18, className, color }: IconProps) {
 
 export const NAV_ICON: Record<string, string> = {
   Overview: "grid",
-  Bots: "robot",
+  Markets: "globe",
   Strategies: "layers",
-  "Paper Trading": "flask",
   Backtesting: "history",
-  "Risk Center": "shield",
+  Simulation: "refresh",
+  "Paper Trading": "flask",
+  "Live Trading": "rocket",
+  Portfolio: "wallet",
   Analytics: "chart",
+  "AI Assistant": "bot",
+  "Risk Manager": "shield",
   Logs: "history",
-  Alerts: "bell",
   Settings: "settings",
+  "Safety Center": "lock",
+  // legacy routes
+  Bots: "robot",
+  Alerts: "bell",
 };
