@@ -247,6 +247,39 @@ def ledger_alerts(limit: int = 100):
     return ledger.get_alerts(limit)
 
 
+def _export(rows: list, fields: list, fmt: str, name: str):
+    import csv as _csv
+    import io
+    import json as _json
+    from fastapi.responses import Response
+    if fmt == "json":
+        return Response(_json.dumps(rows, indent=2), media_type="application/json",
+                        headers={"Content-Disposition": f"attachment; filename={name}.json"})
+    buf = io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: r.get(k, "") for k in fields})
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={name}.csv"})
+
+
+@router.get("/ledger/logs/export")
+def export_logs(fmt: str = "csv", limit: int = 2000):
+    return _export(ledger.get_logs(limit), ["ts", "level", "stage", "symbol", "message"], fmt, "decision_logs")
+
+
+@router.get("/ledger/alerts/export")
+def export_alerts(fmt: str = "csv", limit: int = 1000):
+    return _export(ledger.get_alerts(limit), ["ts", "severity", "category", "title", "detail"], fmt, "alerts")
+
+
+@router.get("/paper/trades/export")
+def export_trades(fmt: str = "csv"):
+    return _export(paper.history(), ["symbol", "side", "size", "entry", "exit", "pnl", "rr",
+                                     "opened_at", "closed_at"], fmt, "paper_trades")
+
+
 @router.get("/paper/equity-curve")
 def paper_equity_curve():
     """Realized-equity curve: starting balance + cumulative closed-trade P&L."""
@@ -462,13 +495,18 @@ def custom_list():
 @router.post("/strategy/custom")
 def custom_save(spec: dict, x_webhook_secret: Optional[str] = Header(default=None)):
     _check_secret(x_webhook_secret)
-    return custom_store.save(spec)
+    saved = custom_store.save(spec)
+    ledger.log(level="info", stage="audit", message=f"Custom strategy saved: {saved.get('name', saved['id'])}")
+    return saved
 
 
 @router.delete("/strategy/custom/{sid}")
 def custom_delete(sid: str, x_webhook_secret: Optional[str] = Header(default=None)):
     _check_secret(x_webhook_secret)
-    return {"deleted": custom_store.delete(sid)}
+    ok = custom_store.delete(sid)
+    if ok:
+        ledger.log(level="info", stage="audit", message=f"Custom strategy deleted: {sid}")
+    return {"deleted": ok}
 
 
 @router.post("/strategy/custom/{sid}/duplicate")

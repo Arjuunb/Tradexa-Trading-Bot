@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
-import { useLive, hhmmss, type LogRow } from "../lib/api";
+import { useLive, hhmmss, API_BASE, type LogRow } from "../lib/api";
 
 const LEVELS = ["All", "info", "warning", "error"] as const;
 const tone = (l: string) => ({ info: "blue", warning: "amber", error: "red" }[l] as any) ?? "default";
@@ -21,7 +21,13 @@ export default function LogsPage() {
 
   return (
     <>
-      <PageHeader title="Decision Log" subtitle={`${items.length} entries · live from the engine pipeline`} />
+      <PageHeader title="Decision Log" subtitle={`${items.length} entries · live from the engine pipeline`}
+        actions={
+          <div className="row-actions">
+            <a className="btn btn-soft" href={`${API_BASE}/ledger/logs/export?fmt=csv`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> CSV</a>
+            <a className="btn btn-soft" href={`${API_BASE}/ledger/logs/export?fmt=json`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> JSON</a>
+          </div>
+        } />
 
       {error && !data && (
         <div className="card" style={{ borderColor: "#ef4444" }}>

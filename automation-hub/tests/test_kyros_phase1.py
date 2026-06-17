@@ -490,3 +490,15 @@ def test_alerts_and_logs_pages(hub_client):
     assert "Paper trade opened" in alerts
     logs = hub_client.get("/logs").text
     assert "Decision Log" in logs and "execution" in logs
+
+
+def test_export_endpoints(client):
+    client.post("/webhook/tradingview", json=_alert(),
+                headers={"X-Webhook-Secret": SECRET})
+    csv_r = client.get("/ledger/logs/export?fmt=csv")
+    assert csv_r.status_code == 200 and "text/csv" in csv_r.headers["content-type"]
+    assert "attachment" in csv_r.headers.get("content-disposition", "")
+    assert "ts,level,stage" in csv_r.text
+    json_r = client.get("/ledger/alerts/export?fmt=json")
+    assert json_r.status_code == 200 and json_r.headers["content-type"].startswith("application/json")
+    assert client.get("/paper/trades/export").status_code == 200
