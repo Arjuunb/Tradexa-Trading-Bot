@@ -713,6 +713,12 @@ def strategy_health():
             r = msg.split("blocked — ", 1)[-1].split("(")[0].strip() if "blocked — " in msg else "blocked"
             reasons[r] += 1
 
+    # blocked counts per symbol (from the brain-stage decision log)
+    blocked_by_sym: Counter = Counter()
+    for l in logs:
+        if l.get("stage") == "brain" and l.get("symbol"):
+            blocked_by_sym[l["symbol"]] += 1
+
     return {
         "strategy": engine.strategy_label,
         "health": health.to_dict(),
@@ -721,7 +727,56 @@ def strategy_health():
             "block_rate": round(blocked / total * 100, 1) if total else 0.0,
             "top_reasons": dict(reasons.most_common(6)),
         },
+        "breakdown": _health_breakdown(paper.history(), blocked_by_sym),
     }
+
+
+def _session_of(hour: int) -> str:
+    if 0 <= hour < 8:
+        return "Asia"
+    if 8 <= hour < 16:
+        return "London"
+    return "New York"
+
+
+def _health_breakdown(history: list, blocked_by_sym) -> dict:
+    """Per-symbol and per-session taken-trade performance (real P&L) + blocks."""
+    def _hour(ts) -> int:
+        try:
+            return int(str(ts)[11:13])
+        except (ValueError, TypeError):
+            return -1
+
+    sym: dict = {}
+    sess: dict = {}
+    for t in history:
+        pnl = t.get("pnl") or 0.0
+        s = sym.setdefault(t.get("symbol", "?"), {"trades": 0, "wins": 0, "net_pnl": 0.0})
+        s["trades"] += 1; s["wins"] += 1 if pnl > 0 else 0; s["net_pnl"] += pnl
+        h = _hour(t.get("opened_at"))
+        if h >= 0:
+            name = _session_of(h)
+            g = sess.setdefault(name, {"trades": 0, "wins": 0, "net_pnl": 0.0})
+            g["trades"] += 1; g["wins"] += 1 if pnl > 0 else 0; g["net_pnl"] += pnl
+
+    def _rows(d, extra=None):
+        out = []
+        for name, v in d.items():
+            row = {"name": name, "trades": v["trades"],
+                   "win_rate": round(100 * v["wins"] / v["trades"], 0) if v["trades"] else 0.0,
+                   "net_pnl": round(v["net_pnl"], 2)}
+            if extra is not None:
+                row["blocked"] = int(extra.get(name, 0))
+            out.append(row)
+        return sorted(out, key=lambda r: r["net_pnl"])
+
+    # include symbols that were only ever blocked (never traded)
+    by_symbol = _rows(sym, blocked_by_sym)
+    seen = {r["name"] for r in by_symbol}
+    for s, c in blocked_by_sym.items():
+        if s not in seen:
+            by_symbol.append({"name": s, "trades": 0, "win_rate": 0.0, "net_pnl": 0.0, "blocked": int(c)})
+    return {"by_symbol": by_symbol, "by_session": _rows(sess)}
 
 
 @router.get("/bots/live")

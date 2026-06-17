@@ -234,6 +234,10 @@ export interface StrategyHealthData {
     warnings: { metric: string; severity: string; detail: string }[];
   };
   brain: { blocked: number; taken: number; total: number; block_rate: number; top_reasons: Record<string, number> };
+  breakdown: {
+    by_symbol: { name: string; trades: number; win_rate: number; net_pnl: number; blocked: number }[];
+    by_session: { name: string; trades: number; win_rate: number; net_pnl: number }[];
+  };
 }
 
 export interface StrategyInfo { key: string; label: string; desc: string; }

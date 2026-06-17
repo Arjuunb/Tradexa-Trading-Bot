@@ -68,6 +68,52 @@ export default function StrategyHealth() {
           ))}
         </div>
       )}
+
+      {((data?.breakdown.by_symbol.length ?? 0) > 0 || (data?.breakdown.by_session.length ?? 0) > 0) && (
+        <div className="grid-2-eq" style={{ marginTop: 12 }}>
+          {(data?.breakdown.by_symbol.length ?? 0) > 0 && (
+            <div>
+              <div className="card-subtitle" style={{ marginBottom: 6 }}>By symbol (worst first)</div>
+              <div className="tablewrap">
+                <table className="data-table">
+                  <thead><tr><th>Symbol</th><th>Trades</th><th>Win%</th><th>Net P&amp;L</th><th>Blocked</th></tr></thead>
+                  <tbody>
+                    {data!.breakdown.by_symbol.map((s) => (
+                      <tr key={s.name}>
+                        <td><b>{s.name}</b></td>
+                        <td>{s.trades}</td>
+                        <td className="dim">{s.win_rate}%</td>
+                        <td className={s.net_pnl >= 0 ? "pos" : "neg"}>{s.net_pnl >= 0 ? "+" : ""}{s.net_pnl.toFixed(2)}</td>
+                        <td className="dim">{s.blocked}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {(data?.breakdown.by_session.length ?? 0) > 0 && (
+            <div>
+              <div className="card-subtitle" style={{ marginBottom: 6 }}>By session (UTC)</div>
+              <div className="tablewrap">
+                <table className="data-table">
+                  <thead><tr><th>Session</th><th>Trades</th><th>Win%</th><th>Net P&amp;L</th></tr></thead>
+                  <tbody>
+                    {data!.breakdown.by_session.map((s) => (
+                      <tr key={s.name}>
+                        <td><b>{s.name}</b></td>
+                        <td>{s.trades}</td>
+                        <td className="dim">{s.win_rate}%</td>
+                        <td className={s.net_pnl >= 0 ? "pos" : "neg"}>{s.net_pnl >= 0 ? "+" : ""}{s.net_pnl.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

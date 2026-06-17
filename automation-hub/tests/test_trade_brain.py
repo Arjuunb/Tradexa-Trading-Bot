@@ -237,7 +237,24 @@ def test_strategy_health_endpoint():
     import webhook_api
     app = FastAPI(); app.include_router(webhook_api.router)
     body = TestClient(app).get("/strategy/health").json()
-    assert "health" in body and "brain" in body
+    assert "health" in body and "brain" in body and "breakdown" in body
     for k in ("blocked", "taken", "total", "block_rate", "top_reasons"):
         assert k in body["brain"]
     assert body["health"]["status"] in ("Healthy", "Degrading", "Unhealthy")
+    assert "by_symbol" in body["breakdown"] and "by_session" in body["breakdown"]
+
+
+def test_health_breakdown_aggregates():
+    from webhook_api import _health_breakdown
+    from collections import Counter
+    hist = [
+        {"symbol": "BTCUSDT", "pnl": 10.0, "opened_at": "2024-01-01T03:00:00"},   # Asia win
+        {"symbol": "BTCUSDT", "pnl": -4.0, "opened_at": "2024-01-01T10:00:00"},   # London loss
+        {"symbol": "ETHUSDT", "pnl": -6.0, "opened_at": "2024-01-01T18:00:00"},   # NY loss
+    ]
+    bd = _health_breakdown(hist, Counter({"SOLUSDT": 3}))
+    syms = {r["name"]: r for r in bd["by_symbol"]}
+    assert syms["BTCUSDT"]["trades"] == 2 and syms["BTCUSDT"]["net_pnl"] == 6.0
+    assert syms["SOLUSDT"]["blocked"] == 3 and syms["SOLUSDT"]["trades"] == 0  # blocked-only symbol
+    sessions = {r["name"] for r in bd["by_session"]}
+    assert {"Asia", "London", "New York"} == sessions
