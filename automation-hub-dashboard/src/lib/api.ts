@@ -28,6 +28,12 @@ export async function apiPost<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "DELETE", headers: { "X-Webhook-Secret": SECRET } });
+  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -151,6 +157,33 @@ export interface StrategyPerformance {
   equity_curve: EquityCurvePoint[];
   recent: PaperTradeRow[];
 }
+export interface CustomRule { type: string; negate?: boolean; [k: string]: unknown; }
+export interface CustomSpec {
+  id?: string; name: string; market?: string; symbol: string; timeframe: string;
+  side: "long" | "short";
+  entry: { op: "AND" | "OR"; rules: CustomRule[] };
+  stop: { type: "atr" | "pct"; mult?: number; period?: number; pct?: number };
+  target: { type: "rr" | "pct"; rr?: number; pct?: number };
+  risk_per_trade_pct: number; max_trades_per_day?: number;
+  session?: { start: number; end: number } | null;
+  created_at?: string; updated_at?: string;
+}
+export interface SimTrade {
+  side: string; entry: number; exit: number; stop: number; target: number;
+  r: number; result: string; reason: string; entry_time: string; exit_time: string;
+}
+export interface SimResult {
+  results: {
+    simulation: boolean; total_trades: number; win_rate: number; wins: number; losses: number;
+    profit_factor: number; net_r: number; net_pct: number; max_drawdown_r: number; max_drawdown_pct: number;
+    avg_rr: number; avg_win_r: number; avg_loss_r: number; best_r: number; worst_r: number;
+    max_consecutive_wins: number; max_consecutive_losses: number; end_balance: number; span_days: number;
+    equity_curve: { t: string | null; equity: number }[]; trades: SimTrade[];
+  };
+  warnings: { level: string; message: string }[];
+  description: string; data_source: string; symbol: string; timeframe: string; label: string;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {
