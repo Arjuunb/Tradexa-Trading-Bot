@@ -22,6 +22,10 @@ const RULE_DEFS: Record<string, { label: string; fields: FieldDef[] }> = {
   support_bounce: { label: "Support / Resistance (price action)", fields: [["lookback", "num", 30], ["dir", "sel", ["support", "resistance"]], ["tolerance_pct", "num", 0.5]] },
   liquidity_sweep: { label: "Liquidity sweep (price action)", fields: [["lookback", "num", 20], ["dir", "sel", ["down", "up"]]] },
   fair_value_gap: { label: "Fair value gap (price action)", fields: [["dir", "sel", ["up", "down"]]] },
+  vwap: { label: "VWAP filter", fields: [["period", "num", 20], ["dir", "sel", ["above", "below"]]] },
+  bollinger: { label: "Bollinger Bands", fields: [["period", "num", 20], ["std", "num", 2], ["zone", "sel", ["below_lower", "above_upper", "above_mid", "below_mid"]]] },
+  bos: { label: "Break of Structure (BOS)", fields: [["pivot", "num", 3], ["dir", "sel", ["up", "down"]]] },
+  choch: { label: "Change of Character (CHoCH)", fields: [["pivot", "num", 3], ["dir", "sel", ["up", "down"]]] },
 };
 
 function newRule(type: string): CustomRule {
@@ -52,6 +56,10 @@ function describe(s: CustomSpec): string {
       support_bounce: `price reacts at the ${r.lookback}-bar ${r.dir}`,
       liquidity_sweep: `price sweeps the ${r.lookback}-bar ${r.dir === "down" ? "lows" : "highs"} and reverses`,
       fair_value_gap: `a ${r.dir === "up" ? "bullish" : "bearish"} fair-value gap forms`,
+      vwap: `price is ${r.dir} VWAP(${r.period})`,
+      bollinger: `price is at the Bollinger ${String(r.zone).replace("_", " ")}`,
+      bos: `a ${r.dir} break of structure occurs`,
+      choch: `a ${r.dir} change of character occurs`,
     };
     return r.negate ? `NOT (${m[r.type] ?? r.type})` : m[r.type] ?? r.type;
   };
@@ -199,6 +207,25 @@ export default function CustomBuilder() {
             </div>
             {curve.length > 1 && <div className="chart-md" style={{ marginTop: 12 }}><AreaLine labels={curve.map((_, i) => String(i))} series={[{ name: "Equity", data: curve, color: "#8b5cf6" }]} valueFormatter={(x) => `$${x.toLocaleString()}`} /></div>}
           </Card>
+
+          {sim!.sizing && (
+            <Card title="Position Sizing (pre-trade calculation)" subtitle={`${sim!.sizing.model} · on the latest bar`}>
+              <div className="perf-grid">
+                {[
+                  ["Account equity", `$${sim!.sizing.equity.toLocaleString()}`],
+                  ["Risk per trade", `${(sim!.sizing.risk_pct * 100).toFixed(2)}%`],
+                  ["Risk amount", `$${sim!.sizing.risk_dollars.toLocaleString()}`],
+                  ["Entry price", sim!.sizing.entry.toLocaleString()],
+                  ["Stop distance", sim!.sizing.stop_distance.toLocaleString()],
+                  ["Position size", sim!.sizing.position_size.toLocaleString()],
+                  ["Notional", `$${sim!.sizing.notional.toLocaleString()}`],
+                  ["Leverage", `${sim!.sizing.leverage_x}×`],
+                ].map(([l, v]) => (
+                  <div className="perf-item" key={l}><span className="perf-label">{l}</span><div className="perf-value-row"><span className="perf-value">{v}</span></div></div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {sim!.warnings.length > 0 && (
             <Card title="Validation">

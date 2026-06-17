@@ -105,9 +105,18 @@ def test_price_action_rules_evaluate():
     from strategies.custom import _rule
     bars = _bars()
     i = len(bars) - 1
-    for rt in ("pullback", "support_bounce", "liquidity_sweep", "fair_value_gap"):
+    for rt in ("pullback", "support_bounce", "liquidity_sweep", "fair_value_gap",
+               "vwap", "bollinger", "bos", "choch"):
         ok, why = _rule({"type": rt}, bars, i)
         assert isinstance(ok, bool)  # evaluates without error
+
+
+def test_simulate_endpoint_includes_sizing(client):
+    r = client.post("/strategy/custom/simulate", json={"spec": EXAMPLE, "bars": 1500}).json()
+    s = r["sizing"]
+    for k in ("model", "equity", "risk_pct", "entry", "stop_distance", "risk_dollars", "position_size", "notional"):
+        assert k in s
+    assert s["position_size"] >= 0
 
 
 def test_deploy_custom_to_paper(client):

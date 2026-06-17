@@ -21,7 +21,8 @@ from typing import Optional
 from bot.data.indicators import atr, ema, rsi
 
 RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter",
-              "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap")
+              "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap",
+              "vwap", "bollinger", "bos", "choch")
 WARMUP = 210  # enough history for SMA200 etc.
 
 
@@ -146,7 +147,67 @@ def _rule(rule: dict, bars, i: int) -> tuple[bool, str]:
             return (bars[i - 2].high < bars[i].low), "bullish FVG"
         return (bars[i - 2].low > bars[i].high), "bearish FVG"
 
+    if t == "vwap":  # rolling VWAP filter
+        n = int(p.get("period", 20))
+        if i < n:
+            return False, ""
+        seg = bars[i - n:i + 1]
+        den = sum(b.volume for b in seg) or 1e-9
+        vw = sum(((b.high + b.low + b.close) / 3) * b.volume for b in seg) / den
+        above = closes[-1] > vw
+        ok = above if p.get("dir", "above") == "above" else (not above)
+        return ok, f"price{'>' if above else '<'}VWAP"
+
+    if t == "bollinger":
+        n = int(p.get("period", 20)); k = float(p.get("std", 2))
+        if len(closes) < n:
+            return False, ""
+        seg = closes[-n:]
+        mid = sum(seg) / n
+        sd = (sum((x - mid) ** 2 for x in seg) / n) ** 0.5
+        price = closes[-1]
+        zone = p.get("zone", "below_lower")
+        ok = {
+            "below_lower": price < mid - k * sd, "above_upper": price > mid + k * sd,
+            "above_mid": price > mid, "below_mid": price < mid,
+        }.get(zone, False)
+        return ok, f"BB {zone}"
+
+    if t == "bos":  # break of structure (swing pivot)
+        k = int(p.get("pivot", 3))
+        sh, sl = _last_swings(bars, i, k)
+        if p.get("dir", "up") == "up":
+            return (sh is not None and closes[-1] > sh), "BOS up"
+        return (sl is not None and closes[-1] < sl), "BOS down"
+
+    if t == "choch":  # change of character (reversal break vs trend)
+        k = int(p.get("pivot", 3))
+        if len(closes) < 52:
+            return False, ""
+        sh, sl = _last_swings(bars, i, k)
+        es = ema(closes, 50)[-1]
+        if p.get("dir", "up") == "up":
+            return (sh is not None and closes[-1] > sh and closes[-2] < es), "CHoCH up"
+        return (sl is not None and closes[-1] < sl and closes[-2] > es), "CHoCH down"
+
     return False, ""
+
+
+def _last_swings(bars, i, k=3, lookback=60):
+    """Most recent swing-high and swing-low pivot values before bar i."""
+    sh = sl = None
+    stop = max(k, i - lookback)
+    for j in range(i - k, stop - 1, -1):
+        if j - k < 0:
+            break
+        seg = bars[j - k:j + k + 1]
+        if sh is None and bars[j].high == max(b.high for b in seg):
+            sh = bars[j].high
+        if sl is None and bars[j].low == min(b.low for b in seg):
+            sl = bars[j].low
+        if sh is not None and sl is not None:
+            break
+    return sh, sl
 
 
 def evaluate(tree: dict, bars, i: int) -> tuple[bool, list[str]]:
@@ -351,6 +412,10 @@ def _phrase_rule(r: dict) -> str:
         "support_bounce": f"price reacts at the {r.get('lookback',30)}-bar {r.get('dir','support')}",
         "liquidity_sweep": f"price sweeps the {r.get('lookback',20)}-bar {'lows' if r.get('dir','down')=='down' else 'highs'} and reverses",
         "fair_value_gap": f"a {'bullish' if r.get('dir','up')=='up' else 'bearish'} fair-value gap forms",
+        "vwap": f"price is {r.get('dir','above')} VWAP({r.get('period',20)})",
+        "bollinger": f"price is at the Bollinger {r.get('zone','below_lower').replace('_',' ')} ({r.get('period',20)},{r.get('std',2)})",
+        "bos": f"a {r.get('dir','up')} break of structure occurs",
+        "choch": f"a {r.get('dir','up')} change of character (reversal) occurs",
     }.get(t, t or "a condition")
     return f"NOT ({s})" if neg else s
 

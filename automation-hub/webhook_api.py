@@ -420,7 +420,7 @@ class SimRequest(BaseModel):
 @router.post("/strategy/custom/simulate")
 def custom_simulate(body: SimRequest):
     """Run a user-built strategy spec over REAL historical data (simulation only)."""
-    from strategies.custom import simulate, validate, describe
+    from strategies.custom import simulate, validate, describe, _stop_distance
     from data.market_data import get_bars
     spec = body.spec
     symbol = spec.get("symbol", "BTCUSDT")
@@ -428,10 +428,26 @@ def custom_simulate(body: SimRequest):
     n = max(300, min(int(body.bars or 3000), 10000))
     rows, source = get_bars(symbol, n=n, timeframe=timeframe)
     results = simulate(spec, rows)
+
+    # Pre-trade position-sizing calculation on the latest bar (real numbers).
+    equity = settings.starting_cash
+    risk_pct = float(spec.get("risk_per_trade_pct", 0.01))
+    entry = rows[-1].close
+    stop_dist = _stop_distance(spec.get("stop") or {}, entry, rows, len(rows) - 1)
+    risk_dollars = equity * risk_pct
+    size = (risk_dollars / stop_dist) if stop_dist > 0 else 0.0
+    notional = size * entry
+    sizing = {
+        "model": "percent_risk", "equity": equity, "risk_pct": risk_pct,
+        "entry": round(entry, 6), "stop_distance": round(stop_dist, 6),
+        "risk_dollars": round(risk_dollars, 2), "position_size": round(size, 6),
+        "notional": round(notional, 2), "leverage_x": round(notional / equity, 2) if equity else 0,
+    }
     return {
         "results": results,
         "warnings": validate(spec, results),
         "description": describe(spec),
+        "sizing": sizing,
         "data_source": source,
         "symbol": symbol, "timeframe": timeframe,
         "label": "Simulation Result",

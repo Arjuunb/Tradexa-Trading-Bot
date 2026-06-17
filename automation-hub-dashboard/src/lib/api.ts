@@ -184,6 +184,10 @@ export interface SimResult {
     equity_curve: { t: string | null; equity: number }[]; trades: SimTrade[];
   };
   warnings: { level: string; message: string }[];
+  sizing?: {
+    model: string; equity: number; risk_pct: number; entry: number; stop_distance: number;
+    risk_dollars: number; position_size: number; notional: number; leverage_x: number;
+  };
   description: string; data_source: string; symbol: string; timeframe: string; label: string;
 }
 
