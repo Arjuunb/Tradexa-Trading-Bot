@@ -40,6 +40,9 @@ def make_strategy(name: str, threshold: float, rr: float):
     if name == "ensemble":
         from strategies.ensemble_strategy import ConfirmationEnsemble
         return ConfirmationEnsemble("BT", rr_target=rr)
+    if name == "smc":
+        from strategies.smc_strategy import SMCStrategy
+        return SMCStrategy("BT", rr_target=rr)
     return DecisionBrain("BT", conviction_threshold=threshold, rr_target=rr)
 
 

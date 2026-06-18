@@ -14,7 +14,7 @@ from strategies.smc_strategy import SMCStrategy
 STRATEGIES: dict[str, tuple[type[HubStrategy], str, bool]] = {
     "ema": (EMAStrategy, "EMA Trend Bot", True),
     "rsi": (RSIStrategy, "RSI Scalper", True),
-    "smc": (SMCStrategy, "SMC Bot", False),   # Phase 2
+    "smc": (SMCStrategy, "SMC (Smart Money)", True),
 }
 
 # key -> (human label, asset class, ready?)

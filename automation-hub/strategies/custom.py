@@ -381,6 +381,59 @@ def _detect_reversal(spec: dict) -> bool:
     return detect_reversal(spec)
 
 
+def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
+                      starting_balance: float = 10_000.0, risk_pct: float = 0.01) -> dict:
+    """Run a built-in HubStrategy object over historical bars and return results
+    in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
+
+    The strategy is fed every bar (to keep indicators warm); a new entry is only
+    taken when flat. Entry at the signal bar's close; stop/target from the
+    signal — no same-bar fill, no lookahead.
+    """
+    from bot.types import SignalType
+    cost = fee + slippage
+    pos = None
+    trades: list[dict] = []
+
+    for i, bar in enumerate(bars):
+        if pos is not None:
+            exit_px = exit_reason = None
+            if pos["side"] == "long":
+                if bar.low <= pos["stop"]:
+                    exit_px, exit_reason = pos["stop"], "stop"
+                elif bar.high >= pos["target"]:
+                    exit_px, exit_reason = pos["target"], "target"
+            else:
+                if bar.high >= pos["stop"]:
+                    exit_px, exit_reason = pos["stop"], "stop"
+                elif bar.low <= pos["target"]:
+                    exit_px, exit_reason = pos["target"], "target"
+            if exit_px is not None:
+                move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
+                r = move / pos["risk"] - cost * pos["entry"] * 2 / pos["risk"]
+                trades.append({
+                    "side": pos["side"], "entry": round(pos["entry"], 6), "exit": round(exit_px, 6),
+                    "stop": round(pos["stop"], 6), "target": round(pos["target"], 6),
+                    "r": round(r, 3), "result": "win" if r > 0 else "loss",
+                    "reason": pos["reason"], "exit_reason": exit_reason,
+                    "entry_time": pos["time"].isoformat(), "exit_time": bar.timestamp.isoformat(),
+                    "bars_held": i - pos["idx"],
+                })
+                pos = None
+
+        sig = strat.on_bar(bar)  # always feed (warm indicators); act only when flat
+        if pos is None and sig is not None:
+            entry, stop = sig.entry, sig.stop_loss
+            risk = abs(entry - stop)
+            if risk > 0:
+                side = "long" if sig.type == SignalType.LONG else "short"
+                pos = {"side": side, "entry": entry, "stop": stop, "target": sig.take_profit,
+                       "risk": risk, "reason": getattr(sig, "reason", "") or f"{side} entry",
+                       "time": bar.timestamp, "idx": i, "be": False}
+
+    return _results(trades, starting_balance, risk_pct, bars, blocked=[])
+
+
 def _results(trades: list, start: float, risk_pct: float, bars, blocked: list | None = None) -> dict:
     rs = [t["r"] for t in trades]
     n = len(rs)

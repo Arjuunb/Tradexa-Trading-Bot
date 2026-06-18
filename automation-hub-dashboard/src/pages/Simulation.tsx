@@ -5,21 +5,35 @@ import BarChart from "../components/chart/BarChart";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPostJson, useLive, hhmmss, type CustomSpec, type SimResult } from "../lib/api";
+import { apiGet, apiPostJson, useLive, hhmmss, type CustomSpec, type SimResult } from "../lib/api";
 import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const scoreTone = (s?: number) => (s == null ? "default" : s >= 80 ? "green" : s >= 60 ? "amber" : "red");
 
+const BUILTINS = [
+  { key: "smc", label: "SMC (Smart Money)" },
+  { key: "brain", label: "Decision Brain" },
+  { key: "supertrend", label: "Supertrend" },
+  { key: "donchian", label: "Donchian Breakout" },
+  { key: "ensemble", label: "Confirmation Ensemble" },
+  { key: "ema", label: "EMA Crossover" },
+];
+
 export default function SimulationPage() {
   const app = useApp();
   const saved = useLive<CustomSpec[]>("/strategy/custom", 6000);
+  const [mode, setMode] = useState<"builtin" | "custom">("builtin");
   const [selId, setSelId] = useState<string>("");
   const [bars, setBars] = useState(3000);
   const [minScore, setMinScore] = useState(60);
   const [filterOn, setFilterOn] = useState(true);
   const [sim, setSim] = useState<SimResult | null>(null);
   const [running, setRunning] = useState(false);
+  // built-in mode
+  const [biKey, setBiKey] = useState("smc");
+  const [biSymbol, setBiSymbol] = useState("BTCUSDT");
+  const [biTf, setBiTf] = useState("4h");
 
   const specs = saved.data ?? [];
   const spec = specs.find((s) => s.id === selId) ?? specs[0];
@@ -40,6 +54,21 @@ export default function SimulationPage() {
     }
   };
 
+  const runBuiltin = async () => {
+    setRunning(true);
+    try {
+      const q = `strategy=${biKey}&symbol=${encodeURIComponent(biSymbol)}&timeframe=${biTf}&bars=${bars}`;
+      const res = await apiGet<SimResult>(`/strategy/builtin/simulate?${q}`);
+      setSim(res);
+      markDone("simulation");
+      app.toast("Simulation complete — recorded for the safety flow", "success");
+    } catch {
+      app.toast("Simulation failed — backend unreachable?", "error");
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const r = sim?.results;
   const diag = r?.diagnosis;
   const curve = (r?.equity_curve ?? []).map((p) => p.equity);
@@ -49,7 +78,39 @@ export default function SimulationPage() {
     <>
       <PageHeader title="Simulation" subtitle="Forward simulation with the trade-quality brain · Backtest → Simulation → Paper → Live" />
 
-      <Card title="Run a Simulation" right={<Badge text="SIMULATED DATA" tone="amber" />}>
+      <div className="tabs standalone" style={{ marginBottom: 12 }}>
+        {([["builtin", "Built-in Strategy"], ["custom", "Custom Strategy"]] as const).map(([m, lbl]) => (
+          <button key={m} className={`tab ${mode === m ? "active" : ""}`}
+            onClick={() => { setMode(m); setSim(null); }}>{lbl}</button>
+        ))}
+      </div>
+
+      {mode === "builtin" && (
+        <Card title="Run a Built-in Strategy" right={<Badge text="SIMULATED DATA" tone="amber" />}>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 10, flexWrap: "wrap" }}>
+            <select value={biKey} onChange={(e) => { setBiKey(e.target.value); setSim(null); }} style={{ minWidth: 220 }}>
+              {BUILTINS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+            </select>
+            <input value={biSymbol} onChange={(e) => setBiSymbol(e.target.value.toUpperCase())} style={{ width: 120 }} />
+            <select value={biTf} onChange={(e) => setBiTf(e.target.value)}>
+              {["1h", "4h", "1d"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select value={bars} onChange={(e) => setBars(Number(e.target.value))}>
+              {[1000, 2000, 3000, 5000].map((b) => <option key={b} value={b}>{b} bars</option>)}
+            </select>
+            <button className="btn btn-primary" disabled={running} onClick={runBuiltin}>
+              <Icon name="play" size={14} /> {running ? "Simulating…" : "Run Simulation"}
+            </button>
+          </div>
+          <p className="dim" style={{ marginTop: 10 }}>
+            <Icon name="info" size={13} /> <b>SMC (Smart Money)</b> trades liquidity sweeps + CHoCH/BOS + fair-value
+            gaps in line with the higher-timeframe bias. Simulated data only — never shown as live performance.
+          </p>
+        </Card>
+      )}
+
+      {mode === "custom" && (
+      <Card title="Run a Custom Simulation" right={<Badge text="SIMULATED DATA" tone="amber" />}>
         {specs.length === 0 ? (
           <div className="dim">No custom strategies to simulate. Build and save one on the <b>Strategies</b> page.</div>
         ) : (
@@ -84,6 +145,7 @@ export default function SimulationPage() {
           poor reward:risk, unsafe stop). Simulated data is never shown as live performance.
         </p>
       </Card>
+      )}
 
       {r && (
         <>

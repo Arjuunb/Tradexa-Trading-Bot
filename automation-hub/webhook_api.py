@@ -392,6 +392,8 @@ _STRATEGY_CATALOG = [
     {"key": "ensemble", "label": "Confirmation Ensemble",
      "desc": "Trades only when 2 of 3 agree (EMA + Supertrend + Donchian)"},
     {"key": "ema", "label": "EMA Crossover", "desc": "Simple fast/slow EMA cross"},
+    {"key": "smc", "label": "SMC (Smart Money)",
+     "desc": "Liquidity sweep + CHoCH/BOS + FVG in line with higher-timeframe bias"},
 ]
 
 
@@ -611,6 +613,51 @@ def custom_optimize(body: SimRequest):
     report["symbol"] = symbol
     report["timeframe"] = timeframe
     return report
+
+
+def _build_builtin(key: str, symbol: str):
+    """Construct a built-in strategy object by catalog key."""
+    if key == "smc":
+        from strategies.smc_strategy import SMCStrategy
+        return SMCStrategy(symbol)
+    if key == "supertrend":
+        from strategies.supertrend_strategy import SupertrendStrategy
+        return SupertrendStrategy(symbol)
+    if key == "donchian":
+        from strategies.donchian_strategy import DonchianStrategy
+        return DonchianStrategy(symbol)
+    if key == "ensemble":
+        from strategies.ensemble_strategy import ConfirmationEnsemble
+        return ConfirmationEnsemble(symbol)
+    if key == "ema":
+        from strategies.ema_strategy import EMAStrategy
+        return EMAStrategy(symbol)
+    from strategies.brain_strategy import DecisionBrain
+    return DecisionBrain(symbol)
+
+
+@router.get("/strategy/builtin/simulate")
+def builtin_simulate(strategy: str = "smc", symbol: str = "BTCUSDT",
+                     timeframe: str = "4h", bars: int = 3000):
+    """Simulate a built-in strategy (e.g. SMC) over real historical bars and
+    return the same rich shape as the custom simulator (metrics + diagnosis)."""
+    from strategies.custom import simulate_strategy
+    from strategies.diagnosis import diagnose
+    from data.market_data import get_bars
+    n = max(300, min(int(bars or 3000), 10000))
+    rows, source = get_bars(symbol, n=n, timeframe=timeframe)
+    strat = _build_builtin(strategy, symbol)
+    results = simulate_strategy(strat, rows)
+    results["diagnosis"] = diagnose(results, [])
+    label = next((s["label"] for s in _STRATEGY_CATALOG if s["key"] == strategy), strategy)
+    return {
+        "results": results,
+        "warnings": [],
+        "description": f"Built-in strategy: {label}.",
+        "data_source": source, "symbol": symbol, "timeframe": timeframe,
+        "label": "Simulation Result",
+        "brain": {"quality_filter": False, "min_score": 0, "blocked_count": 0},
+    }
 
 
 @router.get("/strategy/custom")
