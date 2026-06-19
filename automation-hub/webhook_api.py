@@ -647,6 +647,64 @@ def _build_builtin(key: str, symbol: str):
     return DecisionBrain(symbol)
 
 
+@router.get("/control/options")
+def control_options():
+    """Strategy / symbol / timeframe / mode options + default brain tuning for
+    the top control bar."""
+    from services.strategy_presets import STRATEGY_OPTIONS, SYMBOLS, TIMEFRAMES, MODES, DEFAULT_TUNING
+    return {"strategies": STRATEGY_OPTIONS, "symbols": SYMBOLS, "timeframes": TIMEFRAMES,
+            "modes": MODES, "default_tuning": DEFAULT_TUNING}
+
+
+class ControlSimRequest(BaseModel):
+    strategy: str = "Decision Brain"
+    symbol: str = "BTCUSDT"
+    timeframe: str = "4h"
+    tuning: dict = {}
+    custom_spec: Optional[dict] = None
+    bars: int = 4000
+
+
+@router.post("/control/simulate")
+def control_simulate(body: ControlSimRequest):
+    """Rerun a REAL simulation for the chosen strategy/symbol/timeframe/tuning."""
+    from services.strategy_presets import run_simulation
+    return run_simulation(body.strategy, body.symbol, body.timeframe,
+                          tuning=body.tuning, custom_spec=body.custom_spec, bars=body.bars)
+
+
+class ControlCompareRequest(BaseModel):
+    a: dict
+    b: dict
+    bars: int = 4000
+
+
+@router.post("/control/compare")
+def control_compare(body: ControlCompareRequest):
+    """Compare two strategy/timeframe/symbol configurations on the same real data."""
+    from services.strategy_presets import compare
+    return compare(body.a, body.b, bars=body.bars)
+
+
+@router.post("/control/save-version")
+def control_save_version(body: ControlSimRequest, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Snapshot the current control-bar configuration as a new strategy version
+    (never overwrites older versions)."""
+    _check_secret(x_webhook_secret)
+    from services.strategy_presets import run_simulation
+    sim = run_simulation(body.strategy, body.symbol, body.timeframe,
+                         tuning=body.tuning, custom_spec=body.custom_spec, bars=body.bars)
+    if not sim.get("available"):
+        raise HTTPException(400, sim.get("error", "Cannot version without real data."))
+    r = sim["results"]
+    stats = {k: r[k] for k in ("total_trades", "win_rate", "profit_factor", "net_r",
+                               "max_drawdown_pct", "expectancy_r") if k in r}
+    params = {"strategy": body.strategy, "symbol": body.symbol, "timeframe": body.timeframe,
+              "tuning": body.tuning, "spec": sim.get("spec")}
+    return version_store.add_version(body.strategy, params, stats,
+                                     note=f"{body.strategy} {body.symbol} {body.timeframe}")
+
+
 @router.get("/mtf/analyze")
 def mtf_analyze(symbol: str = "BTCUSDT"):
     """Multi-timeframe decision: analyse Weekly→Daily→4H→15M→5M together and

@@ -317,6 +317,24 @@ export interface EvoDashboard {
   workflow: string[]; live_rule: string;
 }
 
+export interface ControlOptions {
+  strategies: string[]; symbols: string[]; timeframes: string[]; modes: string[];
+  default_tuning: ControlTuning;
+}
+export interface ControlTuning {
+  min_score: number; rr: number; trend_filter: boolean; volume_filter: boolean;
+  regime_filter: boolean; session_filter: boolean; max_trades_per_day: number; cooldown_after_loss: number;
+}
+export interface ControlSimResult {
+  strategy: string; symbol: string; timeframe: string; data_source: string;
+  available: boolean; error?: string;
+  warning: { level: string; message: string } | null;
+  results?: SimResult["results"];
+}
+export interface ControlCompare {
+  a: ControlSimResult; b: ControlSimResult; winner: "A" | "B"; summary: string; error?: string;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

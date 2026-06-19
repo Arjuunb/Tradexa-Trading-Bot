@@ -27,7 +27,9 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
         <h1 className="page-title">{title}</h1>
       </div>
 
-      <div className="status-pill" title={error ? "Backend not reachable" : detail}>
+      <button className="status-pill" style={{ cursor: "pointer", border: "none" }}
+        title={error ? "Backend not reachable" : `${detail} — open the Control Center to change strategy/timeframe`}
+        onClick={() => app.go("Simulation")}>
         <span className={`dot ${dot}`} />
         <b>{label}</b>
         <span className="sep">·</span>
@@ -35,7 +37,8 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
         {data?.strategy?.startsWith("Custom") && (
           <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(139,92,246,0.18)", color: "#a78bfa" }}>CUSTOM</span>
         )}
-      </div>
+        <Icon name="settings" size={13} className="dim" />
+      </button>
 
       <div className="topbar-right">
         <button className="icon-btn" aria-label="Alerts" onClick={() => app.go("Alerts")}>

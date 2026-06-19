@@ -382,18 +382,22 @@ def _detect_reversal(spec: dict) -> bool:
 
 
 def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
-                      starting_balance: float = 10_000.0, risk_pct: float = 0.01) -> dict:
+                      starting_balance: float = 10_000.0, risk_pct: float = 0.01,
+                      brain=None, min_score: int = 0) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
 
     The strategy is fed every bar (to keep indicators warm); a new entry is only
     taken when flat. Entry at the signal bar's close; stop/target from the
-    signal — no same-bar fill, no lookahead.
+    signal — no same-bar fill, no lookahead. When a ``brain`` is supplied, weak
+    signals (blocked or below ``min_score``) are skipped and recorded in
+    ``blocked`` — so the same quality filter applies to built-in strategies.
     """
     from bot.types import SignalType
     cost = fee + slippage
     pos = None
     trades: list[dict] = []
+    blocked: list[dict] = []
 
     for i, bar in enumerate(bars):
         if pos is not None:
@@ -427,11 +431,19 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
             risk = abs(entry - stop)
             if risk > 0:
                 side = "long" if sig.type == SignalType.LONG else "short"
+                if brain is not None:
+                    v = brain.evaluate(bars, i, side=side, entry=entry, stop=stop,
+                                       target=sig.take_profit)
+                    if not v.allowed or v.score < min_score:
+                        blocked.append({"time": bar.timestamp.isoformat(), "side": side,
+                                        "score": v.score, "regime": v.regime, "htf_bias": v.htf_bias,
+                                        "reason": (v.blocks[0] if v.blocks else f"score {v.score} < {min_score}")})
+                        continue
                 pos = {"side": side, "entry": entry, "stop": stop, "target": sig.take_profit,
                        "risk": risk, "reason": getattr(sig, "reason", "") or f"{side} entry",
                        "time": bar.timestamp, "idx": i, "be": False}
 
-    return _results(trades, starting_balance, risk_pct, bars, blocked=[])
+    return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
 
 
 def _results(trades: list, start: float, risk_pct: float, bars, blocked: list | None = None) -> dict:

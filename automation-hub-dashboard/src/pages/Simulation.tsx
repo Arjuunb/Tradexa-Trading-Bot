@@ -6,6 +6,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
 import { apiGet, apiPostJson, useLive, hhmmss, type CustomSpec, type SimResult } from "../lib/api";
+import ControlBar from "../components/control/ControlBar";
 import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -74,11 +75,25 @@ export default function SimulationPage() {
   const curve = (r?.equity_curve ?? []).map((p) => p.equity);
   const blocked = r?.blocked ?? [];
 
+  const onControlResult = (cr: any) => {
+    if (cr?.available && cr.results) {
+      setSim({
+        results: cr.results, warnings: [], description: `${cr.strategy} · ${cr.symbol} ${cr.timeframe}`,
+        data_source: cr.data_source, symbol: cr.symbol, timeframe: cr.timeframe,
+        label: "Simulation Result",
+        brain: { quality_filter: true, min_score: 60, blocked_count: cr.results.blocked_count ?? 0 },
+      } as SimResult);
+      markDone("simulation");
+    }
+  };
+
   return (
     <>
       <PageHeader title="Simulation" subtitle="Forward simulation with the trade-quality brain · Backtest → Simulation → Paper → Live" />
 
-      <div className="tabs standalone" style={{ marginBottom: 12 }}>
+      <ControlBar onResult={onControlResult} />
+
+      <div className="tabs standalone" style={{ marginBottom: 12, marginTop: 12 }}>
         {([["builtin", "Built-in Strategy"], ["custom", "Custom Strategy"]] as const).map(([m, lbl]) => (
           <button key={m} className={`tab ${mode === m ? "active" : ""}`}
             onClick={() => { setMode(m); setSim(null); }}>{lbl}</button>
