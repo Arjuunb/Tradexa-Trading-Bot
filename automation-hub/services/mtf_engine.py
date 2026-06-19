@@ -1,0 +1,203 @@
+"""Multi-Timeframe Decision Engine.
+
+Combines five timeframes into ONE explainable trade decision — the bot must
+agree across timeframes before it will take a trade:
+
+    Weekly  -> macro bias          (direction of the big trend)
+    Daily   -> trend confirmation  (agrees with / against the macro)
+    4H      -> market structure     (HH/HL = bull, LH/LL = bear)
+    15M     -> setup identification (pullback / sweep in the trend direction)
+    5M      -> entry trigger        (momentum confirmation)
+
+Rules:
+- The higher timeframes (weekly / daily / 4H) must AGREE on a direction. If they
+  conflict, no trade — the conflict is reported as a blocker.
+- A trade is only "Entry confirmed" when the HTF stack aligns AND a 15M setup AND
+  a 5M trigger are present in that direction.
+- Every layer returns a plain-English reason, so the decision is explainable.
+
+Pure (`analyze_layers`) so it is fully testable with crafted bars; `analyze`
+loads each timeframe real-first via ``get_bars`` and degrades gracefully to
+``n/a`` when a timeframe lacks enough history (e.g. weekly before a data sync).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional, Sequence
+
+from bot.data.indicators import ema
+from bot.types import Bar
+
+TIMEFRAMES = ("1w", "1d", "4h", "15m", "5m")
+_DIR = {1: "Bullish", -1: "Bearish", 0: "Neutral", None: "n/a"}
+
+
+def _ema_bias(closes: Sequence[float], fast: int = 8, slow: int = 21):
+    """Return (dir, strength). dir in {1,-1,0,None}; None = not enough data."""
+    if len(closes) < slow + 1:
+        return None, 0.0
+    ef, es = ema(closes, fast)[-1], ema(closes, slow)[-1]
+    seg = closes[-(slow + 1):]
+    net = abs(seg[-1] - seg[0])
+    path = sum(abs(seg[i] - seg[i - 1]) for i in range(1, len(seg))) or 1e-9
+    strength = round(net / path, 3)            # 0..1 efficiency ratio
+    if ef > es:
+        return 1, strength
+    if ef < es:
+        return -1, strength
+    return 0, strength
+
+
+def _swings(bars: Sequence[Bar], pivot: int = 3):
+    """Most recent two swing highs and lows (values), oldest->newest."""
+    highs, lows = [], []
+    for i in range(pivot, len(bars) - pivot):
+        seg = bars[i - pivot:i + pivot + 1]
+        if bars[i].high == max(b.high for b in seg):
+            highs.append(bars[i].high)
+        if bars[i].low == min(b.low for b in seg):
+            lows.append(bars[i].low)
+    return highs[-2:], lows[-2:]
+
+
+def _structure_bias(bars: Sequence[Bar], pivot: int = 3):
+    """4H structure: higher-high + higher-low = bull; lower-low + lower-high = bear."""
+    if len(bars) < 2 * pivot + 5:
+        return None, "insufficient 4H data"
+    highs, lows = _swings(bars, pivot)
+    if len(highs) < 2 or len(lows) < 2:
+        return 0, "no clear structure"
+    hh, hl = highs[-1] > highs[-2], lows[-1] > lows[-2]
+    ll, lh = lows[-1] < lows[-2], highs[-1] < highs[-2]
+    if hh and hl:
+        return 1, "higher highs + higher lows (bullish structure)"
+    if ll and lh:
+        return -1, "lower lows + lower highs (bearish structure)"
+    return 0, "mixed structure (no clean trend)"
+
+
+def _setup(bars: Sequence[Bar], side: int, ema_period: int = 20):
+    """15M setup: a pullback into the trend (price near the EMA on the trend side)."""
+    closes = [b.close for b in bars]
+    if len(closes) < ema_period + 2 or side == 0:
+        return False, "no setup"
+    ev = ema(closes, ema_period)[-1]
+    last = bars[-1]
+    if side > 0:
+        # bullish: price above EMA but recently dipped to/below it (pullback)
+        if last.close > ev and last.low <= ev * 1.003:
+            return True, "pullback to the 15M EMA in an uptrend"
+    else:
+        if last.close < ev and last.high >= ev * 0.997:
+            return True, "pullback to the 15M EMA in a downtrend"
+    return False, "no pullback setup yet"
+
+
+def _trigger(bars: Sequence[Bar], side: int):
+    """5M trigger: a momentum candle in the trade direction (close beyond prior)."""
+    if len(bars) < 3 or side == 0:
+        return False, "no trigger"
+    a, b = bars[-2], bars[-1]
+    if side > 0 and b.close > b.open and b.close > a.high:
+        return True, "5M bullish momentum candle (close above prior high)"
+    if side < 0 and b.close < b.open and b.close < a.low:
+        return True, "5M bearish momentum candle (close below prior low)"
+    return False, "waiting for a 5M trigger"
+
+
+@dataclass
+class MTFDecision:
+    allowed: bool
+    side: Optional[str]            # "long" | "short" | None
+    trigger_state: str             # Blocked | Waiting for setup | Setup found … | Entry confirmed
+    score: int
+    layers: dict = field(default_factory=dict)     # per-timeframe verdict + reason
+    reasons: list = field(default_factory=list)
+    blockers: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {"allowed": self.allowed, "side": self.side, "trigger_state": self.trigger_state,
+                "score": self.score, "layers": self.layers,
+                "reasons": self.reasons, "blockers": self.blockers}
+
+
+def analyze_layers(weekly, daily, h4, m15, m5) -> MTFDecision:
+    """Combine the five timeframes into one explainable decision. Pure."""
+    wk_dir, wk_str = _ema_bias([b.close for b in weekly]) if weekly else (None, 0.0)
+    d_dir, d_str = _ema_bias([b.close for b in daily]) if daily else (None, 0.0)
+    s_dir, s_reason = _structure_bias(h4) if h4 else (None, "no 4H data")
+
+    layers = {
+        "Weekly": {"role": "macro bias", "dir": _DIR[wk_dir], "strength": wk_str},
+        "Daily": {"role": "trend confirmation", "dir": _DIR[d_dir], "strength": d_str},
+        "4H": {"role": "market structure", "dir": _DIR[s_dir], "reason": s_reason},
+        "15M": {"role": "setup", "state": "pending"},
+        "5M": {"role": "trigger", "state": "pending"},
+    }
+    reasons, blockers = [], []
+
+    # higher-timeframe consensus (ignore neutral / n/a)
+    htf = [(name, d) for name, d in (("Weekly", wk_dir), ("Daily", d_dir), ("4H", s_dir)) if d in (1, -1)]
+    if not htf:
+        blockers.append("No higher-timeframe direction (weekly/daily/4H all neutral or unavailable).")
+        return MTFDecision(False, None, "Blocked", 0, layers, reasons, blockers)
+    dirs = {d for _, d in htf}
+    if len(dirs) > 1:
+        disagree = ", ".join(f"{n} {_DIR[d]}" for n, d in htf)
+        blockers.append(f"Higher-timeframe conflict ({disagree}) — stand aside.")
+        return MTFDecision(False, None, "Blocked", 0, layers, reasons, blockers)
+
+    side_int = dirs.pop()
+    side = "long" if side_int > 0 else "short"
+    for name, d in htf:
+        reasons.append(f"{name} {_DIR[d]}")
+
+    score = 0
+    if wk_dir == side_int:
+        score += 25
+    if d_dir == side_int:
+        score += 25
+    if s_dir == side_int:
+        score += 20
+
+    has_setup, setup_reason = _setup(m15, side_int) if m15 else (False, "no 15M data")
+    layers["15M"] = {"role": "setup", "state": "found" if has_setup else "waiting", "reason": setup_reason}
+    if has_setup:
+        score += 15
+        reasons.append(setup_reason)
+
+    has_trigger, trig_reason = _trigger(m5, side_int) if m5 else (False, "no 5M data")
+    layers["5M"] = {"role": "trigger", "state": "confirmed" if has_trigger else "waiting", "reason": trig_reason}
+    if has_trigger:
+        score += 15
+        reasons.append(trig_reason)
+
+    if not has_setup:
+        state = "Waiting for setup"
+        allowed = False
+    elif not has_trigger:
+        state = "Setup found — waiting for 5M trigger"
+        allowed = False
+    else:
+        state = "Entry confirmed"
+        allowed = True
+
+    return MTFDecision(allowed, side, state, min(score, 100), layers, reasons, blockers)
+
+
+def analyze(symbol: str) -> dict:
+    """Load each timeframe (real-first via get_bars) and analyse them together."""
+    from data.market_data import get_bars
+    bars: dict = {}
+    sources: dict = {}
+    n = {"1w": 120, "1d": 300, "4h": 400, "15m": 300, "5m": 200}
+    for tf in TIMEFRAMES:
+        rows, src = get_bars(symbol, n=n[tf], timeframe=tf)
+        bars[tf] = rows
+        sources[tf] = src
+    decision = analyze_layers(bars["1w"], bars["1d"], bars["4h"], bars["15m"], bars["5m"])
+    out = decision.to_dict()
+    out["symbol"] = symbol
+    out["data_sources"] = sources
+    out["data_available"] = {tf: len(bars[tf]) > 0 for tf in TIMEFRAMES}
+    return out

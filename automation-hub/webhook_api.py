@@ -647,6 +647,14 @@ def _build_builtin(key: str, symbol: str):
     return DecisionBrain(symbol)
 
 
+@router.get("/mtf/analyze")
+def mtf_analyze(symbol: str = "BTCUSDT"):
+    """Multi-timeframe decision: analyse Weekly→Daily→4H→15M→5M together and
+    explain whether a trade is allowed, blocked or still waiting."""
+    from services.mtf_engine import analyze
+    return analyze(symbol)
+
+
 @router.get("/data/coverage")
 def data_coverage():
     """What real Binance history is cached locally (symbol/timeframe matrix)."""
