@@ -40,6 +40,9 @@ class CustomStrategyAdapter(HubStrategy):
         self.min_score = int(spec.get("min_score", 60) if min_score is None else min_score)
         self.on_block = on_block
         self._reversal = detect_reversal(spec)
+        # Multi-timeframe gate (on unless the spec disables it): never trade
+        # against the higher-timeframe trend — the same gate replay uses.
+        self._mtf_filter = spec.get("mtf_filter", True)
 
     def generate(self, bar: Bar) -> Optional[Signal]:
         if len(self.bars) > self.max_history:
@@ -81,6 +84,22 @@ class CustomStrategyAdapter(HubStrategy):
                 return None
             confidence = max(0.0, min(1.0, v.score / 100.0))
             reason = f"{reason} | score {v.score} ({v.grade}), {v.regime}, HTF {v.htf_bias}"
+
+        # ---- multi-timeframe gate (never trade against the higher-timeframe trend) ----
+        if self._mtf_filter and not self._reversal:
+            from services.mtf_engine import htf_consensus, trends_from_stream
+            trends = trends_from_stream(self.bars, self.spec.get("timeframe", "4h"))
+            mtf = htf_consensus(trends, 1 if side == "long" else -1)
+            if not mtf["allowed"]:
+                if self.on_block:
+                    self.on_block({
+                        "symbol": self.symbol, "side": side, "score": confidence * 100,
+                        "regime": "—", "htf_bias": mtf["reason"], "reason": mtf["reason"],
+                        "timestamp": bar.timestamp.isoformat(),
+                    })
+                return None
+            if mtf["aligned"]:
+                reason = f"{reason} | {mtf['reason']}"
 
         sig = Signal(timestamp=bar.timestamp, symbol=self.symbol, type=direction,
                      entry=entry, stop_loss=stop, take_profit=take, reason=reason)

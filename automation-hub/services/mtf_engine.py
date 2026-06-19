@@ -185,6 +185,37 @@ def analyze_layers(weekly, daily, h4, m15, m5) -> MTFDecision:
     return MTFDecision(allowed, side, state, min(score, 100), layers, reasons, blockers)
 
 
+_TF_MIN = {"5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440, "1w": 10080}
+_HTF_LABEL = {"4h": "4H", "1d": "Daily", "1w": "Weekly"}
+
+
+def _resample_closes(bars, factor):
+    """Closes of complete higher-tf candles (start-aligned). Causal."""
+    closes, n, k = [], len(bars), 0
+    while (k + 1) * factor <= n:
+        closes.append(bars[(k + 1) * factor - 1].close)
+        k += 1
+    return closes
+
+
+def trends_from_stream(bars, exec_tf: str) -> dict:
+    """Derive {4H/Daily/Weekly: Bullish/Bearish/Neutral/n/a} from a single
+    execution-timeframe bar stream by resampling upward. Used by the live/paper
+    adapter so paper trading applies the same higher-timeframe gate as replay."""
+    em = _TF_MIN.get(exec_tf)
+    out: dict = {}
+    if not em:
+        return out
+    for tf in ("4h", "1d", "1w"):
+        hm = _TF_MIN[tf]
+        if hm <= em:
+            continue                      # only timeframes strictly higher than exec
+        factor = hm // em
+        d, _ = _ema_bias(_resample_closes(bars, factor), 5, 12)
+        out[_HTF_LABEL[tf]] = _DIR[d]
+    return out
+
+
 def htf_consensus(trends: dict, side: int) -> dict:
     """Gate a candidate trade against the higher-timeframe trends.
 

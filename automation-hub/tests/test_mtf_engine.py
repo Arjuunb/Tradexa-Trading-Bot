@@ -119,3 +119,37 @@ def test_mtf_endpoint(client):
     assert body["symbol"] == "BTCUSDT"
     assert "layers" in body and "trigger_state" in body
     assert set(body["data_available"]) == {"1w", "1d", "4h", "15m", "5m"}
+
+
+# ---- paper-path integration (trends_from_stream + adapter gate) ----
+def test_trends_from_stream_resamples_higher_tfs():
+    from services.mtf_engine import trends_from_stream
+    bars = _up(n=700)
+    t = trends_from_stream(bars, "15m")
+    assert "4H" in t and "Daily" in t and "Weekly" in t
+    assert t["4H"] == "Bullish"                      # clean uptrend resampled to 4H
+    assert "4H" not in trends_from_stream(bars, "4h")  # exec >= tf is excluded
+
+
+def test_adapter_blocks_counter_higher_timeframe():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "15m", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "rsi", "op": "below", "value": 100}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "quality_filter": False, "mtf_filter": True}
+    blocks = []
+    ad = CustomStrategyAdapter("BTCUSDT", spec, on_block=blocks.append)
+    sig = None
+    for b in _down(n=400):                            # longs into a downtrend
+        sig = ad.on_bar(b) or sig
+    assert sig is None                                # HTF bearish -> gate blocks the long
+    assert blocks and any("oppose" in x["reason"] or "conflict" in x["reason"].lower() for x in blocks)
+
+
+def test_adapter_mtf_can_be_disabled():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "15m", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "rsi", "op": "below", "value": 100}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "quality_filter": False, "mtf_filter": False}
+    assert CustomStrategyAdapter("BTCUSDT", spec)._mtf_filter is False

@@ -218,16 +218,17 @@ def test_adapter_quality_scales_confidence():
 
 def test_adapter_filter_can_be_disabled():
     from strategies.custom_adapter import CustomStrategyAdapter
+    # disable BOTH gates (brain + multi-timeframe) to exercise the raw path
     spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "1h", "side": "long",
             "entry": {"op": "AND", "rules": [{"type": "rsi", "op": "below", "value": 100}]},
             "stop": {"type": "atr", "mult": 1.5, "period": 14},
-            "target": {"type": "rr", "rr": 2.0}, "quality_filter": False}
+            "target": {"type": "rr", "rr": 2.0}, "quality_filter": False, "mtf_filter": False}
     ad = CustomStrategyAdapter("BTCUSDT", spec)
     assert ad.brain is None
     sig = None
     for b in _downtrend(n=400):
         sig = ad.on_bar(b) or sig
-    assert sig is not None  # without the brain, longs into a downtrend are taken
+    assert sig is not None  # with both gates off, longs into a downtrend are taken
 
 
 def test_strategy_health_endpoint():
