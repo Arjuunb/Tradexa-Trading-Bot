@@ -294,8 +294,16 @@ export interface Lesson {
 export interface Upgrade {
   id: string; strategy: string; symbol: string; title: string; reason: string; evidence: string;
   expected_benefit: string; risk: string; backtest_required: boolean; confidence: number;
-  status: string; created_at: string;
+  status: string; created_at: string; apply?: Record<string, number | boolean> | null;
+  auto_applicable?: boolean;
 }
+export interface StrategyVersion {
+  id: string; strategy: string; version: number; label: string; note: string;
+  params: any; stats: Record<string, number>;
+  gates: { backtest: boolean; simulation: boolean; paper: boolean; live_unlocked: boolean };
+  created_at: string;
+}
+export interface VersionCompare { strategy: string; versions: StrategyVersion[]; best: string | null; }
 export interface Experiment {
   symbol: string; timeframe: string; data_source: string; verdict: string; note: string;
   train_gain_r: number; test_gain_r: number; warnings: string[];

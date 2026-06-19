@@ -156,3 +156,62 @@ def test_experiment_endpoint(client):
             "risk_per_trade_pct": 0.01}
     body = client.post("/evolution/experiment", json={"base": base, "variant": {**base, "min_score": 75}, "bars": 2500}).json()
     assert body["verdict"] in ("improvement", "overfit", "marginal", "no_improvement")
+
+
+# ---- patches + version gates + promotion ----
+from services.evolution import patch_for_fix, apply_patch
+
+
+def test_patch_for_fix_and_apply():
+    assert patch_for_fix("Raise the minimum trade-quality score.") == {"min_score_delta": 15}
+    assert patch_for_fix("Widen the ATR stop multiplier.") == {"stop_mult_mult": 1.33}
+    assert patch_for_fix("Require a retest/confirmation candle before entry.") is None
+    base = {"min_score": 60, "stop": {"type": "atr", "mult": 1.5}, "target": {"type": "rr", "rr": 2.0}}
+    p = apply_patch(base, {"min_score_delta": 15})
+    assert p["min_score"] == 75 and p["quality_filter"] is True
+    assert base["min_score"] == 60  # original not mutated
+    assert apply_patch(base, {"stop_mult_mult": 2.0})["stop"]["mult"] == 3.0
+    assert apply_patch(base, {"rr_mult": 1.5})["target"]["rr"] == 3.0
+
+
+def test_version_gates_enforce_order_and_lock_live(tmp_path):
+    st = StrategyVersionStore(str(tmp_path / "v.json"))
+    v = st.add_version("SMC", {"min_score": 75}, {"net_r": 5.0})  # backtest done via stats
+    assert v["gates"]["backtest"] is True and v["gates"]["simulation"] is False
+    assert "error" in st.advance_gate(v["id"], "paper")          # sim first
+    st.advance_gate(v["id"], "simulation", stats={"net_r": 4})
+    st.advance_gate(v["id"], "paper")
+    # live never unlocks without a broker, even with all gates done
+    locked = st.advance_gate(v["id"], "live_unlock", broker_connected=False)
+    assert locked["live_unlocked"] is False
+    assert st.advance_gate(v["id"], "live_unlock", broker_connected=True)["gates"]["live_unlocked"] is True
+
+
+def test_promote_requires_approved_and_creates_version(client):
+    import webhook_api
+    # seed an approved, auto-applicable upgrade
+    sug = suggest_improvements(_losing_bundle(), symbol="BTCUSDT", strategy="SMC")
+    auto = next(s for s in sug if s["apply"])
+    added = webhook_api.upgrade_store.add_many([auto])
+    uid = added[0]["id"]
+    # cannot promote before approval
+    assert client.post(f"/evolution/upgrades/{uid}/promote", headers={"X-Webhook-Secret": SECRET}).status_code == 400
+    client.post(f"/evolution/upgrades/{uid}/status", params={"status": "Approved"}, headers={"X-Webhook-Secret": SECRET})
+    r = client.post(f"/evolution/upgrades/{uid}/promote", json={}, headers={"X-Webhook-Secret": SECRET})
+    assert r.status_code == 200
+    v = r.json()["version"]
+    assert v["version"] >= 1 and v["gates"]["backtest"] is True and v["gates"]["live_unlocked"] is False
+
+
+def test_advance_endpoint_keeps_live_locked(client):
+    import webhook_api
+    ver = webhook_api.version_store.add_version("SMC", {"symbol": "BTCUSDT", "timeframe": "4h", "min_score": 70},
+                                                {"net_r": 3.0})
+    vid = ver["id"]
+    sim = client.post(f"/evolution/versions/{vid}/advance", params={"gate": "simulation"},
+                      headers={"X-Webhook-Secret": SECRET}).json()
+    assert sim["gates"]["simulation"] is True
+    client.post(f"/evolution/versions/{vid}/advance", params={"gate": "paper"}, headers={"X-Webhook-Secret": SECRET})
+    live = client.post(f"/evolution/versions/{vid}/advance", params={"gate": "live_unlock"},
+                       headers={"X-Webhook-Secret": SECRET}).json()
+    assert live["live_unlocked"] is False  # locked by design, no broker

@@ -53,21 +53,64 @@ class _JsonStore:
         return list(self._load().values())
 
 
+# Safety gates a new version must pass before live — the same flow the rest of
+# the app enforces. Live also requires a connected broker (none here -> locked).
+GATE_ORDER = ["backtest", "simulation", "paper"]
+
+
+def _new_gates(backtest_done: bool) -> dict:
+    return {"backtest": backtest_done, "simulation": False, "paper": False, "live_unlocked": False}
+
+
 class StrategyVersionStore(_JsonStore):
     def versions(self, strategy: str) -> list:
         rows = [v for v in self._load().values() if v.get("strategy") == strategy]
         return sorted(rows, key=lambda v: v.get("version", 0))
 
-    def add_version(self, strategy: str, params: dict, stats: dict, note: str = "") -> dict:
+    def get(self, vid: str):
+        return self._load().get(vid)
+
+    def add_version(self, strategy: str, params: dict, stats: dict, note: str = "",
+                    gates: dict | None = None) -> dict:
         data = self._load()
         existing = [v for v in data.values() if v.get("strategy") == strategy]
         version = max((v.get("version", 0) for v in existing), default=0) + 1
         vid = uuid.uuid4().hex
         rec = {"id": vid, "strategy": strategy, "version": version, "label": f"{strategy} v{version}",
-               "params": params, "stats": stats, "note": note, "created_at": _now()}
+               "params": params, "stats": stats, "note": note,
+               "gates": gates if gates is not None else _new_gates(bool(stats)),
+               "created_at": _now()}
         data[vid] = rec
         self._write(data)
         return rec
+
+    def advance_gate(self, vid: str, gate: str, *, stats: dict | None = None,
+                     broker_connected: bool = False) -> dict | None:
+        data = self._load()
+        if vid not in data:
+            return None
+        v = data[vid]
+        gates = v.setdefault("gates", _new_gates(False))
+        if gate == "live_unlock":
+            # live needs every prior gate AND a real broker — never auto-unlocked
+            if not all(gates.get(g) for g in GATE_ORDER):
+                return {"error": "Complete backtest, simulation and paper first."}
+            if not broker_connected:
+                return {"error": "No broker connected — live trading stays locked by design.",
+                        "live_unlocked": False}
+            gates["live_unlocked"] = True
+        else:
+            if gate not in GATE_ORDER:
+                return {"error": f"unknown gate {gate}"}
+            idx = GATE_ORDER.index(gate)
+            if idx > 0 and not gates.get(GATE_ORDER[idx - 1]):
+                return {"error": f"Pass '{GATE_ORDER[idx - 1]}' before '{gate}'."}
+            gates[gate] = True
+            if stats is not None:
+                v.setdefault("gate_stats", {})[gate] = stats
+        v["updated_at"] = _now()
+        self._write(data)
+        return v
 
     def compare(self, strategy: str) -> dict:
         vers = self.versions(strategy)
@@ -117,6 +160,47 @@ class UpgradeStore(_JsonStore):
         return dict(Counter(v.get("status", "Suggested") for v in self._load().values()))
 
 
+# ---- machine-applicable patches (so an approved upgrade can become a version) ----
+def patch_for_fix(fix: str) -> dict | None:
+    """Map a suggested-fix sentence to a concrete, applicable spec patch.
+    Returns None when the change needs manual judgement."""
+    f = fix.lower()
+    if "minimum trade-quality score" in f or "minimum score" in f:
+        return {"min_score_delta": 15}
+    if "atr stop" in f or "widen" in f and "stop" in f:
+        return {"stop_mult_mult": 1.33}
+    if "take-profit" in f or "winners run" in f:
+        return {"rr_mult": 1.3}
+    if "regime filter" in f or "ranging" in f or "regime" in f:
+        return {"quality_filter": True, "min_score_delta": 5}
+    if "higher-timeframe trend alignment" in f:
+        return {"quality_filter": True}
+    if "trade less" in f or "tighten" in f and "filter" in f:
+        return {"min_score_delta": 10}
+    return None  # e.g. "require a retest" / session changes -> manual
+
+
+def apply_patch(spec: dict, patch: dict) -> dict:
+    """Apply a patch to a strategy spec, returning a NEW spec (never mutates)."""
+    s = copy.deepcopy(spec)
+    if "min_score_delta" in patch:
+        s["min_score"] = min(95, int(s.get("min_score", 60)) + patch["min_score_delta"])
+        s["quality_filter"] = True
+    if patch.get("quality_filter"):
+        s["quality_filter"] = True
+    if "stop_mult_mult" in patch:
+        stop = dict(s.get("stop") or {"type": "atr", "mult": 1.5, "period": 14})
+        stop["type"] = "atr"
+        stop["mult"] = round(float(stop.get("mult", 1.5)) * patch["stop_mult_mult"], 2)
+        s["stop"] = stop
+    if "rr_mult" in patch:
+        tgt = dict(s.get("target") or {"type": "rr", "rr": 2.0})
+        tgt["type"] = "rr"
+        tgt["rr"] = round(float(tgt.get("rr", 2.0)) * patch["rr_mult"], 2)
+        s["target"] = tgt
+    return s
+
+
 # ---- evidence-based suggestions ----
 def suggest_improvements(results: dict, *, symbol: str, strategy: str) -> list:
     """Turn measured results into structured upgrade suggestions. Each carries a
@@ -125,6 +209,7 @@ def suggest_improvements(results: dict, *, symbol: str, strategy: str) -> list:
     lessons = lessons_from_results(results, symbol=symbol, strategy=strategy)
     out = []
     for ls in lessons:
+        patch = patch_for_fix(ls["suggested_fix"])
         out.append({
             "strategy": strategy, "symbol": symbol,
             "title": ls["suggested_fix"],
@@ -134,6 +219,8 @@ def suggest_improvements(results: dict, *, symbol: str, strategy: str) -> list:
             "risk": "May reduce trade count; validate it doesn't overfit one symbol/period.",
             "backtest_required": True,
             "confidence": ls["confidence"],
+            "apply": patch,                 # None = manual change required
+            "auto_applicable": patch is not None,
         })
     return out
 

@@ -4,7 +4,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useApp } from "../app-context";
 import { apiPost, apiPostJson, useLive,
-  type EvoDashboard, type Lesson, type Upgrade, type Experiment } from "../lib/api";
+  type EvoDashboard, type Lesson, type Upgrade, type Experiment, type VersionCompare } from "../lib/api";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
 const statusTone = (s: string) => ({ Approved: "green", Rejected: "red", "Paper tested": "blue",
@@ -15,6 +15,7 @@ export default function EvolutionPage() {
   const dash = useLive<EvoDashboard>("/evolution/dashboard", 8000);
   const lessons = useLive<{ lessons: Lesson[]; weekly: number }>("/evolution/lessons", 6000);
   const upgrades = useLive<{ upgrades: Upgrade[] }>("/evolution/upgrades", 6000);
+  const versions = useLive<VersionCompare>("/evolution/versions?strategy=SMC", 6000);
   const [learnSym, setLearnSym] = useState("BTCUSDT");
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +40,21 @@ export default function EvolutionPage() {
       const r = await apiPost<any>(`/evolution/upgrades/${id}/status?status=${status}`);
       if (r?.error) app.toast(r.error, "error"); else { upgrades.refetch(); dash.refetch(); }
     } catch { app.toast("Approve/Reject requires the webhook secret", "error"); }
+  };
+  const promote = async (id: string) => {
+    try {
+      const r = await apiPostJson<any>(`/evolution/upgrades/${id}/promote`, {});
+      if (r?.error || r?.detail) app.toast(r.error || r.detail, "error");
+      else { app.toast(`Created ${r.version.label} — backtest done, sim/paper pending`, "success"); versions.refetch(); upgrades.refetch(); }
+    } catch { app.toast("Promote failed — approve the upgrade first", "error"); }
+  };
+  const advanceVersion = async (vid: string, gate: string) => {
+    try {
+      const r = await apiPost<any>(`/evolution/versions/${vid}/advance?gate=${gate}`);
+      if (gate === "live_unlock" && r?.live_unlocked === false) app.toast("Live stays locked — no broker connected (by design)", "info");
+      else if (r?.error) app.toast(r.error, "error");
+      versions.refetch();
+    } catch { app.toast("Advance failed", "error"); }
   };
 
   return (
@@ -98,6 +114,14 @@ export default function EvolutionPage() {
               <button className="btn btn-soft" onClick={() => setUpgradeStatus(u.id, "Paper tested")}>Mark Paper-tested</button>
               <button className="btn btn-primary" onClick={() => setUpgradeStatus(u.id, "Approved")}><Icon name="check" size={13} /> Approve</button>
               <button className="btn btn-danger" onClick={() => setUpgradeStatus(u.id, "Rejected")}><Icon name="close" size={13} /> Reject</button>
+              {u.status === "Approved" && u.auto_applicable && (
+                <button className="btn btn-soft" onClick={() => promote(u.id)} title="Apply the patch and create a new strategy version (enters the safety flow)">
+                  <Icon name="rocket" size={13} /> Promote to Version
+                </button>
+              )}
+              {u.status === "Approved" && !u.auto_applicable && (
+                <span className="dim" style={{ fontSize: 12 }}>Manual change — edit the strategy by hand.</span>
+              )}
             </div>
           </div>
         )))}
@@ -128,8 +152,59 @@ export default function EvolutionPage() {
         </div>
       </Card>
 
+      <VersionsPanel data={versions.data} onAdvance={advanceVersion} />
+
       <ExperimentLab />
     </>
+  );
+}
+
+function Gate({ label, done, locked }: { label: string; done: boolean; locked?: boolean }) {
+  return (
+    <span className="ui-badge" style={{
+      background: locked ? "#ef444422" : done ? "#22c55e22" : "#5b647822",
+      color: locked ? "#ef4444" : done ? "#22c55e" : "#8a93a6",
+      display: "inline-flex", alignItems: "center", gap: 4,
+    }}>
+      <Icon name={locked ? "lock" : done ? "check" : "history"} size={11} /> {label}
+    </span>
+  );
+}
+
+function VersionsPanel({ data, onAdvance }: { data?: VersionCompare | null; onAdvance: (vid: string, gate: string) => void }) {
+  const vers = data?.versions ?? [];
+  return (
+    <Card title="Strategy Versions (SMC)" subtitle={data?.best ? `best: ${data.best}` : "promote an approved upgrade to create a version"}
+      right={<Badge text="live needs all gates + approval" tone="amber" />}>
+      {vers.length === 0 ? (
+        <div className="dim ta-center" style={{ padding: 18 }}>No versions yet. Approve an auto-applicable upgrade and click <b>Promote to Version</b>.</div>
+      ) : vers.map((v) => (
+        <div key={v.id} className="card" style={{ marginBottom: 8, background: "#131a2c" }}>
+          <div className="row-actions" style={{ justifyContent: "space-between" }}>
+            <b>{v.label}{data?.best === v.label && <span className="pos"> · best</span>}</b>
+            <span className="dim mono">{v.created_at.slice(0, 10)}</span>
+          </div>
+          <div className="dim" style={{ fontSize: 12, marginTop: 2 }}>{v.note}</div>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
+            <span className="dim">net {v.stats?.net_r ?? 0}R · PF {v.stats?.profit_factor ?? 0} · {v.stats?.total_trades ?? 0} trades</span>
+          </div>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            <Gate label="Backtest" done={v.gates.backtest} />
+            <Icon name="chevron" size={12} className="dim" />
+            <Gate label="Simulation" done={v.gates.simulation} />
+            <Icon name="chevron" size={12} className="dim" />
+            <Gate label="Paper" done={v.gates.paper} />
+            <Icon name="chevron" size={12} className="dim" />
+            <Gate label="Live" done={v.gates.live_unlocked} locked={!v.gates.live_unlocked} />
+          </div>
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginTop: 8 }}>
+            {!v.gates.simulation && v.gates.backtest && <button className="btn btn-soft" onClick={() => onAdvance(v.id, "simulation")}>Run Simulation</button>}
+            {v.gates.simulation && !v.gates.paper && <button className="btn btn-soft" onClick={() => onAdvance(v.id, "paper")}>Mark Paper-tested</button>}
+            {v.gates.paper && !v.gates.live_unlocked && <button className="btn btn-danger" onClick={() => onAdvance(v.id, "live_unlock")}><Icon name="lock" size={13} /> Request Live Unlock</button>}
+          </div>
+        </div>
+      ))}
+    </Card>
   );
 }
 

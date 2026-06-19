@@ -770,6 +770,84 @@ def evolution_versions(strategy: str):
     return version_store.compare(strategy)
 
 
+def _default_base_spec(strategy: str, symbol: str = "BTCUSDT") -> dict:
+    """A representative base spec to patch when no prior version exists."""
+    return {"name": strategy, "symbol": symbol, "timeframe": "4h", "side": "long",
+            "entry": {"op": "AND", "rules": [{"type": "ema_cross", "fast": 20, "slow": 50, "dir": "above"}]},
+            "stop": {"type": "atr", "mult": 1.5, "period": 14},
+            "target": {"type": "rr", "rr": 2.0}, "risk_per_trade_pct": 0.01,
+            "min_score": 60, "quality_filter": True}
+
+
+@router.post("/evolution/upgrades/{uid}/promote")
+def evolution_promote(uid: str, body: dict = None,
+                      x_webhook_secret: Optional[str] = Header(default=None)):
+    """Turn an APPROVED, auto-applicable upgrade into a new strategy version and
+    run its backtest. The version then flows through Sim -> Paper -> (locked) Live."""
+    _check_secret(x_webhook_secret)
+    body = body or {}
+    up = next((u for u in upgrade_store.list_sorted() if u["id"] == uid), None)
+    if up is None:
+        raise HTTPException(404, "Upgrade not found")
+    if up.get("status") != "Approved":
+        raise HTTPException(400, "Approve the upgrade before promoting it to a version.")
+    patch = up.get("apply")
+    if not patch:
+        raise HTTPException(400, "This upgrade needs a manual change — no auto-patch available.")
+
+    from services.evolution import apply_patch
+    from strategies.custom import simulate
+    from strategies.brain import TradeBrain
+    from data.market_data import get_bars
+
+    strategy = up.get("strategy", "Strategy")
+    prior = version_store.versions(strategy)
+    base = body.get("base_spec") or (prior[-1]["params"] if prior else _default_base_spec(strategy, up.get("symbol", "BTCUSDT")))
+    new_spec = apply_patch(base, patch)
+
+    rows, _ = get_bars(new_spec.get("symbol", "BTCUSDT"), n=4000, timeframe=new_spec.get("timeframe", "4h"))
+    r = simulate(new_spec, rows, brain=TradeBrain(), min_score=int(new_spec.get("min_score", 60)))
+    stats = {k: r[k] for k in ("total_trades", "win_rate", "profit_factor", "net_r",
+                               "max_drawdown_pct", "expectancy_r") if k in r}
+    version = version_store.add_version(strategy, new_spec, stats, note=up["title"])  # backtest gate done
+    upgrade_store.set_status(uid, "Backtested", by="human")
+    ledger.log(level="info", stage="evolution",
+               message=f"Promoted upgrade {uid[:8]} -> {version['label']} (backtest done; sim/paper pending)")
+    return {"version": version, "applied_patch": patch}
+
+
+@router.post("/evolution/versions/{vid}/advance")
+def evolution_advance_version(vid: str, gate: str,
+                              x_webhook_secret: Optional[str] = Header(default=None)):
+    """Advance a version through the safety gates. 'simulation' runs a sim;
+    'paper' is a human-confirmed checkpoint; 'live_unlock' stays locked with no
+    broker connected (by design)."""
+    _check_secret(x_webhook_secret)
+    v = version_store.get(vid)
+    if v is None:
+        raise HTTPException(404, "Version not found")
+    stats = None
+    if gate == "simulation":
+        from strategies.custom import simulate
+        from strategies.brain import TradeBrain
+        from data.market_data import get_bars
+        spec = v["params"]
+        rows, _ = get_bars(spec.get("symbol", "BTCUSDT"), n=3000, timeframe=spec.get("timeframe", "4h"))
+        r = simulate(spec, rows, brain=TradeBrain(), min_score=int(spec.get("min_score", 60)))
+        stats = {k: r[k] for k in ("total_trades", "win_rate", "profit_factor", "net_r", "expectancy_r") if k in r}
+    res = version_store.advance_gate(vid, gate, stats=stats,
+                                     broker_connected=bool(getattr(engine, "live", False) and False))
+    if res is None:
+        raise HTTPException(404, "Version not found")
+    if "error" in res:
+        # live stays locked: surface the reason, not a hard failure
+        if gate == "live_unlock":
+            return res
+        raise HTTPException(400, res["error"])
+    ledger.log(level="info", stage="evolution", message=f"{v['label']} gate '{gate}' advanced")
+    return res
+
+
 @router.get("/evolution/dashboard")
 def evolution_dashboard():
     """Aggregate widgets for the Evolution dashboard."""
