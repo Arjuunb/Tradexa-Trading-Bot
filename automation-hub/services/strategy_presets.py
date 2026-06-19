@@ -85,12 +85,18 @@ def resolve(strategy: str, symbol: str, timeframe: str, tuning: dict,
 
 
 def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict = None,
-                   custom_spec: dict = None, bars: int = 4000) -> dict:
-    """Run a REAL simulation for the chosen control-bar configuration."""
+                   custom_spec: dict = None, bars: int = 4000,
+                   macro: str = None, confirmation: str = None) -> dict:
+    """Run a REAL simulation for the chosen control-bar configuration.
+
+    ``macro`` / ``confirmation`` are the higher timeframes the multi-timeframe
+    gate checks (chosen in the control bar); a trade against either is blocked.
+    """
     from data.market_data import get_bars
     from strategies.custom import simulate, simulate_strategy
     from strategies.brain import TradeBrain
     from strategies.diagnosis import diagnose
+    from services.mtf_engine import make_trend_lookup
 
     desc = resolve(strategy, symbol, timeframe, tuning or {}, custom_spec)
     if "error" in desc:
@@ -101,21 +107,31 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
         return {"error": "Historical data not available. Please load Binance data first "
                          "(run /data/sync).", "data_source": source, "available": False}
 
+    # multi-timeframe gate driven by the macro/confirmation selectors
+    mtf_lookup = mtf_tfs = None
+    requested = [tf for tf in (confirmation, macro) if tf and tf != timeframe]
+    if requested:
+        mtf_lookup = make_trend_lookup(rows, timeframe, requested)
+        mtf_tfs = mtf_lookup.timeframes      # only the tfs that had enough data
+
     min_score = int((tuning or {}).get("min_score", DEFAULT_TUNING["min_score"]))
     brain = TradeBrain()
     if desc["kind"] == "builtin":
         from webhook_api import _build_builtin   # reuse the builder
         strat = _build_builtin(desc["key"], symbol)
-        results = simulate_strategy(strat, rows, brain=brain, min_score=min_score)
+        results = simulate_strategy(strat, rows, brain=brain, min_score=min_score,
+                                    mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
     else:
         spec = desc["spec"]
         use_brain = spec.get("quality_filter", True)
         results = simulate(spec, rows, brain=brain if use_brain else None,
-                           min_score=min_score if use_brain else 0)
+                           min_score=min_score if use_brain else 0,
+                           mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
     results["diagnosis"] = diagnose(results, results.get("blocked"))
     warning = underperforming(results)
     return {
         "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
+        "mtf_gate": list(mtf_tfs) if mtf_tfs else [],
         "data_source": source, "available": True, "results": results,
         "warning": warning, "spec": desc.get("spec"),
     }
@@ -146,9 +162,11 @@ def underperforming(results: dict) -> Optional[dict]:
 def compare(a: dict, b: dict, *, bars: int = 4000) -> dict:
     """Compare two control configurations on real data and pick a winner."""
     ra = run_simulation(a["strategy"], a["symbol"], a["timeframe"],
-                        tuning=a.get("tuning"), custom_spec=a.get("custom_spec"), bars=bars)
+                        tuning=a.get("tuning"), custom_spec=a.get("custom_spec"), bars=bars,
+                        macro=a.get("macro"), confirmation=a.get("confirmation"))
     rb = run_simulation(b["strategy"], b["symbol"], b["timeframe"],
-                        tuning=b.get("tuning"), custom_spec=b.get("custom_spec"), bars=bars)
+                        tuning=b.get("tuning"), custom_spec=b.get("custom_spec"), bars=bars,
+                        macro=b.get("macro"), confirmation=b.get("confirmation"))
     if not ra.get("available") or not rb.get("available"):
         return {"error": "Historical data not available for one or both configurations.",
                 "a": ra, "b": rb}

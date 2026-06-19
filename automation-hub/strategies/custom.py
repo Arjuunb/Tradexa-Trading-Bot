@@ -250,7 +250,8 @@ def _in_session(ts, session: dict) -> bool:
 
 
 def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
-             starting_balance: float = 10_000.0, brain=None, min_score: int = 0) -> dict:
+             starting_balance: float = 10_000.0, brain=None, min_score: int = 0,
+             mtf_lookup=None, mtf_tfs=None) -> dict:
     """Run a custom strategy spec over historical bars. SIMULATION ONLY.
 
     When a ``brain`` (TradeBrain) is supplied, each candidate entry is scored;
@@ -367,6 +368,15 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                                  "htf_bias": v.htf_bias, "setup_type": v.setup_type,
                                  "passed": v.passed, "failed": v.failed}
 
+                if mtf_lookup is not None:
+                    from services.mtf_engine import htf_consensus
+                    mtf = htf_consensus(mtf_lookup(i), 1 if side == "long" else -1, mtf_tfs or ())
+                    if not mtf["allowed"]:
+                        blocked.append({"time": bar.timestamp.isoformat(), "side": side, "score": 0,
+                                        "regime": "—", "htf_bias": mtf["reason"],
+                                        "blocks": [mtf["reason"]], "reason": mtf["reason"]})
+                        continue
+
                 pos = {"side": side, "entry": entry_px, "stop": stop, "target": target,
                        "risk": risk_abs, "reason": "; ".join(reasons) or "entry conditions met",
                        "time": bar.timestamp, "idx": i, "be": False, "brain": brain_tag}
@@ -383,7 +393,7 @@ def _detect_reversal(spec: dict) -> bool:
 
 def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                       starting_balance: float = 10_000.0, risk_pct: float = 0.01,
-                      brain=None, min_score: int = 0) -> dict:
+                      brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
 
@@ -438,6 +448,13 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                         blocked.append({"time": bar.timestamp.isoformat(), "side": side,
                                         "score": v.score, "regime": v.regime, "htf_bias": v.htf_bias,
                                         "reason": (v.blocks[0] if v.blocks else f"score {v.score} < {min_score}")})
+                        continue
+                if mtf_lookup is not None:
+                    from services.mtf_engine import htf_consensus
+                    mtf = htf_consensus(mtf_lookup(i), 1 if side == "long" else -1, mtf_tfs or ())
+                    if not mtf["allowed"]:
+                        blocked.append({"time": bar.timestamp.isoformat(), "side": side, "score": 0,
+                                        "regime": "—", "htf_bias": mtf["reason"], "reason": mtf["reason"]})
                         continue
                 pos = {"side": side, "entry": entry, "stop": stop, "target": sig.take_profit,
                        "risk": risk, "reason": getattr(sig, "reason", "") or f"{side} entry",

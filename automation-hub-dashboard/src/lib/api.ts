@@ -327,7 +327,7 @@ export interface ControlTuning {
 }
 export interface ControlSimResult {
   strategy: string; symbol: string; timeframe: string; data_source: string;
-  available: boolean; error?: string;
+  available: boolean; error?: string; mtf_gate?: string[];
   warning: { level: string; message: string } | null;
   results?: SimResult["results"];
 }

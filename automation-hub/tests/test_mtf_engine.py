@@ -146,6 +146,21 @@ def test_adapter_blocks_counter_higher_timeframe():
     assert blocks and any("oppose" in x["reason"] or "conflict" in x["reason"].lower() for x in blocks)
 
 
+def test_make_trend_lookup_is_causal():
+    from services.mtf_engine import make_trend_lookup, htf_consensus
+    bars = _up(n=800)
+    lk = make_trend_lookup(bars, "15m", ["4h", "1d"])   # 4H factor 16, 1d factor 96
+    assert "4h" in lk.timeframes                          # had enough data
+    late = lk(700)
+    assert late["4h"] == "Bullish"                       # uptrend resampled to 4H
+    # consensus with explicit tfs: a long is allowed in this uptrend, a short blocked
+    assert htf_consensus(late, 1, lk.timeframes)["allowed"]
+    assert not htf_consensus(late, -1, lk.timeframes)["allowed"]
+    # exec >= tf is excluded, and a too-short series degrades gracefully
+    lk2 = make_trend_lookup(bars, "4h", ["4h", "1w"])
+    assert "4h" not in lk2.timeframes
+
+
 def test_adapter_mtf_can_be_disabled():
     from strategies.custom_adapter import CustomStrategyAdapter
     spec = {"name": "X", "symbol": "BTCUSDT", "timeframe": "15m", "side": "long",

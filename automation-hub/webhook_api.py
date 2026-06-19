@@ -663,14 +663,18 @@ class ControlSimRequest(BaseModel):
     tuning: dict = {}
     custom_spec: Optional[dict] = None
     bars: int = 4000
+    macro: Optional[str] = None
+    confirmation: Optional[str] = None
 
 
 @router.post("/control/simulate")
 def control_simulate(body: ControlSimRequest):
-    """Rerun a REAL simulation for the chosen strategy/symbol/timeframe/tuning."""
+    """Rerun a REAL simulation for the chosen strategy/symbol/timeframe/tuning.
+    The macro/confirmation timeframes drive the multi-timeframe gate."""
     from services.strategy_presets import run_simulation
     return run_simulation(body.strategy, body.symbol, body.timeframe,
-                          tuning=body.tuning, custom_spec=body.custom_spec, bars=body.bars)
+                          tuning=body.tuning, custom_spec=body.custom_spec, bars=body.bars,
+                          macro=body.macro, confirmation=body.confirmation)
 
 
 class ControlCompareRequest(BaseModel):

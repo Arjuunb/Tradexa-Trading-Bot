@@ -37,7 +37,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   }, []);
 
   const body = () => ({ strategy: cfg.strategy, symbol: cfg.symbol, timeframe: cfg.entry,
-    tuning: cfg.tuning, bars: 4000 });
+    tuning: cfg.tuning, bars: 4000, macro: cfg.macro, confirmation: cfg.confirm });
 
   const apply = async () => {
     setBusy(true); setCmp(null);
@@ -55,8 +55,10 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
     setBusy(true);
     try {
       const r = await apiPostJson<ControlCompare>("/control/compare", {
-        a: { strategy: cfg.strategy, symbol: cfg.symbol, timeframe: cfg.entry, tuning: cfg.tuning },
-        b: { strategy: cmpStrat, symbol: cfg.symbol, timeframe: cmpTf, tuning: cfg.tuning }, bars: 4000,
+        a: { strategy: cfg.strategy, symbol: cfg.symbol, timeframe: cfg.entry, tuning: cfg.tuning,
+             macro: cfg.macro, confirmation: cfg.confirm },
+        b: { strategy: cmpStrat, symbol: cfg.symbol, timeframe: cmpTf, tuning: cfg.tuning,
+             macro: cfg.macro, confirmation: cfg.confirm }, bars: 4000,
       });
       setCmp(r);
       if (r.error) app.toast(r.error, "error");
@@ -127,6 +129,13 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
         <div className="card" style={{ marginTop: 10, borderColor: "#ef4444" }}>
           <Icon name="warning" size={14} className="neg" /> {last.error}
         </div>
+      )}
+      {last?.available && (
+        <p className="dim" style={{ marginTop: 8, fontSize: 12 }}>
+          <Icon name="layers" size={12} /> Source: {last.data_source} ·
+          MTF gate: {(last.mtf_gate?.length ? last.mtf_gate.join(" + ") : "none")} ·
+          {" "}{cfg.macro} macro / {cfg.confirm} confirmation / {cfg.entry} entry
+        </p>
       )}
       {s && (
         <div className="perf-grid" style={{ marginTop: 12 }}>

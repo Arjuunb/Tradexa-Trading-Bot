@@ -198,6 +198,42 @@ def _resample_closes(bars, factor):
     return closes
 
 
+def _trend_array(closes, fast=5, slow=12):
+    """Per-candle trend code (1/-1/0) over a close series. One pass."""
+    if len(closes) < slow:
+        return [0] * len(closes)
+    ef, es = ema(closes, fast), ema(closes, slow)
+    return [1 if ef[k] > es[k] else -1 if ef[k] < es[k] else 0 for k in range(len(closes))]
+
+
+def make_trend_lookup(bars, exec_tf: str, htf_list):
+    """Precompute higher-timeframe trends so each execution bar can read its
+    'last closed higher-tf candle' trend in O(1). Causal (no lookahead).
+
+    Returns ``lookup(i) -> {tf_label: Bullish/Bearish/Neutral/n/a}`` for the
+    timeframes in ``htf_list`` that are strictly higher than ``exec_tf``.
+    """
+    em = _TF_MIN.get(exec_tf)
+    series: dict = {}
+    if em:
+        for tf in htf_list:
+            hm = _TF_MIN.get(tf)
+            if not hm or hm <= em:
+                continue
+            factor = hm // em
+            series[tf] = (_trend_array(_resample_closes(bars, factor)), factor)
+
+    def lookup(i: int) -> dict:
+        out = {}
+        for tf, (arr, factor) in series.items():
+            closed = ((i + 1) // factor) - 1        # last CLOSED higher-tf candle
+            out[tf] = _DIR[arr[closed]] if 0 <= closed < len(arr) else "n/a"
+        return out
+
+    lookup.timeframes = list(series)                # the tfs that had enough data
+    return lookup
+
+
 def trends_from_stream(bars, exec_tf: str) -> dict:
     """Derive {4H/Daily/Weekly: Bullish/Bearish/Neutral/n/a} from a single
     execution-timeframe bar stream by resampling upward. Used by the live/paper
@@ -216,18 +252,18 @@ def trends_from_stream(bars, exec_tf: str) -> dict:
     return out
 
 
-def htf_consensus(trends: dict, side: int) -> dict:
+def htf_consensus(trends: dict, side: int, tfs=("Weekly", "Daily", "4H")) -> dict:
     """Gate a candidate trade against the higher-timeframe trends.
 
-    ``trends`` maps timeframe label -> "Bullish"/"Bearish"/"Neutral"/"n/a"
-    (as produced by the replay engine). A trade is blocked only when a directional
-    higher timeframe OPPOSES it — i.e. the bot never trades against the weekly /
-    daily / 4H trend. Returns the alignment reasons for explainability.
+    ``trends`` maps timeframe label -> "Bullish"/"Bearish"/"Neutral"/"n/a".
+    A trade is blocked only when a directional higher timeframe in ``tfs``
+    OPPOSES it — i.e. the bot never trades against the higher-timeframe trend.
+    ``tfs`` lets the control center pick which macro/confirmation timeframes gate.
     """
     want = "Bullish" if side > 0 else "Bearish"
     opp = "Bearish" if side > 0 else "Bullish"
     aligned, opposing = [], []
-    for tf in ("Weekly", "Daily", "4H"):
+    for tf in tfs:
         d = trends.get(tf)
         if d == want:
             aligned.append(tf)
