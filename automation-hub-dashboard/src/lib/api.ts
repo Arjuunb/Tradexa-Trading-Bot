@@ -247,6 +247,38 @@ export interface EngineDiagnostics {
   last_bar_ts: string | null; last_activity_age_s: number | null;
 }
 
+export interface ReplayCandle { t: string; o: number; h: number; l: number; c: number; v: number; }
+export interface ReplayMarker { idx: number; price: number; type: string; side: "bull" | "bear"; }
+export interface ReplayFrame {
+  regime: string; trends: Record<string, string>; trigger: string;
+  score: number; breakdown: Record<string, number> | null; blocked: boolean;
+  reason: string; vol_ratio: number;
+}
+export interface ReplayEvent { idx: number; kind: string; text: string; }
+export interface ReplayTrade {
+  id: number; symbol: string; side: "long" | "short"; entry_idx: number; entry: number;
+  sl: number; tp: number; score: number; breakdown: Record<string, number>;
+  entry_reasons: string[]; exit_idx: number | null; exit: number | null;
+  exit_reason: string | null; result: string; rr: number | null; loss_analysis: string | null;
+}
+export interface ReplayStats {
+  symbol: string; trades: number; win_rate: number; profit_factor: number; net_r: number;
+  max_drawdown_r: number; avg_rr: number; expectancy_r: number; best_r: number; worst_r: number;
+  long_trades: number; short_trades: number; long_net_r: number; short_net_r: number;
+}
+export interface ReplayData {
+  meta: { symbol: string; timeframe: string; data_source: string; bars: number;
+          start: string | null; end: string | null; htf_available: Record<string, boolean> };
+  candles: ReplayCandle[];
+  overlays: { ema20: number[]; ema50: number[]; vwap: number[] };
+  markers: ReplayMarker[];
+  zones: { type: string; price: number }[];
+  frames: ReplayFrame[];
+  events: ReplayEvent[];
+  trades: ReplayTrade[];
+  stats: ReplayStats;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

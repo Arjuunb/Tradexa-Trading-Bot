@@ -15,6 +15,7 @@ import SettingsPage from "./pages/Settings";
 import BotDetail from "./pages/BotDetail";
 import MarketsPage from "./pages/Markets";
 import SimulationPage from "./pages/Simulation";
+import ReplayPage from "./pages/Replay";
 import LiveTradingPage from "./pages/LiveTrading";
 import PortfolioPage from "./pages/Portfolio";
 import AnalyticsPage from "./pages/Analytics";
@@ -52,6 +53,7 @@ export default function App() {
       case "Strategies": return <StrategiesPage />;
       case "Backtesting": return <BacktestingPage />;
       case "Simulation": return <SimulationPage />;
+      case "Replay": return <ReplayPage />;
       case "Paper Trading": return <PaperTradingPage />;
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;

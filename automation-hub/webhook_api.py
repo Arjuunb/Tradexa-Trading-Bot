@@ -636,6 +636,22 @@ def _build_builtin(key: str, symbol: str):
     return DecisionBrain(symbol)
 
 
+@router.get("/replay/run")
+def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800):
+    """Precompute a no-lookahead decision timeline for TradingView-style replay."""
+    from services.replay import build_replay
+    return build_replay(symbol, timeframe, limit)
+
+
+@router.get("/replay/stats")
+def replay_stats(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT",
+                 timeframe: str = "15m", limit: int = 600):
+    """Per-asset replay stats (BTC/ETH/SOL/XRP) for the statistics panel."""
+    from services.replay import multi_asset_stats
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:6]
+    return {"timeframe": timeframe, "assets": multi_asset_stats(syms, timeframe, limit)}
+
+
 @router.get("/strategy/builtin/simulate")
 def builtin_simulate(strategy: str = "smc", symbol: str = "BTCUSDT",
                      timeframe: str = "4h", bars: int = 3000):

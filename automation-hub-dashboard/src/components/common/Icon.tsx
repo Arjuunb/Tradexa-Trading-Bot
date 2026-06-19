@@ -66,6 +66,7 @@ export const NAV_ICON: Record<string, string> = {
   Strategies: "layers",
   Backtesting: "history",
   Simulation: "refresh",
+  Replay: "play",
   "Paper Trading": "flask",
   "Live Trading": "rocket",
   Portfolio: "wallet",
