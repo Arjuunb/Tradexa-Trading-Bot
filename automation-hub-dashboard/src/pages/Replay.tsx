@@ -56,13 +56,16 @@ export default function ReplayPage() {
   const active = data?.trades.find((t) => t.entry_idx <= idx && (t.exit_idx === null || t.exit_idx > idx));
   const lastClosed = data ? [...data.trades].reverse().find((t) => t.exit_idx !== null && t.exit_idx <= idx) : undefined;
 
-  // live RR on the active trade
+  // live RR + status on the active trade
   let liveRR: number | null = null;
   if (active && candle) {
     const risk = Math.abs(active.entry - active.sl);
     const move = active.side === "long" ? candle.c - active.entry : active.entry - candle.c;
     liveRR = risk > 0 ? Math.round((move / risk) * 100) / 100 : null;
   }
+  const tradeStatus = active
+    ? (active.tp1_idx !== null && active.tp1_idx <= idx ? "Partial TP / Break-even" : "Open")
+    : null;
 
   return (
     <>
@@ -115,7 +118,7 @@ export default function ReplayPage() {
               <CandleChart data={data} index={idx} />
             </Card>
 
-            <BrainPanel frame={frame} active={active} liveRR={liveRR} />
+            <BrainPanel frame={frame} active={active} liveRR={liveRR} status={tradeStatus} />
           </div>
 
           <div className="grid-2-eq">
@@ -147,8 +150,8 @@ function EventDot({ kind }: { kind: string }) {
   return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: c, marginRight: 4 }} />;
 }
 
-function BrainPanel({ frame, active, liveRR }: {
-  frame: any; active?: ReplayTrade; liveRR: number | null;
+function BrainPanel({ frame, active, liveRR, status }: {
+  frame: any; active?: ReplayTrade; liveRR: number | null; status: string | null;
 }) {
   if (!frame) return <Card title="Bot Brain"><div className="dim">—</div></Card>;
   const trigTone = frame.trigger === "Entry Confirmed" ? "green" : frame.trigger === "Setup Found" ? "amber" : "default";
@@ -180,9 +183,10 @@ function BrainPanel({ frame, active, liveRR }: {
       {active && (
         <div style={{ marginTop: 10, borderTop: "1px solid #1b2336", paddingTop: 8 }}>
           <div className="card-subtitle" style={{ marginBottom: 4 }}>Open {active.side} #{active.id}</div>
-          <div className="risk-item"><span className="dim">Status</span> <b>Open</b></div>
+          <div className="risk-item"><span className="dim">Status</span>
+            <Badge text={status ?? "Open"} tone={status?.includes("Partial") ? "amber" : "default"} /></div>
           <div className="risk-item"><span className="dim">Current RR</span> <b className={(liveRR ?? 0) >= 0 ? "pos" : "neg"}>{liveRR !== null ? `${liveRR >= 0 ? "+" : ""}${liveRR}R` : "—"}</b></div>
-          <div className="risk-item"><span className="dim">SL / TP</span> <b>{active.sl} / {active.tp}</b></div>
+          <div className="risk-item"><span className="dim">{status?.includes("Partial") ? "SL→BE / TP" : "SL / TP"}</span> <b>{status?.includes("Partial") ? active.entry : active.sl} / {active.tp}</b></div>
         </div>
       )}
     </Card>
@@ -198,6 +202,10 @@ function TradeReview({ trade }: { trade?: ReplayTrade }) {
         <div className="risk-item"><span className="dim">Asset / Direction</span> <b>{trade.symbol} · {trade.side}</b></div>
         <div className="risk-item"><span className="dim">Result / RR</span> <b className={win ? "pos" : "neg"}>{trade.result} · {trade.rr! >= 0 ? "+" : ""}{trade.rr}R</b></div>
         <div className="risk-item"><span className="dim">Quality score</span> <b>{trade.score}/100</b></div>
+        {trade.tp1_idx !== null && (
+          <div className="risk-item"><span className="dim">Scale-out</span>
+            <b className="pos">50% booked at +1R → break-even runner</b></div>
+        )}
       </div>
       <div style={{ marginTop: 8 }}>
         <div className="card-subtitle" style={{ marginBottom: 4 }}>Reason for entry</div>

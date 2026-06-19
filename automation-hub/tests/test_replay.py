@@ -111,3 +111,31 @@ def test_date_window_out_of_range_is_empty():
     assert r["meta"]["bars"] == 0
     assert r["candles"] == [] and r["trades"] == []
     assert "note" in r["meta"]
+
+
+def test_partial_take_profit_and_breakeven():
+    r = build_replay("ETHUSDT", "15m", 900)
+    # trade records carry the staged-exit fields
+    for t in r["trades"]:
+        assert "tp1" in t and "tp1_idx" in t and "status" in t and "partial" in t
+        if t["partial"] and t["tp1"] is not None:
+            # tp1 sits between entry and final tp
+            if t["side"] == "long":
+                assert t["entry"] < t["tp1"] <= t["tp"]
+            else:
+                assert t["tp"] <= t["tp1"] < t["entry"]
+        if t["exit_idx"] is not None:
+            assert t["status"] == "Closed"
+            assert t["result"] in ("Winner", "Loser", "Break Even")
+    # a partial fill produces a 'partial' timeline event and a TP1 marker
+    if any(t["tp1_idx"] is not None for t in r["trades"]):
+        assert any(e["kind"] == "partial" for e in r["events"])
+        assert any(m["type"] == "TP1" for m in r["markers"])
+
+
+def test_partial_then_breakeven_is_small_winner():
+    """A trade that books a partial then stops at break-even nets a small + R."""
+    r = build_replay("ETHUSDT", "15m", 900)
+    for t in r["trades"]:
+        if t["tp1_idx"] is not None and t["exit_reason"] == "Break-even stop after partial":
+            assert t["rr"] is not None and t["rr"] > 0   # the booked partial keeps it green

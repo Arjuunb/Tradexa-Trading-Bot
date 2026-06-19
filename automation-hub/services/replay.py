@@ -37,6 +37,9 @@ HTF_ORDER = ["1w", "1d", "4h", "15m"]
 HTF_LABEL = {"1w": "Weekly", "1d": "Daily", "4h": "4H", "15m": "15M"}
 SCORE_THRESHOLD = 60
 MIN_HTF_CANDLES = 10  # higher-tf trend needs at least this many candles to be meaningful
+PARTIAL_FRAC = 0.5    # portion booked at the first target
+TP1_R = 1.0           # first (partial) target, in R
+PARTIAL_MIN_RR = 1.5  # only scale out when the final target is at least this many R
 
 
 def _resampled_closes(bars, factor):
@@ -275,29 +278,43 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             avg = sum(view[j].volume or 0 for j in range(li - 20, li)) / 20
             vol_ratio = (bar.volume / avg) if avg > 0 else 1.0
 
-        # ---------------- manage an open trade ----------------
+        # ---------------- manage an open trade (multi-stage exits) ----------------
         if pos is not None:
-            exit_px = exit_reason = None
-            if pos["side"] == "long":
-                if bar.low <= pos["sl"]:
-                    exit_px, exit_reason = pos["sl"], "Stop loss hit"
-                elif bar.high >= pos["tp"]:
-                    exit_px, exit_reason = pos["tp"], "Take profit reached"
-            else:
-                if bar.high >= pos["sl"]:
-                    exit_px, exit_reason = pos["sl"], "Stop loss hit"
-                elif bar.low <= pos["tp"]:
-                    exit_px, exit_reason = pos["tp"], "Take profit reached"
-            if exit_px is not None:
-                move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
-                r = round(move / pos["risk"], 2)
-                tr = trades[pos["trade_ref"]]
-                tr.update({"exit_idx": li, "exit": round(exit_px, 6), "exit_reason": exit_reason,
-                           "result": "Winner" if r > 0 else "Loser", "rr": r,
-                           "loss_analysis": _loss_analysis(pos, trends, regime, r, li)})
-                events.append({"idx": li, "kind": "exit",
-                               "text": f"{pos['side'].title()} closed — {exit_reason} ({r:+.2f}R)."})
-                pos = None
+            s = pos["side"]
+            hit_sl = (bar.low <= pos["sl"]) if s == "long" else (bar.high >= pos["sl"])
+            if pos["stage"] == 0:
+                hit_tp1 = (bar.high >= pos["tp1"]) if s == "long" else (bar.low <= pos["tp1"])
+                if hit_sl:  # full stop before any partial -> -1R
+                    _close_trade(trades, pos, li, pos["sl"], "Stop loss hit", -1.0, trends, regime, events)
+                    pos = None
+                elif hit_tp1 and pos["partial"]:  # book a partial, move stop to break-even
+                    pos["booked"] = PARTIAL_FRAC * TP1_R
+                    pos["stage"] = 1
+                    pos["sl"] = pos["entry"]
+                    pos["tp1_idx"] = li
+                    tr = trades[pos["trade_ref"]]
+                    tr["tp1_idx"] = li
+                    tr["status"] = "Partial TP / BE"
+                    markers.append({"idx": li, "price": round(pos["tp1"], 6), "type": "TP1",
+                                    "side": "bull" if s == "long" else "bear"})
+                    events.append({"idx": li, "kind": "partial",
+                                   "text": f"Partial take-profit (+{TP1_R:g}R) — {int(PARTIAL_FRAC*100)}% "
+                                           f"booked, stop moved to break-even."})
+                elif hit_tp1 and not pos["partial"]:  # single-target trade
+                    r = (pos["tp1"] - pos["entry"]) / pos["risk"] if s == "long" else (pos["entry"] - pos["tp1"]) / pos["risk"]
+                    _close_trade(trades, pos, li, pos["tp1"], "Take profit reached", r, trends, regime, events)
+                    pos = None
+            elif pos["stage"] == 1:  # runner: break-even stop or final target
+                hit_tp2 = (bar.high >= pos["tp2"]) if s == "long" else (bar.low <= pos["tp2"])
+                if hit_sl:  # break-even stop on the remainder
+                    total = pos["booked"] + (1 - PARTIAL_FRAC) * 0.0
+                    _close_trade(trades, pos, li, pos["entry"], "Break-even stop after partial", total, trends, regime, events)
+                    pos = None
+                elif hit_tp2:
+                    r2 = (pos["tp2"] - pos["entry"]) / pos["risk"] if s == "long" else (pos["entry"] - pos["tp2"]) / pos["risk"]
+                    total = pos["booked"] + (1 - PARTIAL_FRAC) * r2
+                    _close_trade(trades, pos, li, pos["tp2"], "Final take-profit reached", total, trends, regime, events)
+                    pos = None
 
         # ---------------- score / trigger / entry ----------------
         side = 0
@@ -324,15 +341,22 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                 trigger = "Entry Confirmed"
                 trade_id += 1
                 entry_reasons = _entry_reasons(side, trends, recent_sweep, recent_struct, recent_fvg)
+                risk = abs(sig.entry - sig.stop_loss)
+                tp2 = sig.take_profit
+                final_rr = abs(tp2 - sig.entry) / risk if risk > 0 else 0.0
+                partial = final_rr >= PARTIAL_MIN_RR
+                tp1 = (sig.entry + TP1_R * risk) if side > 0 else (sig.entry - TP1_R * risk)
                 trades.append({
                     "id": trade_id, "symbol": symbol, "side": "long" if side > 0 else "short",
                     "entry_idx": li, "entry": round(sig.entry, 6), "sl": round(sig.stop_loss, 6),
-                    "tp": round(sig.take_profit, 6), "score": score, "breakdown": breakdown,
-                    "entry_reasons": entry_reasons, "exit_idx": None, "exit": None,
-                    "exit_reason": None, "result": "Open", "rr": None, "loss_analysis": None,
+                    "tp": round(tp2, 6), "tp1": round(tp1, 6) if partial else None, "tp1_idx": None,
+                    "score": score, "breakdown": breakdown, "entry_reasons": entry_reasons,
+                    "exit_idx": None, "exit": None, "exit_reason": None, "result": "Open",
+                    "status": "Open", "partial": partial, "rr": None, "loss_analysis": None,
                 })
                 pos = {"side": "long" if side > 0 else "short", "entry": sig.entry, "sl": sig.stop_loss,
-                       "tp": sig.take_profit, "risk": abs(sig.entry - sig.stop_loss),
+                       "tp1": tp1 if partial else tp2, "tp2": tp2, "risk": risk, "partial": partial,
+                       "stage": 0, "booked": 0.0, "tp1_idx": None,
                        "trade_ref": len(trades) - 1, "entry_idx": li, "regime": regime}
                 events.append({"idx": li, "kind": "entry",
                                "text": f"{pos['side'].title()} opened — score {score}/100, "
@@ -378,6 +402,16 @@ def _entry_reasons(side, trends, sweep, struct, fvg) -> list:
     if fvg:
         out.append("fair-value gap")
     return out or ["confluence met"]
+
+
+def _close_trade(trades, pos, li, exit_px, reason, total_r, trends, regime, events):
+    tr = trades[pos["trade_ref"]]
+    result = "Winner" if total_r > 0 else "Break Even" if total_r == 0 else "Loser"
+    tr.update({"exit_idx": li, "exit": round(exit_px, 6), "exit_reason": reason,
+               "result": result, "rr": round(total_r, 2), "status": "Closed",
+               "loss_analysis": _loss_analysis(pos, trends, regime, total_r, li) if total_r <= 0 else None})
+    events.append({"idx": li, "kind": "exit",
+                   "text": f"{pos['side'].title()} closed — {reason} ({total_r:+.2f}R)."})
 
 
 def _loss_analysis(pos, trends, regime, r, exit_idx) -> Optional[str]:

@@ -52,11 +52,17 @@ export default function CandleChart({ data, index, height = 460 }: Props) {
     const active = [...data.trades].reverse().find((t) => t.entry_idx <= index && (t.exit_idx === null || t.exit_idx > index));
     const markLines: any[] = [];
     if (active) {
+      const beMoved = active.tp1_idx !== null && active.tp1_idx <= index;
+      const slLevel = beMoved ? active.entry : active.sl;
       markLines.push(
         { yAxis: active.entry, lineStyle: { color: "#8a93a6", type: "solid" }, label: { formatter: "Entry", color: "#8a93a6" } },
-        { yAxis: active.sl, lineStyle: { color: "#f23645", type: "dashed" }, label: { formatter: "SL", color: "#f23645" } },
+        { yAxis: slLevel, lineStyle: { color: "#f23645", type: "dashed" }, label: { formatter: beMoved ? "BE" : "SL", color: "#f23645" } },
         { yAxis: active.tp, lineStyle: { color: "#089981", type: "dashed" }, label: { formatter: "TP", color: "#089981" } },
       );
+      if (active.tp1 !== null) {
+        markLines.push({ yAxis: active.tp1, lineStyle: { color: "#089981", type: "dotted", opacity: 0.7 },
+          label: { formatter: "TP1", color: "#089981", fontSize: 9 } });
+      }
     }
     // support/resistance levels (horizontal)
     for (const z of data.zones) {

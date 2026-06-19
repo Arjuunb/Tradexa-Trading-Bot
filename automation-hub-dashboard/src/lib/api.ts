@@ -257,7 +257,9 @@ export interface ReplayFrame {
 export interface ReplayEvent { idx: number; kind: string; text: string; }
 export interface ReplayTrade {
   id: number; symbol: string; side: "long" | "short"; entry_idx: number; entry: number;
-  sl: number; tp: number; score: number; breakdown: Record<string, number>;
+  sl: number; tp: number; tp1: number | null; tp1_idx: number | null;
+  partial?: boolean; status?: string;
+  score: number; breakdown: Record<string, number>;
   entry_reasons: string[]; exit_idx: number | null; exit: number | null;
   exit_reason: string | null; result: string; rr: number | null; loss_analysis: string | null;
 }
