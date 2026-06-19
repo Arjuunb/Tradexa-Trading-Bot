@@ -58,6 +58,21 @@ export default function CandleChart({ data, index, height = 460 }: Props) {
         { yAxis: active.tp, lineStyle: { color: "#089981", type: "dashed" }, label: { formatter: "TP", color: "#089981" } },
       );
     }
+    // support/resistance levels (horizontal)
+    for (const z of data.zones) {
+      if (z.price !== undefined) {
+        markLines.push({ yAxis: z.price, lineStyle: { color: z.type === "support" ? "#089981" : "#f23645", type: "dotted", opacity: 0.6 },
+          label: { formatter: z.type === "support" ? "S" : "R", color: "#8a93a6", fontSize: 9 } });
+      }
+    }
+    // supply/demand order-block zones as shaded boxes, extended to the current bar
+    const zoneAreas = data.zones
+      .filter((z) => z.left_idx !== undefined && z.left_idx <= index)
+      .slice(-8)
+      .map((z) => ([
+        { xAxis: z.left_idx, yAxis: z.top, itemStyle: { color: z.type === "demand" ? "rgba(8,153,129,0.12)" : "rgba(242,54,69,0.12)" } },
+        { xAxis: end - 1, yAxis: z.bottom },
+      ]));
 
     const option: EChartsOption = {
       backgroundColor: "transparent",
@@ -81,6 +96,7 @@ export default function CandleChart({ data, index, height = 460 }: Props) {
           itemStyle: { color: "#089981", color0: "#f23645", borderColor: "#089981", borderColor0: "#f23645" },
           markPoint: { data: markPts as any, silent: true },
           markLine: { symbol: "none", data: markLines as any, silent: true },
+          markArea: { silent: true, data: zoneAreas as any },
         },
         { type: "line", data: ema20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: true, lineStyle: { color: "#3b82f6", width: 1.3 }, name: "EMA20" },
         { type: "line", data: ema50, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: true, lineStyle: { color: "#f59e0b", width: 1.3 }, name: "EMA50" },

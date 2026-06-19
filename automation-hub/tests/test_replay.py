@@ -85,3 +85,29 @@ def test_replay_endpoints(client):
     assert len(body["candles"]) == len(body["frames"])
     stats = client.get("/replay/stats", params={"symbols": "BTCUSDT,ETHUSDT", "limit": 300}).json()
     assert len(stats["assets"]) == 2
+
+
+def test_order_block_zones_present():
+    r = build_replay("BTCUSDT", "15m", 700)
+    obs = [z for z in r["zones"] if z["type"] in ("demand", "supply")]
+    for z in obs:
+        assert z["top"] >= z["bottom"]
+        assert 0 <= z["left_idx"]
+    # at least the swing S/R levels exist
+    assert any(z["type"] in ("support", "resistance") for z in r["zones"])
+
+
+def test_date_window_filters_and_is_causal():
+    full = build_replay("BTCUSDT", "15m", 600)
+    start = (full["meta"]["start"] or "")[:10]
+    win = build_replay("BTCUSDT", "15m", 200, start=start)
+    assert win["meta"]["bars"] > 0
+    assert win["meta"]["start"][:10] >= start
+    assert len(win["candles"]) == len(win["frames"])
+
+
+def test_date_window_out_of_range_is_empty():
+    r = build_replay("BTCUSDT", "15m", 300, start="1990-01-01", end="1990-02-01")
+    assert r["meta"]["bars"] == 0
+    assert r["candles"] == [] and r["trades"] == []
+    assert "note" in r["meta"]

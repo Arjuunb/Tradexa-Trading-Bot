@@ -637,10 +637,12 @@ def _build_builtin(key: str, symbol: str):
 
 
 @router.get("/replay/run")
-def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800):
-    """Precompute a no-lookahead decision timeline for TradingView-style replay."""
+def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800,
+               start: Optional[str] = None, end: Optional[str] = None):
+    """Precompute a no-lookahead decision timeline for TradingView-style replay.
+    Optional ``start``/``end`` (YYYY-MM-DD) jump to a specific historical window."""
     from services.replay import build_replay
-    return build_replay(symbol, timeframe, limit)
+    return build_replay(symbol, timeframe, limit, start=start, end=end)
 
 
 @router.get("/replay/stats")

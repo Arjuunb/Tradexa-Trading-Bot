@@ -15,6 +15,8 @@ export default function ReplayPage() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState("15m");
   const [limit, setLimit] = useState(800);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -25,7 +27,11 @@ export default function ReplayPage() {
   const load = async () => {
     setLoading(true); setPlaying(false);
     try {
-      const r = await apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}`);
+      let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}`;
+      if (startDate) q += `&start=${startDate}`;
+      if (endDate) q += `&end=${endDate}`;
+      const r = await apiGet<ReplayData>(q);
+      if (r.meta.bars === 0) { app.toast("No data in that date range — try another window.", "info"); }
       setData(r); setIdx(0);
     } catch { app.toast("Replay failed — backend reachable?", "error"); }
     finally { setLoading(false); }
@@ -67,8 +73,16 @@ export default function ReplayPage() {
           <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select>
           <select value={tf} onChange={(e) => setTf(e.target.value)}>{["15m", "5m"].map((t) => <option key={t}>{t}</option>)}</select>
           <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>{[500, 800, 1200, 1500].map((b) => <option key={b} value={b}>{b} bars</option>)}</select>
+          <label className="row-actions" style={{ gap: 4 }}><span className="dim">From</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+          <label className="row-actions" style={{ gap: 4 }}><span className="dim">To</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></label>
           <button className="btn btn-primary" disabled={loading} onClick={load}><Icon name="history" size={14} /> {loading ? "Loading…" : "Load"}</button>
         </div>
+        <p className="dim" style={{ marginTop: 6, fontSize: 12 }}>
+          Leave dates blank for the most recent window. Date ranges need a live data source
+          (HUB_USE_LIVE_DATA) to jump to arbitrary months; otherwise they filter the available history.
+        </p>
         {data && (
           <p className="dim" style={{ marginTop: 8 }}>
             {(data.meta.start ?? "").slice(0, 16).replace("T", " ")} → {(data.meta.end ?? "").slice(0, 16).replace("T", " ")} ·

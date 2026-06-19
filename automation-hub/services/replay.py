@@ -118,19 +118,59 @@ def _block_reason(comp: dict, near_resistance: bool) -> str:
     }.get(worst, "Low Quality Setup")
 
 
-def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800) -> dict:
+_TF_SECONDS = {"5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
+
+
+def _parse_date(s):
+    if not s:
+        return None
+    from datetime import datetime, timezone
+    try:
+        d = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
+def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
+                 start=None, end=None) -> dict:
     from data.market_data import get_bars
     if exec_tf not in TF_FACTORS:
         exec_tf = "15m"
     n = max(300, min(int(limit or 800), 1500))
-    # fetch extra history so higher timeframes have candles to form
-    bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf)
-    if len(bars) > n:
-        warm = bars[:len(bars) - n]
-        view = bars[len(bars) - n:]
+    start_dt, end_dt = _parse_date(start), _parse_date(end)
+
+    # When a start date is given, fetch live candles from ~1200 bars earlier so
+    # the higher timeframes have history to form (ignored by non-live sources).
+    since_ms = None
+    if start_dt is not None:
+        since_ms = int((start_dt.timestamp() - _TF_SECONDS[exec_tf] * 1200) * 1000)
+    bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf, since_ms=since_ms)
+
+    if start_dt is not None or end_dt is not None:
+        sel = [k for k, b in enumerate(bars)
+               if (start_dt is None or b.timestamp >= start_dt)
+               and (end_dt is None or b.timestamp <= end_dt)]
+        if sel:
+            first, last = sel[0], min(sel[-1], sel[0] + n - 1)  # cap window length
+            warm, view = bars[:first], bars[first:last + 1]
+        else:
+            warm, view = bars, []
+    elif len(bars) > n:
+        warm, view = bars[:len(bars) - n], bars[len(bars) - n:]
     else:
         warm, view = [], bars
-    offset = len(warm)  # view[0] is global bar `offset`
+
+    bars = warm + view          # drop any post-window candles → zero lookahead
+    offset = len(warm)          # view[0] is global bar `offset`
+
+    if not view:
+        return {"meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
+                         "bars": 0, "start": None, "end": None, "htf_available": {},
+                         "note": "No data in the selected date range."},
+                "candles": [], "overlays": {"ema20": [], "ema50": [], "vwap": []},
+                "markers": [], "zones": [], "frames": [], "events": [], "trades": [],
+                "stats": _stats([], symbol)}
 
     # --- precompute higher-timeframe trend series (causal) ---
     factors = TF_FACTORS[exec_tf]
@@ -166,6 +206,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800) -> dict:
     trade_id = 0
     prev_trends = {}
     prev_regime = None
+    last_down = last_up = None  # most recent bearish / bullish candle (for order blocks)
 
     for li, bar in enumerate(view):
         gi = offset + li  # global index into `bars`
@@ -187,10 +228,22 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800) -> dict:
             struct = True
             markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bull"})
             events.append({"idx": li, "kind": "structure", "text": "Bullish break of structure (BOS/CHoCH)."})
+            if last_down is not None:  # demand order block = last down candle before the impulse
+                ob = last_down[1]
+                zones.append({"type": "demand", "left_idx": last_down[0],
+                              "top": round(max(ob.open, ob.close), 6), "bottom": round(ob.low, 6)})
         if strat._last_bear_struct == gi:
             struct = True
             markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bear"})
             events.append({"idx": li, "kind": "structure", "text": "Bearish break of structure (BOS/CHoCH)."})
+            if last_up is not None:  # supply order block = last up candle before the impulse
+                ob = last_up[1]
+                zones.append({"type": "supply", "left_idx": last_up[0],
+                              "top": round(ob.high, 6), "bottom": round(min(ob.open, ob.close), 6)})
+        if bar.close < bar.open:
+            last_down = (li, bar)
+        elif bar.close > bar.open:
+            last_up = (li, bar)
         if strat._last_bull_fvg == gi:
             fvg = True
             markers.append({"idx": li, "price": round(bar.close, 6), "type": "FVG", "side": "bull"})
@@ -298,8 +351,8 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800) -> dict:
             "vol_ratio": round(vol_ratio, 2),
         })
 
-    # order-block zones from the strategy's stored OB-equivalent swing levels
-    zones = _zones_from_strategy(strat, offset, len(view))
+    # keep the most recent supply/demand zones + current swing S/R levels
+    zones = zones[-8:] + _zones_from_strategy(strat, offset, len(view))
     stats = _stats(trades, symbol)
     return {
         "meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,

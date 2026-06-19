@@ -272,7 +272,7 @@ export interface ReplayData {
   candles: ReplayCandle[];
   overlays: { ema20: number[]; ema50: number[]; vwap: number[] };
   markers: ReplayMarker[];
-  zones: { type: string; price: number }[];
+  zones: { type: string; price?: number; left_idx?: number; top?: number; bottom?: number }[];
   frames: ReplayFrame[];
   events: ReplayEvent[];
   trades: ReplayTrade[];

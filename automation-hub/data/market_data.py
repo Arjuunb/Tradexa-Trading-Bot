@@ -27,16 +27,17 @@ _SAMPLE_MAP = {
 
 
 def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
-             seed: int = 1) -> tuple[list[Bar], str]:
+             seed: int = 1, since_ms: Optional[int] = None) -> tuple[list[Bar], str]:
     """Return (bars, source) for a symbol.
 
     With ``HUB_USE_LIVE_DATA=1`` (and ccxt installed + network), fetch real
     candles; otherwise use a bundled sample or deterministic synthetic data.
+    ``since_ms`` (epoch ms) fetches live candles from a specific start time.
     """
     if os.environ.get("HUB_USE_LIVE_DATA", "").lower() in ("1", "true", "yes"):
         from data.live_data import fetch_ohlcv
         exchange = os.environ.get("HUB_EXCHANGE", "binance")
-        real = fetch_ohlcv(symbol, timeframe=timeframe, limit=n, exchange=exchange)
+        real = fetch_ohlcv(symbol, timeframe=timeframe, limit=n, exchange=exchange, since_ms=since_ms)
         if real:
             return real, "live (ccxt)"
 

@@ -27,15 +27,20 @@ def _to_pair(symbol: str) -> str:
 
 
 def fetch_ohlcv(symbol: str, timeframe: str = "4h", limit: int = 500,
-                exchange: str = "binance") -> Optional[list[Bar]]:
-    """Return real OHLCV bars, or ``None`` if ccxt/network is unavailable."""
+                exchange: str = "binance", since_ms: Optional[int] = None) -> Optional[list[Bar]]:
+    """Return real OHLCV bars, or ``None`` if ccxt/network is unavailable.
+
+    ``since_ms`` (epoch milliseconds) fetches candles starting at that time —
+    used by the replay engine to jump to a specific historical date range.
+    """
     try:
         import ccxt  # optional dependency
     except Exception:
         return None
     try:
         ex = getattr(ccxt, exchange)({"enableRateLimit": True})
-        rows = ex.fetch_ohlcv(_to_pair(symbol), timeframe=_TF.get(timeframe, "4h"), limit=limit)
+        rows = ex.fetch_ohlcv(_to_pair(symbol), timeframe=_TF.get(timeframe, "4h"),
+                              limit=limit, since=since_ms)
         bars = [Bar(datetime.fromtimestamp(r[0] / 1000, tz=timezone.utc),
                     float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[5] or 0))
                 for r in rows]
