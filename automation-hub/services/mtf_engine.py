@@ -185,6 +185,34 @@ def analyze_layers(weekly, daily, h4, m15, m5) -> MTFDecision:
     return MTFDecision(allowed, side, state, min(score, 100), layers, reasons, blockers)
 
 
+def htf_consensus(trends: dict, side: int) -> dict:
+    """Gate a candidate trade against the higher-timeframe trends.
+
+    ``trends`` maps timeframe label -> "Bullish"/"Bearish"/"Neutral"/"n/a"
+    (as produced by the replay engine). A trade is blocked only when a directional
+    higher timeframe OPPOSES it — i.e. the bot never trades against the weekly /
+    daily / 4H trend. Returns the alignment reasons for explainability.
+    """
+    want = "Bullish" if side > 0 else "Bearish"
+    opp = "Bearish" if side > 0 else "Bullish"
+    aligned, opposing = [], []
+    for tf in ("Weekly", "Daily", "4H"):
+        d = trends.get(tf)
+        if d == want:
+            aligned.append(tf)
+        elif d == opp:
+            opposing.append(tf)
+    allowed = not opposing
+    side_txt = "long" if side > 0 else "short"
+    if opposing:
+        reason = f"MTF conflict — {', '.join(f'{t} {opp}' for t in opposing)} oppose {side_txt}"
+    elif aligned:
+        reason = f"higher-timeframe aligned ({', '.join(f'{t} {want}' for t in aligned)})"
+    else:
+        reason = "no opposing higher-timeframe trend"
+    return {"allowed": allowed, "reason": reason, "aligned": aligned, "opposing": opposing}
+
+
 def analyze(symbol: str) -> dict:
     """Load each timeframe (real-first via get_bars) and analyse them together."""
     from data.market_data import get_bars

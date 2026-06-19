@@ -139,3 +139,15 @@ def test_partial_then_breakeven_is_small_winner():
     for t in r["trades"]:
         if t["tp1_idx"] is not None and t["exit_reason"] == "Break-even stop after partial":
             assert t["rr"] is not None and t["rr"] > 0   # the booked partial keeps it green
+
+
+def test_trades_respect_multi_timeframe_gate():
+    """No taken trade may oppose a directional higher timeframe, and each trade
+    records its multi-timeframe alignment reason (explainability)."""
+    from services.mtf_engine import htf_consensus
+    r = build_replay("BTCUSDT", "15m", 1200)
+    for t in r["trades"]:
+        assert "mtf" in t and "reason" in t["mtf"] and "aligned" in t["mtf"]
+        side = 1 if t["side"] == "long" else -1
+        frame_trends = r["frames"][t["entry_idx"]]["trends"]
+        assert htf_consensus(frame_trends, side)["allowed"]   # never against the HTF

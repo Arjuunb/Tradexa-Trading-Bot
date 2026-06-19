@@ -25,6 +25,7 @@ from typing import Optional
 
 from bot.data.indicators import atr, ema
 from bot.types import SignalType
+from services.mtf_engine import htf_consensus
 from services.regime import RegimeDetector
 from strategies.smc_strategy import SMCStrategy
 
@@ -337,10 +338,13 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             rr = abs(sig.take_profit - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
             score, breakdown = _score(side, trends, vol_ratio, recent_sweep, recent_struct,
                                       recent_fvg, rr, bar.timestamp.hour, regime, near_res)
-            if score >= SCORE_THRESHOLD and pos is None:
+            if score >= SCORE_THRESHOLD and pos is None and htf_consensus(trends, side)["allowed"]:
+                mtf = htf_consensus(trends, side)
                 trigger = "Entry Confirmed"
                 trade_id += 1
                 entry_reasons = _entry_reasons(side, trends, recent_sweep, recent_struct, recent_fvg)
+                if mtf["aligned"]:
+                    entry_reasons.insert(0, mtf["reason"])
                 risk = abs(sig.entry - sig.stop_loss)
                 tp2 = sig.take_profit
                 final_rr = abs(tp2 - sig.entry) / risk if risk > 0 else 0.0
@@ -351,6 +355,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                     "entry_idx": li, "entry": round(sig.entry, 6), "sl": round(sig.stop_loss, 6),
                     "tp": round(tp2, 6), "tp1": round(tp1, 6) if partial else None, "tp1_idx": None,
                     "score": score, "breakdown": breakdown, "entry_reasons": entry_reasons,
+                    "mtf": {"aligned": mtf["aligned"], "reason": mtf["reason"]},
                     "exit_idx": None, "exit": None, "exit_reason": None, "result": "Open",
                     "status": "Open", "partial": partial, "rr": None, "loss_analysis": None,
                     "regime": regime, "entry_time": bar.timestamp.isoformat(), "bars_held": None,
@@ -366,7 +371,10 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                                 "type": "Entry", "side": "bull" if side > 0 else "bear"})
             elif pos is None:
                 blocked = True
-                block_reason = _block_reason(breakdown, near_res)
+                mtf = htf_consensus(trends, side)
+                # an MTF conflict is the more important reason to surface
+                block_reason = mtf["reason"] if (score >= SCORE_THRESHOLD and not mtf["allowed"]) \
+                    else _block_reason(breakdown, near_res)
                 events.append({"idx": li, "kind": "blocked",
                                "text": f"Trade blocked — {block_reason} (score {score}/100)."})
 
