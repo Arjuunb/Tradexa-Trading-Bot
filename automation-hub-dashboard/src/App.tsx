@@ -16,6 +16,7 @@ import BotDetail from "./pages/BotDetail";
 import MarketsPage from "./pages/Markets";
 import SimulationPage from "./pages/Simulation";
 import ReplayPage from "./pages/Replay";
+import EvolutionPage from "./pages/Evolution";
 import LiveTradingPage from "./pages/LiveTrading";
 import PortfolioPage from "./pages/Portfolio";
 import AnalyticsPage from "./pages/Analytics";
@@ -60,6 +61,7 @@ export default function App() {
       case "Analytics": return <AnalyticsPage />;
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
+      case "Evolution": return <EvolutionPage />;
       case "Logs": return <LogsPage />;
       case "Settings": return <SettingsPage />;
       case "Safety Center": return <SafetyCenterPage />;

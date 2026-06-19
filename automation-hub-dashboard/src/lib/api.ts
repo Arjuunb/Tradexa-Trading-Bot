@@ -281,6 +281,34 @@ export interface ReplayData {
   stats: ReplayStats;
 }
 
+export interface SentimentData {
+  available: boolean; mood: string | null; risk_mode: string; fear_greed: number | null;
+  fear_greed_label?: string; btc_dominance?: number | null; total_mcap_usd?: number | null;
+  confidence?: { long: number; short: number; note: string };
+  social?: Record<string, string>; note: string;
+}
+export interface Lesson {
+  id: string; symbol: string; strategy: string; lesson: string; suggested_fix: string;
+  confidence: number; evidence: string; status: string; tested: boolean; created_at: string;
+}
+export interface Upgrade {
+  id: string; strategy: string; symbol: string; title: string; reason: string; evidence: string;
+  expected_benefit: string; risk: string; backtest_required: boolean; confidence: number;
+  status: string; created_at: string;
+}
+export interface Experiment {
+  symbol: string; timeframe: string; data_source: string; verdict: string; note: string;
+  train_gain_r: number; test_gain_r: number; warnings: string[];
+  a: { label: string; train: any; test: any };
+  b: { label: string; train: any; test: any };
+}
+export interface EvoDashboard {
+  sentiment: { available: boolean; mood: string | null; risk_mode: string; fear_greed: number | null };
+  lessons_weekly: number; lessons_total: number;
+  lesson_status: Record<string, number>; upgrade_status: Record<string, number>;
+  workflow: string[]; live_rule: string;
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

@@ -94,6 +94,13 @@ class Settings:
         "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
     custom_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_CUSTOM_PATH", str(BASE_DIR / "logs" / "custom_strategies.json")))
+    # Evolution Engine stores
+    lessons_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_LESSONS_PATH", str(BASE_DIR / "logs" / "lessons.json")))
+    upgrades_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_UPGRADES_PATH", str(BASE_DIR / "logs" / "upgrades.json")))
+    versions_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_VERSIONS_PATH", str(BASE_DIR / "logs" / "strategy_versions.json")))
 
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))

@@ -353,6 +353,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                     "score": score, "breakdown": breakdown, "entry_reasons": entry_reasons,
                     "exit_idx": None, "exit": None, "exit_reason": None, "result": "Open",
                     "status": "Open", "partial": partial, "rr": None, "loss_analysis": None,
+                    "regime": regime, "entry_time": bar.timestamp.isoformat(), "bars_held": None,
                 })
                 pos = {"side": "long" if side > 0 else "short", "entry": sig.entry, "sl": sig.stop_loss,
                        "tp1": tp1 if partial else tp2, "tp2": tp2, "risk": risk, "partial": partial,
@@ -409,6 +410,7 @@ def _close_trade(trades, pos, li, exit_px, reason, total_r, trends, regime, even
     result = "Winner" if total_r > 0 else "Break Even" if total_r == 0 else "Loser"
     tr.update({"exit_idx": li, "exit": round(exit_px, 6), "exit_reason": reason,
                "result": result, "rr": round(total_r, 2), "status": "Closed",
+               "bars_held": li - pos["entry_idx"],
                "loss_analysis": _loss_analysis(pos, trends, regime, total_r, li) if total_r <= 0 else None})
     events.append({"idx": li, "kind": "exit",
                    "text": f"{pos['side'].title()} closed — {reason} ({total_r:+.2f}R)."})

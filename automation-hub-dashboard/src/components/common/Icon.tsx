@@ -73,6 +73,7 @@ export const NAV_ICON: Record<string, string> = {
   Analytics: "chart",
   "AI Assistant": "bot",
   "Risk Manager": "shield",
+  Evolution: "bot",
   Logs: "history",
   Settings: "settings",
   "Safety Center": "lock",

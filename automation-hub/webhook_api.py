@@ -537,6 +537,13 @@ def notifications_update(body: NotifUpdate, x_webhook_secret: Optional[str] = He
 from services.custom_store import CustomStore  # noqa: E402
 custom_store = CustomStore(settings.custom_path)
 
+# ------------------------------------------------- evolution engine stores
+from services.lessons import LessonStore  # noqa: E402
+from services.evolution import UpgradeStore, StrategyVersionStore  # noqa: E402
+lesson_store = LessonStore(settings.lessons_path)
+upgrade_store = UpgradeStore(settings.upgrades_path)
+version_store = StrategyVersionStore(settings.versions_path)
+
 
 class SimRequest(BaseModel):
     spec: dict
@@ -652,6 +659,133 @@ def replay_stats(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT",
     from services.replay import multi_asset_stats
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:6]
     return {"timeframe": timeframe, "assets": multi_asset_stats(syms, timeframe, limit)}
+
+
+@router.get("/evolution/sentiment")
+def evolution_sentiment():
+    """Real-world market sentiment (Fear & Greed, dominance) — filter only."""
+    from services.sentiment import market_sentiment
+    return market_sentiment()
+
+
+@router.post("/evolution/learn")
+def evolution_learn(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 1000,
+                    x_webhook_secret: Optional[str] = Header(default=None)):
+    """Study real replay results for a symbol, derive evidence-based lessons +
+    upgrade suggestions, and record them (status 'Suggested' — never auto-applied)."""
+    _check_secret(x_webhook_secret)
+    from services.replay import build_replay
+    from services.lessons import lessons_from_results
+    from services.evolution import suggest_improvements
+    rep = build_replay(symbol, timeframe, limit)
+    bundle = {"trades": rep["trades"], "stats": rep["stats"], "diagnosis": _replay_diag(rep)}
+    strategy = "SMC"
+    lessons = lessons_from_results(bundle, symbol=symbol, strategy=strategy)
+    added_lessons = lesson_store.add_many(lessons)
+    added_upgrades = upgrade_store.add_many(suggest_improvements(bundle, symbol=symbol, strategy=strategy))
+    ledger.log(level="info", stage="evolution",
+               message=f"Learned from {symbol}: {len(added_lessons)} new lessons, "
+                       f"{len(added_upgrades)} new suggestions")
+    return {"lessons": added_lessons, "upgrades": added_upgrades,
+            "studied_trades": rep["stats"]["trades"], "data_source": rep["meta"]["data_source"]}
+
+
+def _replay_diag(rep: dict) -> dict:
+    """Build a diagnosis-shaped dict from replay trades for the lessons engine."""
+    from strategies.diagnosis import diagnose
+    # replay trades use 'rr'; diagnose expects 'r'
+    trades = [{**t, "r": t.get("rr")} for t in rep["trades"] if t.get("rr") is not None]
+    return diagnose({"trades": trades, "total_trades": len(trades),
+                     "win_rate": rep["stats"]["win_rate"], "profit_factor": rep["stats"]["profit_factor"],
+                     "span_days": 30}, [])
+
+
+@router.get("/evolution/lessons")
+def evolution_lessons():
+    return {"lessons": lesson_store.list(), "weekly": lesson_store.weekly_count(),
+            "status_counts": lesson_store.status_counts()}
+
+
+@router.post("/evolution/lessons/{lid}/status")
+def evolution_lesson_status(lid: str, status: str,
+                            x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    res = lesson_store.set_status(lid, status)
+    if res is None:
+        raise HTTPException(404, "Lesson not found or invalid status")
+    return res
+
+
+@router.get("/evolution/upgrades")
+def evolution_upgrades():
+    return {"upgrades": upgrade_store.list_sorted(), "status_counts": upgrade_store.status_counts()}
+
+
+@router.post("/evolution/upgrades/{uid}/status")
+def evolution_upgrade_status(uid: str, status: str,
+                             x_webhook_secret: Optional[str] = Header(default=None)):
+    """Advance an upgrade through its lifecycle. Approve/Reject/Archive are
+    human-only; the bot can never set them itself."""
+    _check_secret(x_webhook_secret)
+    res = upgrade_store.set_status(uid, status, by="human")
+    if res is None:
+        raise HTTPException(404, "Upgrade not found")
+    if "error" in res:
+        raise HTTPException(400, res["error"])
+    ledger.log(level="info", stage="evolution", message=f"Upgrade {uid[:8]} -> {status} (human)")
+    return res
+
+
+class ExperimentRequest(BaseModel):
+    base: dict
+    variant: dict
+    bars: int = 4000
+
+
+@router.post("/evolution/experiment")
+def evolution_experiment(body: ExperimentRequest):
+    """A/B two strategy specs with a train/test split + overfitting verdict."""
+    from services.evolution import run_experiment
+    return run_experiment(body.base, body.variant, bars=body.bars)
+
+
+@router.post("/evolution/versions")
+def evolution_add_version(body: dict, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Snapshot a strategy spec as a new version (with its simulated stats)."""
+    _check_secret(x_webhook_secret)
+    from strategies.custom import simulate
+    from strategies.brain import TradeBrain
+    from data.market_data import get_bars
+    spec = body.get("spec") or {}
+    strategy = body.get("strategy") or spec.get("name", "Strategy")
+    rows, _ = get_bars(spec.get("symbol", "BTCUSDT"), n=4000, timeframe=spec.get("timeframe", "4h"))
+    r = simulate(spec, rows, brain=TradeBrain(), min_score=int(spec.get("min_score", 60)))
+    stats = {k: r[k] for k in ("total_trades", "win_rate", "profit_factor", "net_r",
+                               "max_drawdown_pct", "avg_rr", "expectancy_r") if k in r}
+    return version_store.add_version(strategy, spec, stats, note=body.get("note", ""))
+
+
+@router.get("/evolution/versions")
+def evolution_versions(strategy: str):
+    return version_store.compare(strategy)
+
+
+@router.get("/evolution/dashboard")
+def evolution_dashboard():
+    """Aggregate widgets for the Evolution dashboard."""
+    from services.sentiment import market_sentiment
+    sent = market_sentiment()
+    return {
+        "sentiment": {"available": sent.get("available"), "mood": sent.get("mood"),
+                      "risk_mode": sent.get("risk_mode"), "fear_greed": sent.get("fear_greed")},
+        "lessons_weekly": lesson_store.weekly_count(),
+        "lessons_total": len(lesson_store.list()),
+        "lesson_status": lesson_store.status_counts(),
+        "upgrade_status": upgrade_store.status_counts(),
+        "workflow": ["Observe", "Diagnose", "Suggest", "New version", "Backtest",
+                     "Simulation", "Paper trading", "Human approval", "Live unlock"],
+        "live_rule": "Live trading changes require human approval — the bot never auto-applies upgrades.",
+    }
 
 
 @router.get("/strategy/builtin/simulate")
