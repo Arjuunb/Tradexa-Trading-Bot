@@ -101,6 +101,9 @@ class Settings:
         "HUB_UPGRADES_PATH", str(BASE_DIR / "logs" / "upgrades.json")))
     versions_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_VERSIONS_PATH", str(BASE_DIR / "logs" / "strategy_versions.json")))
+    # Historical market-data cache (real Binance candles)
+    market_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_MARKET_DB", str(BASE_DIR / "logs" / "market_data.db")))
 
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))

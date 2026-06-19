@@ -26,14 +26,36 @@ _SAMPLE_MAP = {
 }
 
 
+def _from_local_store(symbol: str, n: int, timeframe: str, since_ms):
+    """Read REAL cached Binance candles from the local historical store, if any."""
+    try:
+        from config import settings
+        from data.historical import HistoricalStore
+        store = HistoricalStore(settings.market_db)
+        bars = store.get_bars(symbol, timeframe, n=n, start_ms=since_ms)
+        # need a meaningful amount of real history to use it
+        if len(bars) >= min(n, 200):
+            return bars
+    except Exception:  # noqa: BLE001 — store missing/empty -> fall through
+        pass
+    return None
+
+
 def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
              seed: int = 1, since_ms: Optional[int] = None) -> tuple[list[Bar], str]:
-    """Return (bars, source) for a symbol.
+    """Return (bars, source) for a symbol, REAL data first.
 
-    With ``HUB_USE_LIVE_DATA=1`` (and ccxt installed + network), fetch real
-    candles; otherwise use a bundled sample or deterministic synthetic data.
-    ``since_ms`` (epoch ms) fetches live candles from a specific start time.
+    Order: local cache of real Binance candles -> live ccxt (if enabled) ->
+    bundled sample -> deterministic synthetic. Set ``HUB_REQUIRE_REAL_DATA=1`` to
+    forbid the bundled/synthetic fallbacks entirely (production: never fake data).
+    ``since_ms`` (epoch ms) selects history from a specific start time.
     """
+    # 1. local cache of real candles (populated by the /data/sync engine)
+    cached = _from_local_store(symbol, n, timeframe, since_ms)
+    if cached:
+        return cached, "local store (real)"
+
+    # 2. live ccxt fetch when enabled
     if os.environ.get("HUB_USE_LIVE_DATA", "").lower() in ("1", "true", "yes"):
         from data.live_data import fetch_ohlcv
         exchange = os.environ.get("HUB_EXCHANGE", "binance")
@@ -41,6 +63,11 @@ def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
         if real:
             return real, "live (ccxt)"
 
+    require_real = os.environ.get("HUB_REQUIRE_REAL_DATA", "").lower() in ("1", "true", "yes")
+    if require_real:
+        return [], "unavailable (real data required — run /data/sync)"
+
+    # 3. bundled sample (real historical CSV shipped with the repo)
     key = symbol.upper().replace("/", "").replace("-", "")
     mapped: Optional[str] = None
     for raw, sample in _SAMPLE_MAP.items():
@@ -53,4 +80,9 @@ def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
             bars = load_csv_bars(str(path))
             if bars:
                 return bars[-n:] if len(bars) > n else bars, "bundled sample"
-    return generate_bars(n=n, timeframe=timeframe, seed=seed), "synthetic"
+
+    # 4. deterministic synthetic (demo/tests only; not all timeframes supported)
+    try:
+        return generate_bars(n=n, timeframe=timeframe, seed=seed), "synthetic"
+    except ValueError:
+        return [], f"unavailable (no real data for {symbol} {timeframe})"

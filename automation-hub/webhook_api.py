@@ -544,6 +544,10 @@ lesson_store = LessonStore(settings.lessons_path)
 upgrade_store = UpgradeStore(settings.upgrades_path)
 version_store = StrategyVersionStore(settings.versions_path)
 
+# ------------------------------------------------- historical data engine
+from data.historical import HistoricalStore  # noqa: E402
+market_store = HistoricalStore(settings.market_db)
+
 
 class SimRequest(BaseModel):
     spec: dict
@@ -641,6 +645,42 @@ def _build_builtin(key: str, symbol: str):
         return EMAStrategy(symbol)
     from strategies.brain_strategy import DecisionBrain
     return DecisionBrain(symbol)
+
+
+@router.get("/data/coverage")
+def data_coverage():
+    """What real Binance history is cached locally (symbol/timeframe matrix)."""
+    from data.historical import SYMBOLS, TIMEFRAMES
+    return {"symbols": list(SYMBOLS), "timeframes": list(TIMEFRAMES),
+            "coverage": market_store.all_coverage()}
+
+
+@router.post("/data/sync")
+def data_sync(symbol: str = "BTCUSDT", timeframe: str = "4h", target_candles: int = 3000,
+              x_webhook_secret: Optional[str] = Header(default=None)):
+    """Fetch REAL Binance candles and cache them locally (no synthetic data)."""
+    _check_secret(x_webhook_secret)
+    from data.historical import sync
+    res = sync(market_store, symbol, timeframe, target_candles=target_candles)
+    if "error" in res:
+        ledger.log(level="warning", stage="data", message=f"Sync {symbol} {timeframe}: {res['error']}")
+    else:
+        ledger.log(level="info", stage="data",
+                   message=f"Synced {symbol} {timeframe}: {res.get('stored')} candles cached")
+    return res
+
+
+@router.post("/data/sync-all")
+def data_sync_all(target_candles: int = 2000, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Sync every supported symbol × timeframe (run once with network to populate)."""
+    _check_secret(x_webhook_secret)
+    from data.historical import sync, SYMBOLS, TIMEFRAMES
+    out = []
+    for s in SYMBOLS:
+        for tf in TIMEFRAMES:
+            out.append(sync(market_store, s, tf, target_candles=target_candles))
+    ok = sum(1 for r in out if "error" not in r)
+    return {"synced": ok, "total": len(out), "results": out}
 
 
 @router.get("/replay/run")

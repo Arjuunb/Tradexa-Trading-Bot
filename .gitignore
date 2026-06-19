@@ -25,3 +25,7 @@ automation-hub/webui/
 # trading_bot UI runtime
 trading_bot/ui_prefs.db
 trading_bot/**/__pycache__/
+
+# real market-data cache (populated at runtime)
+automation-hub/logs/market_data.db
+automation-hub/**/market_data.db
