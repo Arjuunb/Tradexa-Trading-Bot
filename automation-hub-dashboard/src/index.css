@@ -566,3 +566,13 @@ button { font-family: inherit; cursor: pointer; }
   border: 1px solid var(--card-border-soft); border-radius: 8px; padding: 9px 11px; }
 .health-item .dim { font-size: 11px; }
 .health-item b { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+
+/* ----------------------------------------------------------- replay flagship */
+.trade-row { transition: border-color 0.15s ease, background 0.15s ease; }
+.trade-row:hover { border-color: var(--purple) !important; background: rgba(139, 92, 246, 0.07) !important; }
+
+/* responsive: collapse the 3-zone replay layout on narrow screens */
+@media (max-width: 1180px) {
+  .replay-main { grid-template-columns: 1fr !important; }
+  .replay-bottom { grid-template-columns: 1fr !important; }
+}

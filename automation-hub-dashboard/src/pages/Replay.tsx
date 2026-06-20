@@ -229,48 +229,56 @@ export default function ReplayPage() {
         </Card>
       ) : (
         <>
-          {/* controls */}
-          <Card title="">
-            <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx(0); }} title="Reset to the first candle"><Icon name="refresh" size={14} /> Reset</button>
-              <button className="btn btn-soft" onClick={() => jumpTrade(-1)} title="Jump to previous trade entry">⏮ Trade</button>
-              <button className="btn btn-soft" onClick={() => setIdx((i) => Math.max(0, i - 1))}><Icon name="chevron" size={14} /> Step ←</button>
-              <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
-                <Icon name={playing ? "pause" : "play"} size={14} /> {playing ? "Pause" : "Play"}
-              </button>
-              <button className="btn btn-soft" onClick={() => setIdx((i) => Math.min(data.candles.length - 1, i + 1))}>Step → <Icon name="chevron" size={14} /></button>
-              <button className="btn btn-soft" onClick={() => jumpTrade(1)} title="Jump to next trade entry">Trade ⏭</button>
-              <span className="dim">Speed</span>
-              {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
-              <span className="dim mono" style={{ marginLeft: "auto" }}>{idx + 1} / {data.candles.length} · {(candle?.t ?? "").replace("T", " ").slice(0, 16)}</span>
-            </div>
-            <input type="range" min={0} max={data.candles.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} style={{ width: "100%", marginTop: 10 }} />
-            {/* indicator toggles — only series that are actually computed server-side */}
-            <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
-              <span className="dim" style={{ fontSize: 11 }}>Indicators</span>
-              {OVERLAY_TOGGLES.map((o) => (
-                <button key={o.key} className={`chip-btn ${toggles[o.key] ? "active" : ""}`} onClick={() => toggle(o.key)}>{o.label}</button>
-              ))}
-              <span className="dim" style={{ fontSize: 11, marginLeft: 8 }}>Oscillator</span>
-              {(["none", "rsi", "macd", "atr"] as const).map((o) => (
-                <button key={o} className={`chip-btn ${toggles.osc === o ? "active" : ""}`} onClick={() => setToggles((t) => ({ ...t, osc: o }))}>{o === "none" ? "Off" : o.toUpperCase()}</button>
-              ))}
-            </div>
-          </Card>
+          {/* ── flagship layout · LEFT chart+controls / RIGHT brain stack ── */}
+          <div className="replay-main" style={{ display: "grid", gridTemplateColumns: fullscreen ? "1fr" : "minmax(0,2.2fr) minmax(320px,1fr)", gap: 14, alignItems: "start" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+              <Card title={`${symbol} · ${tf}`} subtitle={data.meta.data_source_label}
+                right={<button className="btn btn-soft" onClick={() => setFullscreen((f) => !f)} title="Toggle wide chart">
+                  <Icon name="external" size={14} /> {fullscreen ? "Exit" : "Fullscreen"}</button>}>
+                <CandleChart data={data} index={idx} toggles={toggles} height={fullscreen ? 700 : 520} />
+              </Card>
 
-          <div className="grid-2-1" style={{ gridTemplateColumns: fullscreen ? "1fr" : "minmax(0,2fr) minmax(0,1fr)" }}>
-            <Card title={`${symbol} · ${tf}`} className="span-2"
-              right={<button className="btn btn-soft" onClick={() => setFullscreen((f) => !f)} title="Toggle wide chart">
-                <Icon name="external" size={14} /> {fullscreen ? "Exit" : "Fullscreen"}</button>}>
-              <CandleChart data={data} index={idx} toggles={toggles} height={fullscreen ? 700 : 520} />
-            </Card>
+              <Card title="">
+                <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx(0); }} title="Reset to the first candle"><Icon name="refresh" size={14} /> Reset</button>
+                  <button className="btn btn-soft" onClick={() => jumpTrade(-1)} title="Jump to previous trade entry">⏮ Trade</button>
+                  <button className="btn btn-soft" onClick={() => setIdx((i) => Math.max(0, i - 1))}><Icon name="chevron" size={14} /> Step ←</button>
+                  <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
+                    <Icon name={playing ? "pause" : "play"} size={14} /> {playing ? "Pause" : "Play"}
+                  </button>
+                  <button className="btn btn-soft" onClick={() => setIdx((i) => Math.min(data.candles.length - 1, i + 1))}>Step → <Icon name="chevron" size={14} /></button>
+                  <button className="btn btn-soft" onClick={() => jumpTrade(1)} title="Jump to next trade entry">Trade ⏭</button>
+                  <span className="dim">Speed</span>
+                  {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
+                  <span className="dim mono" style={{ marginLeft: "auto" }}>{idx + 1} / {data.candles.length} · {(candle?.t ?? "").replace("T", " ").slice(0, 16)}</span>
+                </div>
+                <input type="range" min={0} max={data.candles.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} style={{ width: "100%", marginTop: 10 }} />
+                <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+                  <span className="dim" style={{ fontSize: 11 }}>Indicators</span>
+                  {OVERLAY_TOGGLES.map((o) => (
+                    <button key={o.key} className={`chip-btn ${toggles[o.key] ? "active" : ""}`} onClick={() => toggle(o.key)}>{o.label}</button>
+                  ))}
+                  <span className="dim" style={{ fontSize: 11, marginLeft: 8 }}>Oscillator</span>
+                  {(["none", "rsi", "macd", "atr"] as const).map((o) => (
+                    <button key={o} className={`chip-btn ${toggles.osc === o ? "active" : ""}`} onClick={() => setToggles((t) => ({ ...t, osc: o }))}>{o === "none" ? "Off" : o.toUpperCase()}</button>
+                  ))}
+                </div>
+              </Card>
+            </div>
 
-            {!fullscreen && <BrainPanel frame={frame} active={active} liveRR={liveRR} status={tradeStatus} decision={decision} />}
+            {!fullscreen && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+                <StrategyState data={data} />
+                <BrainPanel frame={frame} active={active} liveRR={liveRR} status={tradeStatus} decision={decision} />
+                <TradeReview trade={lastClosed} />
+              </div>
+            )}
           </div>
 
-          <div className="grid-2-eq">
+          {/* ── BOTTOM zone · timeline / trade history / metrics ── */}
+          <div className="replay-bottom" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 14 }}>
             <Card title="Decision Timeline" subtitle="every candle generates reasoning">
-              <div className="alert-stack" style={{ maxHeight: 280, overflowY: "auto" }}>
+              <div className="alert-stack" style={{ maxHeight: 300, overflowY: "auto" }}>
                 {visibleEvents.length === 0 ? <div className="dim">Press Play to watch the bot think.</div> :
                   visibleEvents.map((e, i) => (
                     <div key={i} className="exec-line">
@@ -281,10 +289,10 @@ export default function ReplayPage() {
               </div>
             </Card>
 
-            <TradeReview trade={lastClosed} />
-          </div>
+            <TradeHistory data={data} idx={idx} onJump={(i) => { setPlaying(false); setIdx(i); }} />
 
-          <StatsPanel data={data} />
+            <StatsPanel data={data} />
+          </div>
         </>
       )}
     </>
@@ -292,9 +300,57 @@ export default function ReplayPage() {
 }
 
 function EventDot({ kind }: { kind: string }) {
-  const c = kind === "entry" ? "#089981" : kind === "exit" ? "#3b82f6" : kind === "blocked" ? "#f23645"
-    : kind === "sweep" || kind === "structure" || kind === "fvg" ? "#8b5cf6" : "#8a93a6";
+  const c = kind === "entry" ? "#22c55e" : kind === "exit" ? "#3b82f6" : kind === "blocked" ? "#ef4444"
+    : kind === "sweep" || kind === "structure" || kind === "fvg" ? "#8b5cf6" : "#7c8798";
   return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: c, marginRight: 4 }} />;
+}
+
+function StrategyState({ data }: { data: ReplayData }) {
+  const m = data.meta; const d = m.debug;
+  const gate = (d?.gate_timeframes ?? []).join(" + ") || "—";
+  return (
+    <Card title="Strategy State" right={<Badge text={m.data_is_real ? "Live data" : "Demo"} tone={m.data_is_real ? "green" : "amber"} />}>
+      <div className="risk-list">
+        <div className="risk-item"><span className="dim">Strategy</span> <b>{m.strategy}</b></div>
+        <div className="risk-item"><span className="dim">Market</span> <b>{m.symbol} · {m.timeframe}</b></div>
+        <div className="risk-item"><span className="dim">MTF gate</span> <b>{gate}</b></div>
+        <div className="risk-item"><span className="dim">Candles loaded</span> <b>{m.bars}</b></div>
+        <div className="risk-item"><span className="dim">Engine</span> <b className="mono" style={{ fontSize: 11 }}>{d?.strategy_id ?? "—"}</b></div>
+      </div>
+    </Card>
+  );
+}
+
+function TradeHistory({ data, idx, onJump }: { data: ReplayData; idx: number; onJump: (i: number) => void }) {
+  const trades = [...data.trades].reverse();
+  return (
+    <Card title="Trade History" subtitle={`${data.trades.length} trades · click to jump`}>
+      <div style={{ maxHeight: 300, overflowY: "auto" }}>
+        {trades.length === 0 ? <div className="dim">No trades generated for this run.</div> :
+          trades.map((t) => {
+            const closed = t.exit_idx !== null;
+            const seen = t.entry_idx <= idx;
+            return (
+              <button key={t.id} onClick={() => onJump(t.entry_idx)} className="trade-row"
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", gap: 8,
+                  padding: "7px 9px", borderRadius: 10, border: "1px solid var(--card-border-soft)",
+                  background: "transparent", marginBottom: 6, cursor: "pointer", textAlign: "left", opacity: seen ? 1 : 0.55 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Badge text={t.side} tone={t.side === "long" ? "green" : "red"} />
+                  <span className="dim mono" style={{ fontSize: 11 }}>#{t.id}</span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="dim" style={{ fontSize: 11 }}>{t.score}/100</span>
+                  {closed
+                    ? <b className={t.rr! >= 0 ? "pos" : "neg"} style={{ minWidth: 52, textAlign: "right" }}>{t.rr! >= 0 ? "+" : ""}{t.rr}R</b>
+                    : <Badge text="Open" tone="default" />}
+                </span>
+              </button>
+            );
+          })}
+      </div>
+    </Card>
+  );
 }
 
 function BrainPanel({ frame, active, liveRR, status, decision }: {
