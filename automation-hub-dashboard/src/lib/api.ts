@@ -166,6 +166,21 @@ export interface PortfolioRisk {
   value_at_risk: number | null; value_at_risk_pct: number | null; var_confidence: number;
   daily_risk_used_pct: number; warnings: string[]; risk_level: string; open_positions?: number;
 }
+export interface AttrBucket { key: string; trades: number; net_r: number; win_rate: number; avg_r: number; }
+export interface TradeExplain { id: number; result: string; rr: number | null; why: string; why_not: string; why_trust: string; }
+export interface CoachReview {
+  available?: boolean; error?: string; needs_download?: boolean; data_source?: string;
+  symbol: string; strategy: string; trades: number; net_r?: number; headline: string;
+  why_won: string[]; why_lost: string[]; common_mistakes: { mistake: string; count: number }[];
+  weak_conditions: string[]; suggestions: string[]; confidence_score: number; stability_score: number;
+  attribution: Record<string, AttrBucket[]>; sample_explanations?: TradeExplain[];
+}
+export interface CoachLeaderboard {
+  timeframe: string;
+  grid: { strategy: string; symbol: string; trades: number; win_rate: number; profit_factor: number; net_r: number }[];
+  by_strategy: { key: string; net_r: number }[]; by_symbol: { key: string; net_r: number }[];
+  best: { strategy: string; symbol: string; net_r: number } | null;
+}
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }

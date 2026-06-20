@@ -448,6 +448,49 @@ def risk_correlation_check(candidate: str = "BTCUSDT", open_symbols: str = "",
                                  timeframe=timeframe, threshold=threshold)
 
 
+@router.get("/coach/review")
+def coach_review_endpoint(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                          timeframe: str = "15m", limit: int = 800):
+    """AI Trading Coach — a mentor-style review of a REAL replay run: why trades
+    won / lost, the recurring mistakes, weak conditions, suggestions, plus
+    performance attribution and per-trade explanations."""
+    from services.replay import build_replay
+    from services.coach import coach_review
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        return {"available": False, "error": rep["meta"].get("data_warning", "No data."),
+                "needs_download": rep["meta"].get("needs_download", False)}
+    review = coach_review(rep["trades"], rep["stats"], symbol=symbol, strategy=strategy)
+    review["available"] = True
+    review["data_source"] = rep["meta"]["data_source_label"]
+    return review
+
+
+@router.get("/coach/leaderboard")
+def coach_leaderboard(symbols: str = "BTCUSDT,ETHUSDT", strategies: str = "Decision Brain,EMA 20/50,Supply/Demand",
+                      timeframe: str = "15m", limit: int = 600):
+    """Performance attribution across strategies × symbols — which strategy and
+    which symbol actually made money (#17). Runs real replays."""
+    from services.replay import build_replay
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:4]
+    strats = [s.strip() for s in strategies.split(",") if s.strip()][:5]
+    grid, by_strategy, by_symbol = [], {}, {}
+    for st in strats:
+        for sym in syms:
+            rep = build_replay(sym, timeframe, limit, strategy=st)
+            s = rep["stats"]
+            row = {"strategy": st, "symbol": sym, "trades": s["trades"],
+                   "win_rate": s["win_rate"], "profit_factor": s["profit_factor"], "net_r": s["net_r"]}
+            grid.append(row)
+            by_strategy[st] = round(by_strategy.get(st, 0.0) + s["net_r"], 2)
+            by_symbol[sym] = round(by_symbol.get(sym, 0.0) + s["net_r"], 2)
+    grid.sort(key=lambda r: r["net_r"], reverse=True)
+    rank = lambda d: sorted(({"key": k, "net_r": v} for k, v in d.items()), key=lambda x: x["net_r"], reverse=True)
+    return {"timeframe": timeframe, "grid": grid,
+            "by_strategy": rank(by_strategy), "by_symbol": rank(by_symbol),
+            "best": grid[0] if grid else None}
+
+
 _STRATEGY_CATALOG = [
     {"key": "brain", "label": "Decision Brain",
      "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},
