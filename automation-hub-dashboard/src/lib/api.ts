@@ -205,6 +205,9 @@ export interface WatchRow {
   last?: number; change_pct?: number; vol_pct?: number; spark?: number[]; bars?: number;
 }
 export interface Watchlist { timeframe: string; symbols: WatchRow[]; }
+export interface ScanSignal { symbol?: string; type: string; side: string; strength: number; detail: string; }
+export interface ScanRow { symbol: string; available: boolean; source?: string; signals: ScanSignal[]; score: number; bias?: string; last?: number; }
+export interface ScanResult { timeframe: string; symbols: ScanRow[]; opportunities: ScanSignal[]; count: number; }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }

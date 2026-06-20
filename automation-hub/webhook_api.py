@@ -524,6 +524,17 @@ def lab_sliced(strategy: str = "Decision Brain", timeframe: str = "15m",
     return sliced_performance(strategy, timeframe, symbols=syms, limit=limit)
 
 
+@router.get("/scanner/scan")
+def scanner_scan(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", timeframe: str = "4h",
+                 bars: int = 300, types: str = ""):
+    """Market scanner — rank real setups (breakout / sweep / volume / momentum /
+    trend continuation / pullback) across symbols from the cached candles."""
+    from services.scanner import scan
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:12]
+    tlist = [t.strip() for t in types.split(",") if t.strip()] or None
+    return scan(syms, timeframe=timeframe, bars=bars, types=tlist)
+
+
 @router.get("/markets/watchlist")
 def markets_watchlist(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", timeframe: str = "1d"):
     """Real watchlist quotes from the cached Binance candles — last price, period

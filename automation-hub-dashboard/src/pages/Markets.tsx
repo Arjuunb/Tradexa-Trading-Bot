@@ -3,7 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import Sparkline from "../components/chart/Sparkline";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, hhmmss, type LedgerPosition, type SystemStatus, type Watchlist } from "../lib/api";
+import { apiGet, useLive, hhmmss, type LedgerPosition, type SystemStatus, type Watchlist, type ScanResult } from "../lib/api";
 
 const TFS = ["1d", "4h", "1h"] as const;
 const fmt = (n?: number) => (n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: n >= 100 ? 2 : 4 }));
@@ -89,6 +89,55 @@ export default function MarketsPage() {
           </p>
         </Card>
       )}
+
+      <OpportunityScanner symbols={symParam} />
     </>
+  );
+}
+
+const SCAN_TFS = ["15m", "4h", "1d"];
+const sideTone = (s: string) => (s === "long" ? "green" : s === "short" ? "red" : "default");
+const strColor = (n: number) => (n >= 70 ? "var(--green)" : n >= 50 ? "var(--gold)" : "var(--dim-2)");
+
+function OpportunityScanner({ symbols }: { symbols: string }) {
+  const [tf, setTf] = useState("4h");
+  const [data, setData] = useState<ScanResult | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try { setData(await apiGet<ScanResult>(`/scanner/scan?symbols=${symbols}&timeframe=${tf}&bars=300`)); }
+    catch { /* ignore */ } finally { setBusy(false); }
+  };
+
+  return (
+    <Card title="Opportunity Scanner" subtitle="breakouts · sweeps · volume · momentum · trend · pullbacks — ranked from real candles"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={tf} onChange={(e) => setTf(e.target.value)}>{SCAN_TFS.map((t) => <option key={t}>{t}</option>)}</select>
+        <button className="btn btn-primary" disabled={busy} onClick={run}><Icon name="target" size={14} /> {busy ? "Scanning…" : "Scan"}</button>
+      </div>}>
+      {!data ? (
+        <div className="dim ta-center" style={{ padding: 16 }}>Run a scan to rank live setups across your symbols.</div>
+      ) : data.count === 0 ? (
+        <div className="dim ta-center" style={{ padding: 16 }}>No setups firing right now ({data.symbols.filter((s) => s.available).length} symbols scanned). Try another timeframe.</div>
+      ) : (
+        <div className="scan-grid">
+          {data.opportunities.slice(0, 12).map((o, i) => (
+            <div className="scan-card" key={i} style={{ ["--sc-accent" as any]: strColor(o.strength) }}>
+              <div className="row-actions" style={{ justifyContent: "space-between" }}>
+                <b>{o.symbol?.replace("USDT", "")}</b>
+                <Badge text={o.side} tone={sideTone(o.side) as any} />
+              </div>
+              <div className="scan-type">{o.type}</div>
+              <div className="scan-strength">
+                <span className="scan-bar"><span className="scan-bar-fill" style={{ width: `${o.strength}%`, background: strColor(o.strength) }} /></span>
+                <b style={{ color: strColor(o.strength) }}>{o.strength}</b>
+              </div>
+              <span className="dim" style={{ fontSize: 11 }}>{o.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
