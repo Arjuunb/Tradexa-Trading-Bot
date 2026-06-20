@@ -387,6 +387,67 @@ def risk_summary():
     }
 
 
+class PositionSizeRequest(BaseModel):
+    equity: float = 10000.0
+    entry: float
+    stop: Optional[float] = None
+    side: str = "long"
+    method: str = "percent"          # fixed | percent | atr | vol_adjusted
+    risk_pct: float = 0.01
+    fixed_risk: Optional[float] = None
+    atr: Optional[float] = None
+    atr_mult: float = 1.5
+    leverage: float = 10.0
+    vol_target_pct: float = 0.02
+
+
+@router.post("/risk/position-size")
+def risk_position_size(body: PositionSizeRequest):
+    """Position sizing — fixed / percent / ATR / volatility-adjusted. Returns
+    size, dollar risk, margin and a liquidation estimate."""
+    from services.risk_engine import position_size
+    return position_size(equity=body.equity, entry=body.entry, stop=body.stop, side=body.side,
+                         method=body.method, risk_pct=body.risk_pct, fixed_risk=body.fixed_risk,
+                         atr=body.atr, atr_mult=body.atr_mult, leverage=body.leverage,
+                         vol_target_pct=body.vol_target_pct)
+
+
+@router.get("/risk/correlation")
+def risk_correlation(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT",
+                     timeframe: str = "1d", lookback: int = 200):
+    """Real correlation matrix of log returns over the cached Binance candles."""
+    from services.risk_engine import correlation_matrix
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:8]
+    return correlation_matrix(syms, timeframe=timeframe, lookback=lookback)
+
+
+@router.get("/risk/portfolio")
+def risk_portfolio(timeframe: str = "1d", conf: float = 0.95):
+    """Portfolio risk: exposure (total/long/short/per-symbol), heat and a
+    parametric Value-at-Risk from the real covariance matrix, with warnings."""
+    from services.risk_engine import portfolio_risk
+    raw = paper.positions()
+    equity = paper.balance()
+    pos = [{"symbol": p.get("symbol", ""), "direction": p.get("side", "long"),
+            "notional": float(p.get("size", 0)) * float(p.get("entry", 0)),
+            "risk": abs(float(p.get("entry", 0)) - float(p.get("stop") or p.get("entry", 0))) * float(p.get("size", 0))}
+           for p in raw]
+    out = portfolio_risk(equity, pos, timeframe=timeframe, conf=conf,
+                         exposure_warn=settings.exposure_limit_pct)
+    out["open_positions"] = len(pos)
+    return out
+
+
+@router.get("/risk/correlation-check")
+def risk_correlation_check(candidate: str = "BTCUSDT", open_symbols: str = "",
+                           timeframe: str = "1d", threshold: float = 0.8):
+    """Would opening ``candidate`` stack onto an already-correlated position?"""
+    from services.risk_engine import correlation_conflicts
+    opens = [s.strip().upper() for s in open_symbols.split(",") if s.strip()]
+    return correlation_conflicts(candidate.strip().upper(), opens,
+                                 timeframe=timeframe, threshold=threshold)
+
+
 _STRATEGY_CATALOG = [
     {"key": "brain", "label": "Decision Brain",
      "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},

@@ -148,6 +148,24 @@ export interface RiskSummary {
   risk_per_trade_pct: number; rejections: number; signals: number;
   trading_state: string; engine_running: boolean;
 }
+export interface PositionSizeResult {
+  error?: string; method: string; side: string; entry: number; stop: number; stop_distance: number;
+  position_size: number; notional: number; dollar_risk: number; risk_pct_of_equity: number;
+  margin_required: number; leverage: number; liquidation_estimate: number;
+}
+export interface CorrelationData {
+  timeframe: string; lookback: number; symbols: string[]; available: string[];
+  matrix: Record<string, Record<string, number | null>>;
+  pairs: { a: string; b: string; correlation: number }[];
+  daily_vol: Record<string, number>;
+}
+export interface PortfolioRisk {
+  equity: number; total_exposure: number; exposure_pct: number;
+  long_exposure: number; short_exposure: number; net_exposure: number;
+  by_symbol: Record<string, number>; open_risk: number; portfolio_heat_pct: number;
+  value_at_risk: number | null; value_at_risk_pct: number | null; var_confidence: number;
+  daily_risk_used_pct: number; warnings: string[]; risk_level: string; open_positions?: number;
+}
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }
