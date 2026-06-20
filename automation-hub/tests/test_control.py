@@ -117,6 +117,29 @@ def test_save_version_endpoint_is_gated(client):
     assert v["version"] == 1 and v["strategy"] == "Decision Brain"
 
 
+def test_strategy_select_switches_active_engine_strategy(client):
+    """Activating a strategy must change the BACKEND engine, persist, and be
+    reflected in /strategy/list + /settings — not just a label."""
+    import webhook_api
+    start = client.get("/strategy/list").json()["active"]
+    # secret-gated
+    assert client.post("/strategy/select", json={"strategy": "donchian"}).status_code == 401
+    # switch to a different strategy
+    r = client.post("/strategy/select", json={"strategy": "donchian"},
+                    headers={"X-Webhook-Secret": SECRET}).json()
+    assert r["applied"] is True and r["active"] == "donchian"
+    assert r["status"]["strategy"] == "Donchian Breakout"        # engine reconfigured
+    assert webhook_api.settings.auto_strategy == "donchian"      # persisted on settings
+    assert client.get("/strategy/list").json()["active"] == "donchian"
+    assert client.get("/settings").json()["readonly"]["strategy_key"] == "donchian"
+    # accepts the human label too, and an unknown name is rejected
+    assert client.post("/strategy/select", json={"strategy": "nope"},
+                       headers={"X-Webhook-Secret": SECRET}).status_code == 400
+    back = client.post("/strategy/select", json={"strategy": "Decision Brain"},
+                       headers={"X-Webhook-Secret": SECRET}).json()
+    assert back["active"] == start
+
+
 def test_auto_tune_returns_honest_verdict():
     from services.strategy_presets import auto_tune
     r = auto_tune("EMA 8/30", "BTCUSDT", "5m", macro="4h", confirmation="15m", bars=3000)

@@ -3,12 +3,25 @@ import { Badge, PageHeader } from "../components/common/ui";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import CustomBuilder from "../components/strategy/CustomBuilder";
-import { useLive, type StrategyList, type StrategyPerformance } from "../lib/api";
+import { useApp } from "../app-context";
+import { apiPostJson, useLive, type StrategyList, type StrategyPerformance } from "../lib/api";
 
 function PreBuilt() {
+  const app = useApp();
   const list = useLive<StrategyList>("/strategy/list", 5000);
   const perf = useLive<StrategyPerformance>("/strategy/performance", 4000);
   const active = list.data?.active;
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const activate = async (key: string, label: string) => {
+    setBusy(key);
+    try {
+      const r = await apiPostJson<any>("/strategy/select", { strategy: key });
+      if (r?.error || r?.detail) app.toast(r.error || r.detail, "error");
+      else { app.toast(`Activated ${label} — engine now trading it (paper)`, "success"); list.refetch(); }
+    } catch { app.toast("Switching strategy needs the webhook secret", "error"); }
+    finally { setBusy(null); }
+  };
 
   return (
     <>
@@ -20,7 +33,7 @@ function PreBuilt() {
       <div className="card">
         <div className="tablewrap">
           <table className="data-table">
-            <thead><tr><th>Strategy</th><th>Description</th><th>Status</th></tr></thead>
+            <thead><tr><th>Strategy</th><th>Description</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(list.data?.strategies ?? []).map((s) => (
                 <tr key={s.key}>
@@ -29,14 +42,22 @@ function PreBuilt() {
                   <td>{s.key === active
                     ? <Badge text={`Active · ${list.data?.timeframe}`} tone="green" />
                     : <Badge text="Available" tone="default" />}</td>
+                  <td style={{ textAlign: "right" }}>
+                    {s.key === active
+                      ? <span className="dim" style={{ fontSize: 12 }}><Icon name="check" size={13} /> in use</span>
+                      : <button className="btn btn-soft sm" disabled={busy !== null} onClick={() => activate(s.key, s.label)}>
+                          {busy === s.key ? "Activating…" : "Activate"}
+                        </button>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="dim" style={{ marginTop: 8 }}>
-          Active strategy is set on the backend (HUB_AUTO_STRATEGY). Validated reference
-          (BTC/ETH 4h, walk-forward, fees+slippage): trend strategies profit factor ~1.2 out-of-sample.
+          Click <b>Activate</b> to switch the live engine to that strategy (paper mode) — the choice is
+          saved and every symbol starts trading it. Validated reference (BTC/ETH 4h, walk-forward,
+          fees+slippage): trend strategies profit factor ~1.2 out-of-sample.
         </p>
       </div>
 
