@@ -265,8 +265,10 @@ button { font-family: inherit; cursor: pointer; }
 .tab-count { color: var(--dim-2); font-weight: 500; }
 .bots-card .card-body { flex: 1; }
 .bot-list { display: flex; flex-direction: column; gap: 7px; }
-.bot-row { display: flex; align-items: center; gap: 11px; padding: 7px 10px; background: #0d1322; border: 1px solid var(--card-border-soft); border-radius: var(--radius-sm); }
-.bot-avatar { width: 32px; height: 32px; border-radius: 9px; flex: none; display: grid; place-items: center; }
+.bot-row { position: relative; display: flex; align-items: center; gap: 11px; padding: 8px 10px 8px 13px; background: var(--card-2); border: 1px solid var(--card-border-soft); border-radius: var(--radius-sm); overflow: hidden; transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease; }
+.bot-row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--bot-accent, var(--purple)); opacity: 0.85; }
+.bot-row:hover { border-color: rgba(139, 92, 246, 0.3); background: #10182b; transform: translateY(-1px); }
+.bot-avatar { width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 800; letter-spacing: 0.02em; }
 .bot-info { flex: 1; min-width: 0; }
 .bot-name-row { display: flex; align-items: center; gap: 8px; }
 .bot-name-row b { font-size: 13px; }

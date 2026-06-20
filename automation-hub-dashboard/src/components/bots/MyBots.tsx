@@ -38,16 +38,21 @@ export default function MyBots() {
 
       <div className="bot-list">
         {visible.map((b) => (
-          <div className="bot-row" key={b.id}>
+          <div className="bot-row" key={b.id} style={{ ["--bot-accent" as any]: statusColor(b.status) }}>
             <div className="bot-avatar" style={{ background: `${statusColor(b.status)}22`, color: statusColor(b.status) }}>
-              <Icon name="robot" size={16} />
+              {b.symbol.replace("USDT", "").slice(0, 3)}
             </div>
             <div className="bot-info bot-info-link" onClick={() => app.viewBot(b.id)} title="View details">
               <div className="bot-name-row">
                 <b>{b.symbol}</b>
                 <span className="status-tag" style={{ background: `${statusColor(b.status)}22`, color: statusColor(b.status) }}>{b.status}</span>
+                {b.open && (
+                  <span className="status-tag" style={{ background: b.side === "long" ? "#22c55e22" : "#ef444422", color: b.side === "long" ? "var(--green)" : "var(--red)" }}>
+                    {b.side} {b.size.toFixed(3)}
+                  </span>
+                )}
               </div>
-              <span className="bot-meta">{b.strategy} · {b.timeframe}</span>
+              <span className="bot-meta">{b.strategy} · {b.timeframe} · {b.num_trades} trades · {Math.round((b.win_rate ?? 0) * 100)}% win</span>
             </div>
             <div className="bot-pnl">
               <span className="bot-pnl-label">Realized</span>
