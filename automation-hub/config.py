@@ -104,6 +104,9 @@ class Settings:
     # Historical market-data cache (real Binance candles)
     market_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_MARKET_DB", str(BASE_DIR / "logs" / "market_data.db")))
+    # Market-context provider API keys (UI-settable, local JSON)
+    providers_path: str = field(default_factory=lambda: os.environ.get(
+        "HUB_PROVIDERS_PATH", str(BASE_DIR / "logs" / "providers.json")))
 
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))

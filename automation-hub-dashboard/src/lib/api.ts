@@ -315,6 +315,21 @@ export interface Experiment {
   a: { label: string; train: any; test: any };
   b: { label: string; train: any; test: any };
 }
+export interface MarketContext {
+  fear_greed: { available: boolean; value: number | null; label: string | null; mood: string | null };
+  btc_dominance: { available: boolean; value: number | null };
+  total_mcap_usd: { available: boolean; value: number | null };
+  eth_btc: { available: boolean; trend: string | null; change_30d_pct?: number; ratio?: number; note?: string };
+  funding_rate: { available: boolean; value: number | null; symbol: string; note?: string };
+  open_interest: { available: boolean; value: number | null; symbol: string; note?: string };
+  news: { available: boolean; connected: boolean; headlines: { title: string; url: string; published: string }[]; note?: string };
+  liquidations: { available: boolean; connected: boolean; note: string };
+  economic_calendar: { available: boolean; connected: boolean; note: string };
+  sentiment_summary: string;
+  providers: ProviderStatus[];
+}
+export interface ProviderStatus { id: string; label: string; needs_key: boolean; connected: boolean; }
+
 export interface EvoDashboard {
   sentiment: { available: boolean; mood: string | null; risk_mode: string; fear_greed: number | null };
   lessons_weekly: number; lessons_total: number;

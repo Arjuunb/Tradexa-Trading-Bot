@@ -548,6 +548,10 @@ version_store = StrategyVersionStore(settings.versions_path)
 from data.historical import HistoricalStore  # noqa: E402
 market_store = HistoricalStore(settings.market_db)
 
+# ------------------------------------------------- market-context providers
+from services.market_context import ProviderSettings  # noqa: E402
+provider_settings = ProviderSettings(settings.providers_path)
+
 
 class SimRequest(BaseModel):
     spec: dict
@@ -975,6 +979,28 @@ def evolution_advance_version(vid: str, gate: str,
         raise HTTPException(400, res["error"])
     ledger.log(level="info", stage="evolution", message=f"{v['label']} gate '{gate}' advanced")
     return res
+
+
+@router.get("/evolution/market-context")
+def evolution_market_context():
+    """Live real-world market widgets (Fear & Greed, dominance, ETH/BTC, funding,
+    OI, news…). Key-gated sources show 'Not connected' — never fake data."""
+    from services.market_context import market_context
+    return market_context(provider_settings)
+
+
+@router.get("/evolution/providers")
+def evolution_providers():
+    """Per-provider connection status for the Data Providers settings panel
+    (never exposes the key values)."""
+    return {"providers": provider_settings.status()}
+
+
+@router.post("/evolution/providers")
+def evolution_set_providers(body: dict, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Save provider API keys (local store). Blanks are ignored (won't wipe)."""
+    _check_secret(x_webhook_secret)
+    return {"providers": provider_settings.save(body or {})}
 
 
 @router.get("/evolution/dashboard")

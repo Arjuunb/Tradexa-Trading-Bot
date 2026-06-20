@@ -5,6 +5,7 @@ import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useApp } from "../app-context";
 import { apiPost, apiPostJson, useLive,
   type EvoDashboard, type Lesson, type Upgrade, type Experiment, type VersionCompare } from "../lib/api";
+import MarketContextPanel from "../components/evolution/MarketContext";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
 const statusTone = (s: string) => ({ Approved: "green", Rejected: "red", "Paper tested": "blue",
@@ -83,6 +84,8 @@ export default function EvolutionPage() {
         </div>
         <p className="dim" style={{ marginTop: 8 }}><Icon name="lock" size={13} /> {d?.live_rule}</p>
       </Card>
+
+      <MarketContextPanel />
 
       <Card title="Study & Learn" subtitle="analyse real replay history → derive evidence-based lessons">
         <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8 }}>
