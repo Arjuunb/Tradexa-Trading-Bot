@@ -335,6 +335,13 @@ export interface ControlCompare {
   a: ControlSimResult; b: ControlSimResult; winner: "A" | "B"; summary: string; error?: string;
 }
 
+export interface ControlAutoTune {
+  available: boolean; error?: string; strategy: string; symbol: string; timeframe: string;
+  best_tuning: ControlTuning; verdict: string; note: string;
+  train: any; validation: any; baseline_test: any; baseline_train: any;
+  trials: { min_score: number; rr: number; trades: number; net_r: number; profit_factor: number }[];
+}
+
 export interface StrategyInfo { key: string; label: string; desc: string; }
 export interface StrategyList { active: string; timeframe: string; strategies: StrategyInfo[]; }
 export interface LiveBot {

@@ -115,3 +115,25 @@ def test_save_version_endpoint_is_gated(client):
     assert client.post("/control/save-version", json=payload).status_code == 401
     v = client.post("/control/save-version", json=payload, headers={"X-Webhook-Secret": SECRET}).json()
     assert v["version"] == 1 and v["strategy"] == "Decision Brain"
+
+
+def test_auto_tune_returns_honest_verdict():
+    from services.strategy_presets import auto_tune
+    r = auto_tune("EMA 8/30", "BTCUSDT", "5m", macro="4h", confirmation="15m", bars=3000)
+    assert r["available"] is True
+    assert r["verdict"] in ("improvement", "overfit", "no_improvement")
+    assert set(("min_score", "rr")) <= set(r["best_tuning"])
+    # validation is the unseen test slice; baseline_test is the default on the same slice
+    for k in ("validation", "baseline_test", "train", "trials"):
+        assert k in r
+    # never claims improvement unless out-of-sample net R actually beat the baseline
+    if r["verdict"] == "improvement":
+        assert r["validation"]["net_r"] > r["baseline_test"]["net_r"]
+        assert r["validation"]["profit_factor"] >= 1
+
+
+def test_auto_tune_endpoint(client):
+    body = client.post("/control/auto-tune", json={"strategy": "EMA 8/30", "symbol": "BTCUSDT",
+                                                   "timeframe": "5m", "macro": "4h",
+                                                   "confirmation": "15m", "bars": 2500}).json()
+    assert body["available"] is True and "best_tuning" in body and "verdict" in body

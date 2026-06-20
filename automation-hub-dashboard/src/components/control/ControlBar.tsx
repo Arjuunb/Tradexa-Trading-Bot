@@ -4,7 +4,8 @@ import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
 import { useApp } from "../../app-context";
 import { apiGet, apiPostJson,
-  type ControlOptions, type ControlTuning, type ControlSimResult, type ControlCompare } from "../../lib/api";
+  type ControlOptions, type ControlTuning, type ControlSimResult, type ControlCompare,
+  type ControlAutoTune } from "../../lib/api";
 
 type Cfg = { strategy: string; symbol: string; timeframe: string; mode: string;
   macro: string; confirm: string; entry: string; tuning: ControlTuning };
@@ -27,6 +28,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState<ControlSimResult | null>(null);
   const [cmp, setCmp] = useState<ControlCompare | null>(null);
+  const [tune, setTune2] = useState<ControlAutoTune | null>(null);
   const [cmpStrat, setCmpStrat] = useState("Supply/Demand");
   const [cmpTf, setCmpTf] = useState("15m");
 
@@ -66,6 +68,22 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
     finally { setBusy(false); }
   };
 
+  const autoTune = async () => {
+    setBusy(true); setTune2(null);
+    try {
+      const r = await apiPostJson<ControlAutoTune>("/control/auto-tune", body());
+      if (!r.available) { app.toast(r.error || "Historical data not available", "error"); return; }
+      setTune2(r);
+      if (r.verdict === "improvement") {
+        setTune({ ...cfg.tuning, min_score: r.best_tuning.min_score, rr: r.best_tuning.rr });
+        app.toast(`Auto-tune: improvement — applied min score ${r.best_tuning.min_score}, RR ${r.best_tuning.rr}. Click Apply to run it.`, "success");
+      } else {
+        app.toast(`Auto-tune: ${r.verdict.replace("_", " ")} — kept current settings`, "info");
+      }
+    } catch { app.toast("Auto-tune failed", "error"); }
+    finally { setBusy(false); }
+  };
+
   const saveVersion = async () => {
     try {
       const v = await apiPostJson<any>("/control/save-version", body());
@@ -102,9 +120,26 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
       <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button className="btn btn-primary" disabled={busy} onClick={apply}><Icon name="play" size={14} /> {busy ? "Running…" : "Apply & Simulate"}</button>
         <button className="btn btn-soft" onClick={() => setShowTune((x) => !x)}><Icon name="settings" size={14} /> Brain Tuning</button>
+        <button className="btn btn-soft" disabled={busy} onClick={autoTune} title="Search the brain-tuning space on real data (train/test split) and apply the best, validated config">
+          <Icon name="bot" size={14} /> Auto-Tune
+        </button>
         <button className="btn btn-soft" disabled={busy} onClick={compare}><Icon name="chart" size={14} /> Compare</button>
         <button className="btn btn-soft" onClick={saveVersion}><Icon name="layers" size={14} /> Save Version</button>
       </div>
+
+      {tune && (
+        <div className="card" style={{ marginTop: 10, borderColor: tune.verdict === "improvement" ? "#22c55e" : tune.verdict === "overfit" ? "#ef4444" : "#5b6478", background: "#131a2c" }}>
+          <div className="row-actions" style={{ justifyContent: "space-between" }}>
+            <b><Icon name="bot" size={14} /> Auto-Tune — best: min score {tune.best_tuning.min_score}, RR {tune.best_tuning.rr}</b>
+            <Badge text={tune.verdict.replace("_", " ")} tone={tune.verdict === "improvement" ? "green" : tune.verdict === "overfit" ? "red" : "default"} />
+          </div>
+          <p className="dim" style={{ marginTop: 6 }}>{tune.note}</p>
+          <div className="dim mono" style={{ fontSize: 12 }}>
+            Out-of-sample net R: baseline {tune.baseline_test?.net_r} → tuned {tune.validation?.net_r}
+            {" · "}PF {tune.validation?.profit_factor} · {tune.validation?.trades} trades
+          </div>
+        </div>
+      )}
 
       {/* brain tuning panel */}
       {showTune && (

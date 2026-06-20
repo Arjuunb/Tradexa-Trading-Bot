@@ -84,15 +84,10 @@ def resolve(strategy: str, symbol: str, timeframe: str, tuning: dict,
     return {"kind": "custom", "spec": _apply_tuning(spec, tuning), "label": strategy}
 
 
-def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict = None,
-                   custom_spec: dict = None, bars: int = 4000,
-                   macro: str = None, confirmation: str = None) -> dict:
-    """Run a REAL simulation for the chosen control-bar configuration.
-
-    ``macro`` / ``confirmation`` are the higher timeframes the multi-timeframe
-    gate checks (chosen in the control bar); a trade against either is blocked.
-    """
-    from data.market_data import get_bars
+def _run_on(strategy: str, symbol: str, timeframe: str, tuning: dict, custom_spec: dict,
+            rows, macro: str = None, confirmation: str = None) -> dict:
+    """Run a resolved configuration over a given bar list (no fetch). Returns the
+    raw results dict (with diagnosis, _mtf_gate, _spec) or {'error': ...}."""
     from strategies.custom import simulate, simulate_strategy
     from strategies.brain import TradeBrain
     from strategies.diagnosis import diagnose
@@ -102,22 +97,16 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
     if "error" in desc:
         return desc
 
-    rows, source = get_bars(symbol, n=max(600, min(int(bars), 10000)), timeframe=timeframe)
-    if not rows:
-        return {"error": "Historical data not available. Please load Binance data first "
-                         "(run /data/sync).", "data_source": source, "available": False}
-
-    # multi-timeframe gate driven by the macro/confirmation selectors
     mtf_lookup = mtf_tfs = None
     requested = [tf for tf in (confirmation, macro) if tf and tf != timeframe]
     if requested:
         mtf_lookup = make_trend_lookup(rows, timeframe, requested)
-        mtf_tfs = mtf_lookup.timeframes      # only the tfs that had enough data
+        mtf_tfs = mtf_lookup.timeframes
 
     min_score = int((tuning or {}).get("min_score", DEFAULT_TUNING["min_score"]))
     brain = TradeBrain()
     if desc["kind"] == "builtin":
-        from webhook_api import _build_builtin   # reuse the builder
+        from webhook_api import _build_builtin
         strat = _build_builtin(desc["key"], symbol)
         results = simulate_strategy(strat, rows, brain=brain, min_score=min_score,
                                     mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
@@ -128,12 +117,97 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
                            min_score=min_score if use_brain else 0,
                            mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
     results["diagnosis"] = diagnose(results, results.get("blocked"))
-    warning = underperforming(results)
+    results["_mtf_gate"] = list(mtf_tfs) if mtf_tfs else []
+    results["_spec"] = desc.get("spec")
+    return results
+
+
+_METRIC_KEYS = ("total_trades", "win_rate", "profit_factor", "net_r",
+                "max_drawdown_pct", "expectancy_r")
+
+
+def _metrics(results: dict) -> dict:
+    return {"trades": results.get("total_trades", 0),
+            **{k: results.get(k, 0) for k in _METRIC_KEYS if k != "total_trades"}}
+
+
+def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict = None,
+                   custom_spec: dict = None, bars: int = 4000,
+                   macro: str = None, confirmation: str = None) -> dict:
+    """Run a REAL simulation for the chosen control-bar configuration.
+
+    ``macro`` / ``confirmation`` are the higher timeframes the multi-timeframe
+    gate checks (chosen in the control bar); a trade against either is blocked.
+    """
+    from data.market_data import get_bars
+    rows, source = get_bars(symbol, n=max(600, min(int(bars), 10000)), timeframe=timeframe)
+    if not rows:
+        return {"error": "Historical data not available. Please load Binance data first "
+                         "(run /data/sync).", "data_source": source, "available": False}
+    results = _run_on(strategy, symbol, timeframe, tuning or {}, custom_spec, rows, macro, confirmation)
+    if "error" in results:
+        return results
+    gate = results.pop("_mtf_gate", [])
+    spec = results.pop("_spec", None)
     return {
-        "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
-        "mtf_gate": list(mtf_tfs) if mtf_tfs else [],
+        "strategy": strategy, "symbol": symbol, "timeframe": timeframe, "mtf_gate": gate,
         "data_source": source, "available": True, "results": results,
-        "warning": warning, "spec": desc.get("spec"),
+        "warning": underperforming(results), "spec": spec,
+    }
+
+
+def auto_tune(strategy: str, symbol: str, timeframe: str, *, macro: str = None,
+              confirmation: str = None, custom_spec: dict = None, bars: int = 4000,
+              split: float = 0.7) -> dict:
+    """Search the brain-tuning space on real data with a train/test split and an
+    overfit verdict — the bot's 'tune this losing strategy' helper. Optimises on
+    the train slice, validates on the unseen test slice."""
+    from data.market_data import get_bars
+    rows, source = get_bars(symbol, n=max(800, min(int(bars), 10000)), timeframe=timeframe)
+    if not rows:
+        return {"available": False,
+                "error": "Historical data not available. Please load Binance data first."}
+    cut = int(len(rows) * split)
+    train, test = rows[:cut], rows[cut:]
+
+    def metric_on(t, segment):
+        r = _run_on(strategy, symbol, timeframe, t, custom_spec, segment, macro, confirmation)
+        return _metrics(r) if "error" not in r else {"trades": 0, "net_r": -1e9, "profit_factor": 0}
+
+    base = {**DEFAULT_TUNING}
+    base_train, base_test = metric_on(base, train), metric_on(base, test)
+
+    # small grid (keep it tight to limit overfitting)
+    best = None
+    trials = []
+    for ms in (55, 65, 75):
+        for rr in (1.5, 2.0, 2.5):
+            tuning = {**DEFAULT_TUNING, "min_score": ms, "rr": rr}
+            m = metric_on(tuning, train)
+            trials.append({"min_score": ms, "rr": rr, **m})
+            if m["trades"] >= 10 and (best is None or m["net_r"] > best["m"]["net_r"]):
+                best = {"tuning": tuning, "m": m}
+    if best is None:                                   # nothing traded enough -> keep baseline
+        best = {"tuning": base, "m": base_train}
+
+    val = metric_on(best["tuning"], test)
+    improved = (val["net_r"] > base_test["net_r"] and val["profit_factor"] >= 1
+                and val["trades"] >= 10)
+    overfit = best["m"]["net_r"] > base_train["net_r"] and val["net_r"] <= base_test["net_r"]
+    if improved:
+        verdict, note = "improvement", ("Tuned settings improve out-of-sample. Validate in paper "
+                                        "trading before any live use.")
+    elif overfit:
+        verdict, note = "overfit", "Tuned settings help on training data but NOT on unseen data — don't adopt."
+    else:
+        verdict, note = "no_improvement", "No tuning in the grid beat the baseline out-of-sample."
+
+    return {
+        "available": True, "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
+        "data_source": source, "best_tuning": best["tuning"], "train": best["m"],
+        "validation": val, "baseline_train": base_train, "baseline_test": base_test,
+        "verdict": verdict, "note": note,
+        "trials": sorted(trials, key=lambda t: t["net_r"], reverse=True)[:9],
     }
 
 

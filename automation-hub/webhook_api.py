@@ -677,6 +677,15 @@ def control_simulate(body: ControlSimRequest):
                           macro=body.macro, confirmation=body.confirmation)
 
 
+@router.post("/control/auto-tune")
+def control_auto_tune(body: ControlSimRequest):
+    """Search the brain-tuning space on real data (train/test split) and return
+    the best configuration with an honest overfit verdict."""
+    from services.strategy_presets import auto_tune
+    return auto_tune(body.strategy, body.symbol, body.timeframe, macro=body.macro,
+                     confirmation=body.confirmation, custom_spec=body.custom_spec, bars=body.bars)
+
+
 class ControlCompareRequest(BaseModel):
     a: dict
     b: dict
