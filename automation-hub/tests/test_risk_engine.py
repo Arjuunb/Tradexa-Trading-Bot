@@ -134,3 +134,13 @@ def test_risk_endpoints(client):
     assert "matrix" in corr and corr["matrix"]["BTCUSDT"]["BTCUSDT"] == 1.0
     pf = client.get("/risk/portfolio").json()
     assert "value_at_risk_pct" in pf and "portfolio_heat_pct" in pf and "warnings" in pf
+
+
+def test_markets_watchlist_real_quotes(client):
+    body = client.get("/markets/watchlist", params={"symbols": "BTCUSDT,ETHUSDT", "timeframe": "1d"}).json()
+    rows = {w["symbol"]: w for w in body["symbols"]}
+    for sym in ("BTCUSDT", "ETHUSDT"):                       # seeded 1d store
+        w = rows[sym]
+        assert w["available"] is True
+        assert w["last"] > 0 and "change_pct" in w and w["vol_pct"] >= 0
+        assert 0 < len(w["spark"]) <= 30                     # mini sparkline series

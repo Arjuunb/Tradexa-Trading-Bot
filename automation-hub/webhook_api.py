@@ -524,6 +524,32 @@ def lab_sliced(strategy: str = "Decision Brain", timeframe: str = "15m",
     return sliced_performance(strategy, timeframe, symbols=syms, limit=limit)
 
 
+@router.get("/markets/watchlist")
+def markets_watchlist(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", timeframe: str = "1d"):
+    """Real watchlist quotes from the cached Binance candles — last price, period
+    change, volatility and a mini sparkline. Honest 'unavailable' per symbol when
+    no real history is cached (never a faked price)."""
+    from data.market_data import get_bars
+    from services.risk_engine import log_returns, _stdev
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:12]
+    out = []
+    for sym in syms:
+        rows, src = get_bars(sym, n=60, timeframe=timeframe, require_real=True)
+        if not rows or len(rows) < 2:
+            out.append({"symbol": sym, "available": False, "source": src})
+            continue
+        closes = [b.close for b in rows]
+        last, prev = closes[-1], closes[-2]
+        vol = _stdev(log_returns(closes)) * 100
+        out.append({
+            "symbol": sym, "available": True, "source": src,
+            "last": round(last, 6), "change_pct": round((last / prev - 1) * 100, 2),
+            "vol_pct": round(vol, 2), "spark": [round(c, 6) for c in closes[-30:]],
+            "bars": len(rows),
+        })
+    return {"timeframe": timeframe, "symbols": out}
+
+
 _STRATEGY_CATALOG = [
     {"key": "brain", "label": "Decision Brain",
      "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},
