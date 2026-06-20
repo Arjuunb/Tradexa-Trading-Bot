@@ -215,3 +215,44 @@ def test_advance_endpoint_keeps_live_locked(client):
     live = client.post(f"/evolution/versions/{vid}/advance", params={"gate": "live_unlock"},
                        headers={"X-Webhook-Secret": SECRET}).json()
     assert live["live_unlocked"] is False  # locked by design, no broker
+
+
+# ---- timeframe-disagreement detector ----
+def _disagree_replay(losers_disagree=8, winners_agree=8):
+    from services.lessons import mtf_disagreement_lessons  # noqa: F401 (import here for clarity)
+    frames, trades = [], []
+    def fr(h4, m15):
+        return {"trends": {"4H": h4, "15M": m15, "Daily": "Bullish", "Weekly": "Bullish"}}
+    for _ in range(losers_disagree):
+        frames.append(fr("Bullish", "Bearish")); trades.append({"rr": -1, "entry_idx": len(frames) - 1, "side": "long"})
+    for _ in range(winners_agree):
+        frames.append(fr("Bullish", "Bullish")); trades.append({"rr": 2, "entry_idx": len(frames) - 1, "side": "long"})
+    return {"frames": frames, "trades": trades}
+
+
+def test_mtf_disagreement_lesson_fires_with_evidence():
+    from services.lessons import mtf_disagreement_lessons
+    ls = mtf_disagreement_lessons(_disagree_replay(), symbol="BTCUSDT", strategy="Decision Brain")
+    assert len(ls) == 1
+    l = ls[0]
+    assert "4H" in l["lesson"] and "15M" in l["lesson"] and "%" in l["lesson"]
+    assert "disagree" in l["suggested_fix"].lower()
+    assert 0 <= l["confidence"] <= 95 and l["evidence"]
+
+
+def test_mtf_disagreement_silent_when_no_pattern():
+    from services.lessons import mtf_disagreement_lessons
+    # all aligned -> nothing to learn
+    frames = [{"trends": {"4H": "Bullish", "15M": "Bullish", "Daily": "Bullish", "Weekly": "Bullish"}} for _ in range(12)]
+    rep = {"frames": frames, "trades": [{"rr": 1, "entry_idx": i, "side": "long"} for i in range(12)]}
+    assert mtf_disagreement_lessons(rep, symbol="X", strategy="Y") == []
+    # too few trades -> silent
+    assert mtf_disagreement_lessons({"frames": [], "trades": []}, symbol="X", strategy="Y") == []
+
+
+def test_suggestions_include_extra_lessons():
+    from services.lessons import mtf_disagreement_lessons
+    dis = mtf_disagreement_lessons(_disagree_replay(), symbol="BTCUSDT", strategy="Decision Brain")
+    sug = suggest_improvements({"trades": [], "stats": {}, "diagnosis": {}},
+                               symbol="BTCUSDT", strategy="Decision Brain", extra_lessons=dis)
+    assert any("disagree" in s["title"].lower() for s in sug)

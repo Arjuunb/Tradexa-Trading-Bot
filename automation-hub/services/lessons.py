@@ -125,6 +125,76 @@ def lessons_from_results(results: dict, *, symbol: str, strategy: str) -> list:
     return out
 
 
+_TF_PAIRS = [("4H", "15M"), ("Daily", "4H"), ("Weekly", "Daily")]
+
+
+def mtf_disagreement_lessons(replay: dict, *, symbol: str, strategy: str) -> list:
+    """Detect the timeframe-disagreement pattern from a replay result:
+    trades where a higher timeframe and a lower timeframe DISAGREE at entry tend
+    to lose. Produces the exact evidence-based lesson from the spec, e.g.
+    'X loses 68% of trades when 4H is bullish but 15M is bearish'.
+
+    Uses each trade's per-bar trend snapshot (replay frames) — real evidence.
+    """
+    frames = replay.get("frames") or []
+    trades = [t for t in (replay.get("trades") or []) if t.get("rr") is not None and t.get("entry_idx") is not None]
+    if len(trades) < 8 or not frames:
+        return []
+
+    # pick the first timeframe pair where both are directional in the data
+    def present(hi, lo):
+        n = 0
+        for t in trades:
+            tr = frames[t["entry_idx"]]["trends"] if t["entry_idx"] < len(frames) else {}
+            if tr.get(hi) in ("Bullish", "Bearish") and tr.get(lo) in ("Bullish", "Bearish"):
+                n += 1
+        return n
+    pair = next(((hi, lo) for hi, lo in _TF_PAIRS if present(hi, lo) >= 5), None)
+    if pair is None:
+        return []
+    hi, lo = pair
+
+    from collections import Counter
+    agree = {"w": 0, "l": 0}
+    disagree = {"w": 0, "l": 0}
+    combo = Counter()
+    for t in trades:
+        tr = frames[t["entry_idx"]]["trends"] if t["entry_idx"] < len(frames) else {}
+        dh, dl = tr.get(hi), tr.get(lo)
+        if dh not in ("Bullish", "Bearish") or dl not in ("Bullish", "Bearish"):
+            continue
+        bucket = agree if dh == dl else disagree
+        win = t["rr"] > 0
+        bucket["w" if win else "l"] += 1
+        if dh != dl and not win:
+            combo[(dh, dl)] += 1
+
+    dn = disagree["w"] + disagree["l"]
+    an = agree["w"] + agree["l"]
+    if dn < 5:
+        return []
+    loss_rate = round(100 * disagree["l"] / dn)
+    agree_loss = round(100 * agree["l"] / an) if an else None
+    # only flag when the disagreement bucket loses a lot AND clearly worse than aligned
+    if loss_rate < 55 or (agree_loss is not None and loss_rate <= agree_loss + 10):
+        return []
+    worst = combo.most_common(1)[0][0] if combo else (None, None)
+    detail = (f"{hi} {worst[0].lower()} but {lo} {worst[1].lower()}"
+              if worst[0] else f"{hi} and {lo} disagree")
+    confidence = min(95, 50 + dn * 2 + max(0, loss_rate - 55))
+    return [{
+        "symbol": symbol, "strategy": strategy,
+        "lesson": (f"{strategy} loses {loss_rate}% of {symbol} trades when {detail} "
+                   f"({dn} trades; only {agree_loss}% lost when {hi}/{lo} agree)."
+                   if agree_loss is not None else
+                   f"{strategy} loses {loss_rate}% of {symbol} trades when {detail} ({dn} trades)."),
+        "suggested_fix": f"Block trades when {lo} and {hi} disagree — add {lo} as a confirmation timeframe.",
+        "confidence": confidence,
+        "evidence": (f"{dn} trades with {hi}/{lo} conflict lost {loss_rate}%"
+                     + (f" vs {agree_loss}% when aligned ({an} trades)" if agree_loss is not None else "")),
+    }]
+
+
 def _fix_for_tag(tag: str) -> str:
     return {
         "Entry too early / false breakout": "Require a retest/confirmation candle before entry.",

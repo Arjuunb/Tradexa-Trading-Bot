@@ -202,11 +202,12 @@ def apply_patch(spec: dict, patch: dict) -> dict:
 
 
 # ---- evidence-based suggestions ----
-def suggest_improvements(results: dict, *, symbol: str, strategy: str) -> list:
+def suggest_improvements(results: dict, *, symbol: str, strategy: str, extra_lessons=None) -> list:
     """Turn measured results into structured upgrade suggestions. Each carries a
-    reason, evidence, expected benefit, risk and whether a backtest is required."""
+    reason, evidence, expected benefit, risk and whether a backtest is required.
+    ``extra_lessons`` (e.g. timeframe-disagreement findings) are folded in."""
     from services.lessons import lessons_from_results
-    lessons = lessons_from_results(results, symbol=symbol, strategy=strategy)
+    lessons = lessons_from_results(results, symbol=symbol, strategy=strategy) + list(extra_lessons or [])
     out = []
     for ls in lessons:
         patch = patch_for_fix(ls["suggested_fix"])

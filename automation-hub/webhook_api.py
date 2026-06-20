@@ -803,19 +803,22 @@ def evolution_sentiment():
 
 @router.post("/evolution/learn")
 def evolution_learn(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 1000,
+                    strategy: str = "Supply/Demand",
                     x_webhook_secret: Optional[str] = Header(default=None)):
     """Study real replay results for a symbol, derive evidence-based lessons +
     upgrade suggestions, and record them (status 'Suggested' — never auto-applied)."""
     _check_secret(x_webhook_secret)
     from services.replay import build_replay
-    from services.lessons import lessons_from_results
+    from services.lessons import lessons_from_results, mtf_disagreement_lessons
     from services.evolution import suggest_improvements
-    rep = build_replay(symbol, timeframe, limit)
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
     bundle = {"trades": rep["trades"], "stats": rep["stats"], "diagnosis": _replay_diag(rep)}
-    strategy = "SMC"
-    lessons = lessons_from_results(bundle, symbol=symbol, strategy=strategy)
+    # timeframe-disagreement detector (evidence-based, from the per-bar trends)
+    dis = mtf_disagreement_lessons(rep, symbol=symbol, strategy=strategy)
+    lessons = lessons_from_results(bundle, symbol=symbol, strategy=strategy) + dis
     added_lessons = lesson_store.add_many(lessons)
-    added_upgrades = upgrade_store.add_many(suggest_improvements(bundle, symbol=symbol, strategy=strategy))
+    added_upgrades = upgrade_store.add_many(
+        suggest_improvements(bundle, symbol=symbol, strategy=strategy, extra_lessons=dis))
     ledger.log(level="info", stage="evolution",
                message=f"Learned from {symbol}: {len(added_lessons)} new lessons, "
                        f"{len(added_upgrades)} new suggestions")
