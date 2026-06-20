@@ -12,6 +12,11 @@ supabase>=2.0
 # the engine falls back to bundled/synthetic data.
 ccxt>=4.3.0
 
+# HTTP client used by the historical-data sync (Binance REST), the sentiment /
+# Fear & Greed feed, and the Evolution market-context widgets. Required for the
+# real-data features to work on deploy (the engine fails closed without it).
+requests>=2.31
+
 # The trading engine itself is the parent package (pure stdlib):
 #   pip install -e ..            # installs the `bot` package
 # Optional live venues:
