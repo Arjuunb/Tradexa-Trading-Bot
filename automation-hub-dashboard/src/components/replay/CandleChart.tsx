@@ -6,6 +6,7 @@ import type { ReplayData } from "../../lib/api";
 export interface ChartToggles {
   ema8: boolean; ema20: boolean; ema30: boolean; ema50: boolean;
   sma20: boolean; sma50: boolean; vwap: boolean; bb: boolean; volume: boolean;
+  structure: boolean; zones: boolean;
   osc: "none" | "rsi" | "macd" | "atr";
 }
 
@@ -90,8 +91,9 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
       axisLabel: { color: "#5b6478", fontSize: 9 }, splitLine: { show: false } });
 
     // ---- markers: structure + entry, plus closed-trade exits ----
+    const STRUCT = new Set(["Sweep", "BOS/CHoCH", "FVG"]);
     const markPts = data.markers
-      .filter((m) => m.idx < end)
+      .filter((m) => m.idx < end && (toggles.structure || !STRUCT.has(m.type)))
       .map((m) => ({
         name: m.type, coord: [m.idx, m.price],
         symbol: m.type === "Entry" ? "pin" : "circle",
@@ -128,11 +130,11 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
       tradeAreas.push([{ xAxis: active.entry_idx, yAxis: active.entry, itemStyle: { color: "rgba(242,54,69,0.10)" } }, { xAxis: end - 1, yAxis: slLevel }]);
       tradeAreas.push([{ xAxis: active.entry_idx, yAxis: active.entry, itemStyle: { color: "rgba(8,153,129,0.10)" } }, { xAxis: end - 1, yAxis: active.tp }]);
     }
-    for (const z of data.zones) {
+    if (toggles.zones) for (const z of data.zones) {
       if (z.price !== undefined)
         markLines.push({ yAxis: z.price, symbol: "none", lineStyle: { color: z.type === "support" ? "#089981" : "#f23645", type: "dotted", opacity: 0.5 }, label: { formatter: z.type === "support" ? "S" : "R", color: "#8a93a6", fontSize: 9 } });
     }
-    const zoneAreas = data.zones
+    const zoneAreas = (toggles.zones ? data.zones : [])
       .filter((z) => z.left_idx !== undefined && z.left_idx <= index).slice(-8)
       .map((z) => ([
         { xAxis: z.left_idx, yAxis: z.top, itemStyle: { color: z.type === "demand" ? "rgba(8,153,129,0.12)" : "rgba(242,54,69,0.12)" } },

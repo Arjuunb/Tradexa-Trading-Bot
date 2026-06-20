@@ -14,12 +14,13 @@ const trendTone = (v?: string) => (v === "Bullish" ? "green" : v === "Bearish" ?
 
 const DEFAULT_TOGGLES: ChartToggles = {
   ema8: false, ema20: true, ema30: false, ema50: true, sma20: false, sma50: false,
-  vwap: true, bb: false, volume: true, osc: "rsi",
+  vwap: true, bb: false, volume: true, structure: true, zones: true, osc: "rsi",
 };
 const OVERLAY_TOGGLES: { key: keyof ChartToggles; label: string }[] = [
   { key: "ema8", label: "EMA8" }, { key: "ema20", label: "EMA20" }, { key: "ema30", label: "EMA30" },
   { key: "ema50", label: "EMA50" }, { key: "sma20", label: "SMA20" }, { key: "sma50", label: "SMA50" },
   { key: "vwap", label: "VWAP" }, { key: "bb", label: "Bollinger" }, { key: "volume", label: "Volume" },
+  { key: "structure", label: "Structure" }, { key: "zones", label: "Zones" },
 ];
 
 export default function ReplayPage() {
