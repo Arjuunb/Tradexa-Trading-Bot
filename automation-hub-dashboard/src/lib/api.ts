@@ -270,7 +270,12 @@ export interface ReplayStats {
 }
 export interface ReplayData {
   meta: { symbol: string; timeframe: string; data_source: string; bars: number;
-          start: string | null; end: string | null; htf_available: Record<string, boolean> };
+          start: string | null; end: string | null; htf_available: Record<string, boolean>;
+          strategy?: string; data_source_label?: string; data_is_real?: boolean;
+          data_warning?: string | null;
+          debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
+                    warmup_bars: number; trades_generated: number; data_source: string;
+                    mtf_timeframes: string[]; computed_at: string; error: string | null } };
   candles: ReplayCandle[];
   overlays: { ema20: number[]; ema50: number[]; vwap: number[] };
   markers: ReplayMarker[];

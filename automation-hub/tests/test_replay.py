@@ -151,3 +151,51 @@ def test_trades_respect_multi_timeframe_gate():
         side = 1 if t["side"] == "long" else -1
         frame_trends = r["frames"][t["entry_idx"]]["trends"]
         assert htf_consensus(frame_trends, side)["allowed"]   # never against the HTF
+
+
+def test_changing_strategy_changes_trades_and_id():
+    """Selecting a different strategy must use a different engine and produce
+    different trades — proving the selector drives the real backend."""
+    a = build_replay("BTCUSDT", "15m", 900, strategy="Supply/Demand")
+    b = build_replay("BTCUSDT", "15m", 900, strategy="EMA 20/50")
+    assert a["meta"]["debug"]["strategy_id"] == "supply_demand"
+    assert b["meta"]["debug"]["strategy_id"] == "ema_20_50"
+    # different strategy -> different trade set
+    sig = lambda r: [(t["side"], t["entry_idx"]) for t in r["trades"]]
+    assert sig(a) != sig(b)
+    # debug panel proves the wiring
+    for r in (a, b):
+        d = r["meta"]["debug"]
+        assert d["candles_loaded"] == len(r["candles"])
+        assert d["trades_generated"] == len(r["trades"])
+
+
+def test_data_source_labelled_and_demo_flagged():
+    r = build_replay("BTCUSDT", "15m", 400)
+    # never claims synthetic/bundled is real Binance data
+    if r["meta"]["data_source"] in ("synthetic", "bundled sample"):
+        assert r["meta"]["data_is_real"] is False
+        assert "Binance historical data" != r["meta"]["data_source_label"]
+    demo = build_replay("BTCUSDT", "15m", 400, source="demo")
+    assert demo["meta"]["data_is_real"] is False
+    assert "Demo" in demo["meta"]["data_source_label"]
+    assert "Demo sample" in (demo["meta"]["data_warning"] or "")
+
+
+def test_registry_has_all_strategies():
+    from services.strategy_presets import REGISTRY
+    names = {r["name"] for r in REGISTRY}
+    assert {"Decision Brain", "Trend Following", "Breakout Retest", "Liquidity Sweep",
+            "Support/Resistance Rejection", "Supply/Demand", "EMA 8/30", "EMA 20/50",
+            "Custom Strategy"} <= names
+    for r in REGISTRY:
+        assert r["id"] and r["version"] and "description" in r
+
+
+def test_replay_endpoint_strategy_param(client):
+    a = client.get("/replay/run", params={"symbol": "BTCUSDT", "timeframe": "15m",
+                                          "limit": 400, "strategy": "EMA 20/50"}).json()
+    assert a["meta"]["strategy"] == "EMA 20/50"
+    assert a["meta"]["debug"]["strategy_id"] == "ema_20_50"
+    reg = client.get("/strategies/registry").json()["strategies"]
+    assert any(s["id"] == "ema_20_50" for s in reg)

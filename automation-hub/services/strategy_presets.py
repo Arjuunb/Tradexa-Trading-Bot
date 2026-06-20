@@ -24,12 +24,37 @@ PRESETS: dict = {
                                                 "dir": "support", "tolerance_pct": 0.5}]},
     "EMA 8/30": {"kind": "custom", "side": "long",
                  "rules": [{"type": "ema_cross", "fast": 8, "slow": 30, "dir": "above"}]},
+    "EMA 20/50": {"kind": "custom", "side": "long",
+                  "rules": [{"type": "ema_cross", "fast": 20, "slow": 50, "dir": "above"}]},
     "Liquidity Sweep": {"kind": "custom", "side": "long",
                         "rules": [{"type": "liquidity_sweep", "lookback": 20, "dir": "down"},
                                   {"type": "choch", "dir": "up"}]},
     "Custom Strategy": {"kind": "custom_user"},
 }
 STRATEGY_OPTIONS = list(PRESETS)
+
+# Real strategy registry the selector pulls from (id / version / metadata).
+REGISTRY = [
+    {"id": "decision_brain", "name": "Decision Brain", "version": "1.0", "kind": "builtin",
+     "timeframes": ["1h", "4h"], "description": "Multi-factor trend + regime + momentum"},
+    {"id": "trend_following", "name": "Trend Following", "version": "1.0", "kind": "builtin",
+     "timeframes": ["4h", "1d"], "description": "Supertrend ATR trend-following"},
+    {"id": "supply_demand", "name": "Supply/Demand", "version": "1.0", "kind": "builtin",
+     "timeframes": ["15m", "4h"], "description": "SMC: liquidity sweep + CHoCH/BOS + FVG"},
+    {"id": "breakout_retest", "name": "Breakout Retest", "version": "1.0", "kind": "custom",
+     "timeframes": ["15m", "1h"], "description": "N-bar breakout then EMA pullback retest"},
+    {"id": "sr_rejection", "name": "Support/Resistance Rejection", "version": "1.0", "kind": "custom",
+     "timeframes": ["15m", "1h"], "description": "Reaction at a recent support/resistance level"},
+    {"id": "ema_8_30", "name": "EMA 8/30", "version": "1.0", "kind": "custom",
+     "timeframes": ["5m", "15m"], "description": "Fast EMA 8 over EMA 30 cross"},
+    {"id": "ema_20_50", "name": "EMA 20/50", "version": "1.0", "kind": "custom",
+     "timeframes": ["1h", "4h"], "description": "EMA 20 over EMA 50 cross"},
+    {"id": "liquidity_sweep", "name": "Liquidity Sweep", "version": "1.0", "kind": "custom",
+     "timeframes": ["5m", "15m"], "description": "Stop-hunt sweep + change of character"},
+    {"id": "custom", "name": "Custom Strategy", "version": "1.0", "kind": "custom_user",
+     "timeframes": [], "description": "User-built rule strategy"},
+]
+_NAME_TO_ID = {r["name"]: r["id"] for r in REGISTRY}
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
 TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d", "1w"]
 MODES = ["Simulation", "Paper Trading", "Live Trading (locked)"]
@@ -129,6 +154,26 @@ _METRIC_KEYS = ("total_trades", "win_rate", "profit_factor", "net_r",
 def _metrics(results: dict) -> dict:
     return {"trades": results.get("total_trades", 0),
             **{k: results.get(k, 0) for k in _METRIC_KEYS if k != "total_trades"}}
+
+
+def make_replay_strategy(strategy: str, symbol: str, timeframe: str, custom_spec: dict = None):
+    """Return a strategy OBJECT (with .on_bar) for the named strategy, plus its
+    registry id — so the replay engine uses the SELECTED strategy's real entry
+    logic, not a hardcoded one. Internal quality/MTF gates are off here; the
+    replay engine applies scoring + the multi-timeframe gate itself."""
+    desc = resolve(strategy, symbol, timeframe, {}, custom_spec)
+    if "error" in desc:
+        return None, desc["error"], None
+    sid = _NAME_TO_ID.get(strategy, strategy)
+    if desc["kind"] == "builtin":
+        from webhook_api import _build_builtin
+        strat = _build_builtin(desc["key"], symbol)
+    else:
+        from strategies.custom_adapter import CustomStrategyAdapter
+        spec = {**desc["spec"], "quality_filter": False, "mtf_filter": False}
+        strat = CustomStrategyAdapter(symbol, spec)
+    strat.strategy_id = sid
+    return strat, None, sid
 
 
 def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict = None,

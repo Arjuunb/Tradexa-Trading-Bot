@@ -14,9 +14,12 @@ export default function ReplayPage() {
   const app = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState("15m");
+  const [strategy, setStrategy] = useState("Supply/Demand");
+  const [src, setSrc] = useState("binance");
   const [limit, setLimit] = useState(800);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [strategies, setStrategies] = useState<{ id: string; name: string; version: string; description: string }[]>([]);
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
   const [idx, setIdx] = useState(0);
@@ -24,14 +27,19 @@ export default function ReplayPage() {
   const [speed, setSpeed] = useState(5);
   const timer = useRef<number | null>(null);
 
+  useEffect(() => {
+    apiGet<{ strategies: any[] }>("/strategies/registry").then((r) => setStrategies(r.strategies)).catch(() => {});
+  }, []);
+
   const load = async () => {
     setLoading(true); setPlaying(false);
     try {
-      let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}`;
+      let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}&strategy=${encodeURIComponent(strategy)}&source=${src}`;
       if (startDate) q += `&start=${startDate}`;
       if (endDate) q += `&end=${endDate}`;
       const r = await apiGet<ReplayData>(q);
-      if (r.meta.bars === 0) { app.toast("No data in that date range — try another window.", "info"); }
+      if (r.meta.bars === 0) { app.toast(r.meta.data_warning || "No data in that range.", "info"); }
+      else if (r.meta.data_warning) { app.toast(r.meta.data_warning, "info"); }
       setData(r); setIdx(0);
     } catch { app.toast("Replay failed — backend reachable?", "error"); }
     finally { setLoading(false); }
@@ -71,10 +79,21 @@ export default function ReplayPage() {
     <>
       <PageHeader title="Strategy Replay" subtitle="Watch the bot analyse real history candle-by-candle — no lookahead" />
 
-      <Card title="Load Replay" right={data ? <Badge text={`${data.meta.data_source} · ${data.meta.bars} bars`} tone="purple" /> : undefined}>
+      <Card title="Load Replay"
+        right={data ? <Badge text={data.meta.data_is_real ? "Binance data" : (data.meta.data_source_label ?? data.meta.data_source)}
+          tone={data.meta.data_is_real ? "green" : "amber"} /> : undefined}>
         <div className="row-actions" style={{ justifyContent: "flex-start", gap: 10, flexWrap: "wrap" }}>
+          <label className="row-actions" style={{ gap: 4 }}><span className="dim" style={{ fontSize: 11 }}>Strategy</span>
+            <select value={strategy} onChange={(e) => setStrategy(e.target.value)} style={{ minWidth: 170 }}>
+              {(strategies.length ? strategies.map((s) => s.name) : [strategy]).map((s) => <option key={s}>{s}</option>)}
+            </select></label>
           <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select>
-          <select value={tf} onChange={(e) => setTf(e.target.value)}>{["15m", "5m"].map((t) => <option key={t}>{t}</option>)}</select>
+          <select value={tf} onChange={(e) => setTf(e.target.value)}>{["5m", "15m"].map((t) => <option key={t}>{t}</option>)}</select>
+          <label className="row-actions" style={{ gap: 4 }}><span className="dim" style={{ fontSize: 11 }}>Data</span>
+            <select value={src} onChange={(e) => setSrc(e.target.value)}>
+              <option value="binance">Binance historical</option>
+              <option value="demo">Demo sample</option>
+            </select></label>
           <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>{[500, 800, 1200, 1500].map((b) => <option key={b} value={b}>{b} bars</option>)}</select>
           <label className="row-actions" style={{ gap: 4 }}><span className="dim">From</span>
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
@@ -88,9 +107,27 @@ export default function ReplayPage() {
         </p>
         {data && (
           <p className="dim" style={{ marginTop: 8 }}>
+            <b style={{ color: data.meta.data_is_real ? "#22c55e" : "#f59e0b" }}>{data.meta.data_source_label}</b> ·{" "}
             {(data.meta.start ?? "").slice(0, 16).replace("T", " ")} → {(data.meta.end ?? "").slice(0, 16).replace("T", " ")} ·
             HTF: {Object.entries(data.meta.htf_available).map(([k, v]) => `${k} ${v ? "✓" : "n/a"}`).join(" · ")}
           </p>
+        )}
+        {data?.meta.data_warning && (
+          <div className="card" style={{ marginTop: 8, borderColor: "#f59e0b", background: "#f59e0b14" }}>
+            <Icon name="warning" size={14} className="amber" /> {data.meta.data_warning}
+          </div>
+        )}
+        {data?.meta.debug && (
+          <details style={{ marginTop: 8 }}>
+            <summary className="dim" style={{ cursor: "pointer", fontSize: 12 }}>Debug — engine wiring</summary>
+            <div className="dim mono" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.6 }}>
+              strategy_id: <b>{data.meta.debug.strategy_id}</b> · class: <b>{data.meta.debug.strategy_class}</b> ·
+              candles: {data.meta.debug.candles_loaded} (+{data.meta.debug.warmup_bars} warmup) ·
+              trades: {data.meta.debug.trades_generated} · source: {data.meta.debug.data_source} ·
+              MTF: {data.meta.debug.mtf_timeframes.join("/") || "—"} · {data.meta.debug.computed_at.slice(11, 19)}
+              {data.meta.debug.error && <span className="neg"> · error: {data.meta.debug.error}</span>}
+            </div>
+          </details>
         )}
       </Card>
 

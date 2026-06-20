@@ -764,11 +764,21 @@ def data_sync_all(target_candles: int = 2000, x_webhook_secret: Optional[str] = 
 
 @router.get("/replay/run")
 def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800,
-               start: Optional[str] = None, end: Optional[str] = None):
-    """Precompute a no-lookahead decision timeline for TradingView-style replay.
-    Optional ``start``/``end`` (YYYY-MM-DD) jump to a specific historical window."""
+               start: Optional[str] = None, end: Optional[str] = None,
+               strategy: str = "Supply/Demand", source: str = "binance"):
+    """Precompute a no-lookahead decision timeline for TradingView-style replay
+    using the SELECTED strategy. ``source`` = binance | demo. ``start``/``end``
+    (YYYY-MM-DD) jump to a specific historical window."""
     from services.replay import build_replay
-    return build_replay(symbol, timeframe, limit, start=start, end=end)
+    return build_replay(symbol, timeframe, limit, start=start, end=end,
+                        strategy=strategy, source=source)
+
+
+@router.get("/strategies/registry")
+def strategies_registry():
+    """The real strategy registry the selectors pull from (id / version / meta)."""
+    from services.strategy_presets import REGISTRY
+    return {"strategies": REGISTRY}
 
 
 @router.get("/replay/stats")

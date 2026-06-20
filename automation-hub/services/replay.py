@@ -136,9 +136,24 @@ def _parse_date(s):
         return None
 
 
+def _label_source(source: str) -> dict:
+    """Map a raw data-source string to a clear label + realness flag + warning."""
+    if source in ("live (ccxt)", "local store (real)"):
+        return {"label": "Binance historical data", "is_real": True, "warning": None}
+    if source == "bundled sample":
+        return {"label": "Bundled sample (real CSV, limited history)", "is_real": False,
+                "warning": "Using a small bundled CSV — not full Binance history. Run /data/sync for real Binance data."}
+    if source == "synthetic":
+        return {"label": "Demo sample (synthetic)", "is_real": False,
+                "warning": "Demo sample data only — not real market data. Run /data/sync to load Binance history."}
+    return {"label": source, "is_real": False, "warning": None}
+
+
 def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
-                 start=None, end=None) -> dict:
+                 start=None, end=None, strategy: str = "Supply/Demand",
+                 source: str = "binance", custom_spec: dict = None) -> dict:
     from data.market_data import get_bars
+    from bot.data.synthetic import generate_bars
     if exec_tf not in TF_FACTORS:
         exec_tf = "15m"
     n = max(300, min(int(limit or 800), 1500))
@@ -149,7 +164,13 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
     since_ms = None
     if start_dt is not None:
         since_ms = int((start_dt.timestamp() - _TF_SECONDS[exec_tf] * 1200) * 1000)
-    bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf, since_ms=since_ms)
+    if source == "demo":
+        try:
+            bars, source = generate_bars(n=n + 1200, timeframe=exec_tf, seed=1), "synthetic"
+        except ValueError:
+            bars, source = [], "unavailable"
+    else:
+        bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf, since_ms=since_ms)
 
     if start_dt is not None or end_dt is not None:
         sel = [k for k, b in enumerate(bars)
@@ -169,9 +190,12 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
     offset = len(warm)          # view[0] is global bar `offset`
 
     if not view:
+        sl = _label_source(source)
         return {"meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
-                         "bars": 0, "start": None, "end": None, "htf_available": {},
-                         "note": "No data in the selected date range."},
+                         "data_source_label": sl["label"], "data_is_real": sl["is_real"],
+                         "data_warning": sl["warning"] or "No data in the selected date range.",
+                         "strategy": strategy, "bars": 0, "start": None, "end": None,
+                         "htf_available": {}, "note": "No data in the selected date range."},
                 "candles": [], "overlays": {"ema20": [], "ema50": [], "vwap": []},
                 "markers": [], "zones": [], "frames": [], "events": [], "trades": [],
                 "stats": _stats([], symbol)}
@@ -200,7 +224,11 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
     vwap = _vwap_series(view)
 
     detector = RegimeDetector()
-    strat = SMCStrategy(symbol)
+    from services.strategy_presets import make_replay_strategy
+    strat, strat_err, strategy_id = make_replay_strategy(strategy, symbol, exec_tf, custom_spec)
+    if strat is None:                      # bad strategy name / missing custom spec
+        strat, strategy_id, strat_err = SMCStrategy(symbol), "supply_demand", strat_err
+    is_smc = isinstance(strat, SMCStrategy)
     # warm the strategy on the pre-view bars WITHOUT recording (no trading history)
     for b in warm:
         strat.on_bar(b)
@@ -218,49 +246,51 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
         candles.append({"t": bar.timestamp.isoformat(), "o": round(bar.open, 6), "h": round(bar.high, 6),
                         "l": round(bar.low, 6), "c": round(bar.close, 6), "v": round(bar.volume or 0.0, 2)})
 
-        # --- structure events from the strategy's own causal state ---
+        # --- structure events from the SMC strategy's own causal state ---
+        # (other strategies don't expose this internal state; their entries are
+        #  still scored, gated and marked below — just without SMC structure tags)
         sweep = struct = fvg = False
-        if strat._last_sweep_low == gi:
-            sweep = True
-            markers.append({"idx": li, "price": round(bar.low, 6), "type": "Sweep", "side": "bull"})
-            events.append({"idx": li, "kind": "sweep", "text": "Liquidity sweep of lows — stops taken, price reclaimed."})
-        if strat._last_sweep_high == gi:
-            sweep = True
-            markers.append({"idx": li, "price": round(bar.high, 6), "type": "Sweep", "side": "bear"})
-            events.append({"idx": li, "kind": "sweep", "text": "Liquidity sweep of highs — stops taken, price rejected."})
-        if strat._last_bull_struct == gi:
-            struct = True
-            markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bull"})
-            events.append({"idx": li, "kind": "structure", "text": "Bullish break of structure (BOS/CHoCH)."})
-            if last_down is not None:  # demand order block = last down candle before the impulse
-                ob = last_down[1]
-                zones.append({"type": "demand", "left_idx": last_down[0],
-                              "top": round(max(ob.open, ob.close), 6), "bottom": round(ob.low, 6)})
-        if strat._last_bear_struct == gi:
-            struct = True
-            markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bear"})
-            events.append({"idx": li, "kind": "structure", "text": "Bearish break of structure (BOS/CHoCH)."})
-            if last_up is not None:  # supply order block = last up candle before the impulse
-                ob = last_up[1]
-                zones.append({"type": "supply", "left_idx": last_up[0],
-                              "top": round(ob.high, 6), "bottom": round(min(ob.open, ob.close), 6)})
         if bar.close < bar.open:
             last_down = (li, bar)
         elif bar.close > bar.open:
             last_up = (li, bar)
-        if strat._last_bull_fvg == gi:
-            fvg = True
-            markers.append({"idx": li, "price": round(bar.close, 6), "type": "FVG", "side": "bull"})
-            events.append({"idx": li, "kind": "fvg", "text": "Bullish fair-value gap (imbalance) formed."})
-        if strat._last_bear_fvg == gi:
-            fvg = True
-            markers.append({"idx": li, "price": round(bar.close, 6), "type": "FVG", "side": "bear"})
-
-        # recency windows (match the SMC strategy)
-        p = strat.params
-        recent_sweep = min(gi - strat._last_sweep_low, gi - strat._last_sweep_high) <= p["sweep_lookback"]
-        recent_struct = min(gi - strat._last_bull_struct, gi - strat._last_bear_struct) <= p["choch_lookback"]
-        recent_fvg = min(gi - strat._last_bull_fvg, gi - strat._last_bear_fvg) <= p["fvg_lookback"]
+        recent_sweep = recent_struct = recent_fvg = False
+        if is_smc:
+            if strat._last_sweep_low == gi:
+                sweep = True
+                markers.append({"idx": li, "price": round(bar.low, 6), "type": "Sweep", "side": "bull"})
+                events.append({"idx": li, "kind": "sweep", "text": "Liquidity sweep of lows — stops taken, price reclaimed."})
+            if strat._last_sweep_high == gi:
+                sweep = True
+                markers.append({"idx": li, "price": round(bar.high, 6), "type": "Sweep", "side": "bear"})
+                events.append({"idx": li, "kind": "sweep", "text": "Liquidity sweep of highs — stops taken, price rejected."})
+            if strat._last_bull_struct == gi:
+                struct = True
+                markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bull"})
+                events.append({"idx": li, "kind": "structure", "text": "Bullish break of structure (BOS/CHoCH)."})
+                if last_down is not None:
+                    ob = last_down[1]
+                    zones.append({"type": "demand", "left_idx": last_down[0],
+                                  "top": round(max(ob.open, ob.close), 6), "bottom": round(ob.low, 6)})
+            if strat._last_bear_struct == gi:
+                struct = True
+                markers.append({"idx": li, "price": round(bar.close, 6), "type": "BOS/CHoCH", "side": "bear"})
+                events.append({"idx": li, "kind": "structure", "text": "Bearish break of structure (BOS/CHoCH)."})
+                if last_up is not None:
+                    ob = last_up[1]
+                    zones.append({"type": "supply", "left_idx": last_up[0],
+                                  "top": round(ob.high, 6), "bottom": round(min(ob.open, ob.close), 6)})
+            if strat._last_bull_fvg == gi:
+                fvg = True
+                markers.append({"idx": li, "price": round(bar.close, 6), "type": "FVG", "side": "bull"})
+                events.append({"idx": li, "kind": "fvg", "text": "Bullish fair-value gap (imbalance) formed."})
+            if strat._last_bear_fvg == gi:
+                fvg = True
+                markers.append({"idx": li, "price": round(bar.close, 6), "type": "FVG", "side": "bear"})
+            p = strat.params
+            recent_sweep = min(gi - strat._last_sweep_low, gi - strat._last_sweep_high) <= p["sweep_lookback"]
+            recent_struct = min(gi - strat._last_bull_struct, gi - strat._last_bear_struct) <= p["choch_lookback"]
+            recent_fvg = min(gi - strat._last_bull_fvg, gi - strat._last_bear_fvg) <= p["fvg_lookback"]
 
         trends = trends_at(gi)
         regime = detector.detect(bars[:gi + 1]).name
@@ -323,7 +353,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             side = 1 if sig.type == SignalType.LONG else -1
         # near-resistance check for longs (room to the recent swing high)
         near_res = False
-        if side > 0 and strat._swing_high is not None:
+        if side > 0 and is_smc and strat._swing_high is not None:
             rr_room = (strat._swing_high - bar.close)
             near_res = 0 < rr_room < (atr(bars[:gi + 1], 14) or 1e9)
 
@@ -385,13 +415,24 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
         })
 
     # keep the most recent supply/demand zones + current swing S/R levels
-    zones = zones[-8:] + _zones_from_strategy(strat, offset, len(view))
+    zones = zones[-8:] + (_zones_from_strategy(strat, offset, len(view)) if is_smc else [])
     stats = _stats(trades, symbol)
+    sl = _label_source(source)
+    from datetime import datetime, timezone
     return {
         "meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
+                 "data_source_label": sl["label"], "data_is_real": sl["is_real"],
+                 "data_warning": sl["warning"], "strategy": strategy,
                  "bars": len(view), "start": view[0].timestamp.isoformat() if view else None,
                  "end": view[-1].timestamp.isoformat() if view else None,
-                 "htf_available": {HTF_LABEL[k]: (v[2] >= MIN_HTF_CANDLES) for k, v in htf_trends.items()}},
+                 "htf_available": {HTF_LABEL[k]: (v[2] >= MIN_HTF_CANDLES) for k, v in htf_trends.items()},
+                 # debug panel — proves the UI is wired to the real engine
+                 "debug": {"strategy_id": strategy_id, "strategy_class": type(strat).__name__,
+                           "candles_loaded": len(view), "warmup_bars": len(warm),
+                           "trades_generated": len(trades), "data_source": source,
+                           "mtf_timeframes": [HTF_LABEL[k] for k in htf_trends],
+                           "computed_at": datetime.now(timezone.utc).isoformat(),
+                           "error": strat_err}},
         "candles": candles, "overlays": {"ema20": ema20, "ema50": ema50, "vwap": vwap},
         "markers": markers, "zones": zones, "frames": frames, "events": events,
         "trades": trades, "stats": stats,
