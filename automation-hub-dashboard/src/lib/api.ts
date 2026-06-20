@@ -361,6 +361,7 @@ export interface ControlOptions {
 export interface ControlTuning {
   min_score: number; rr: number; trend_filter: boolean; volume_filter: boolean;
   regime_filter: boolean; session_filter: boolean; max_trades_per_day: number; cooldown_after_loss: number;
+  max_consecutive_losses: number;
 }
 export interface ControlSimResult {
   strategy: string; symbol: string; timeframe: string; data_source: string;

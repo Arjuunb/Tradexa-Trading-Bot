@@ -97,7 +97,7 @@ def test_simulate_endpoint_uses_real_data(client):
     assert r.status_code == 200
     body = r.json()
     assert body["label"] == "Simulation Result"
-    assert body["data_source"] in ("bundled sample", "synthetic", "live (ccxt)")
+    assert body["data_source"] in ("local store (real)", "bundled sample", "synthetic", "live (ccxt)")
     assert "results" in body and "warnings" in body and "description" in body
 
 

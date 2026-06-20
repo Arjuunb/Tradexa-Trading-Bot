@@ -16,7 +16,8 @@ import pytest
 
 # symbols / timeframes the replay + stats tests touch
 _SEED_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
-_SEED_TFS = ("15m", "5m")
+# replay uses 15m/5m; the control-center simulation/compare/auto-tune use 4h/1h/1d
+_SEED_TFS = ("15m", "5m", "1h", "4h", "1d")
 _SEED_BARS = 2900  # covers the largest replay window (limit 1500 + 1200 warmup)
 
 

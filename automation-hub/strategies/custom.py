@@ -18,12 +18,64 @@ from __future__ import annotations
 
 from typing import Optional
 
+from datetime import timedelta
+
 from bot.data.indicators import atr, ema, rsi
 
 RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter",
               "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap",
               "vwap", "bollinger", "bos", "choch")
 WARMUP = 210  # enough history for SMA200 etc.
+
+
+class _RiskGate:
+    """Strategy-agnostic risk manager applied in SIMULATION so the brain-tuning
+    risk limits actually take effect (previously only honoured live). Enforces:
+      * max_trades_per_day      — cap entries per UTC day
+      * max_consecutive_losses  — pause new entries after N losses (resets daily)
+      * cooldown_after_loss     — block entries for N minutes after a loss
+    Per-day counters reset at the UTC day boundary; the cooldown is time-based
+    off the losing trade's exit time.
+    """
+
+    def __init__(self, max_per_day=0, cooldown_min=0, max_consec=0):
+        self.max_per_day = int(max_per_day or 0)
+        self.cooldown_min = int(cooldown_min or 0)
+        self.max_consec = int(max_consec or 0)
+        self.day = None
+        self.day_count = 0
+        self.recent_losses = 0
+        self.cooldown_until = None
+
+    def active(self) -> bool:
+        return bool(self.max_per_day or self.max_consec or self.cooldown_min)
+
+    def _roll(self, ts) -> None:
+        d = ts.date()
+        if d != self.day:
+            self.day, self.day_count, self.recent_losses = d, 0, 0
+
+    def blocked_reason(self, ts):
+        self._roll(ts)
+        if self.max_per_day and self.day_count >= self.max_per_day:
+            return "max trades/day reached"
+        if self.max_consec and self.recent_losses >= self.max_consec:
+            return "max consecutive losses — trading paused"
+        if self.cooldown_until is not None and ts < self.cooldown_until:
+            return "cooldown after loss"
+        return None
+
+    def on_entry(self, ts) -> None:
+        self._roll(ts)
+        self.day_count += 1
+
+    def on_exit(self, exit_ts, r: float) -> None:
+        if r > 0:
+            self.recent_losses, self.cooldown_until = 0, None
+        else:
+            self.recent_losses += 1
+            if self.cooldown_min:
+                self.cooldown_until = exit_ts + timedelta(minutes=self.cooldown_min)
 
 
 # ----------------------------------------------------------------- indicators
@@ -281,8 +333,8 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
     pos = None
     trades: list[dict] = []
     blocked: list[dict] = []
-    day_count: dict[str, int] = {}
-    recent_losses = 0  # consecutive losses, for the brain's streak guard
+    gate = _RiskGate(max_per_day, spec.get("cooldown_after_loss", 0),
+                     spec.get("max_consecutive_losses", 0))
 
     for i in range(WARMUP, len(bars)):
         bar = bars[i]
@@ -330,14 +382,19 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                 if pos.get("brain"):
                     rec.update(pos["brain"])
                 trades.append(rec)
-                recent_losses = 0 if r > 0 else recent_losses + 1
+                gate.on_exit(bar.timestamp, r)
                 pos = None
 
         if pos is None:
             if session and not _in_session(bar.timestamp, session):
                 continue
-            day = bar.timestamp.date().isoformat()
-            if max_per_day and day_count.get(day, 0) >= max_per_day:
+            rzn = gate.blocked_reason(bar.timestamp)
+            if rzn:
+                matched, _ = evaluate(entry_tree, bars, i)
+                if matched:        # a setup existed but the risk manager vetoed it
+                    blocked.append({"time": bar.timestamp.isoformat(), "side": side,
+                                    "score": 0, "regime": "—", "htf_bias": rzn,
+                                    "blocks": [rzn], "reason": rzn})
                 continue
             matched, reasons = evaluate(entry_tree, bars, i)
             if matched:
@@ -355,7 +412,7 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                 if brain is not None:
                     is_rev = reversal if reversal is not None else _detect_reversal(spec)
                     v = brain.evaluate(bars, i, side=side, entry=entry_px, stop=stop,
-                                       target=target, reversal=is_rev, recent_losses=recent_losses)
+                                       target=target, reversal=is_rev, recent_losses=gate.recent_losses)
                     if not v.allowed or v.score < min_score:
                         blocked.append({
                             "time": bar.timestamp.isoformat(), "side": side,
@@ -380,7 +437,7 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                 pos = {"side": side, "entry": entry_px, "stop": stop, "target": target,
                        "risk": risk_abs, "reason": "; ".join(reasons) or "entry conditions met",
                        "time": bar.timestamp, "idx": i, "be": False, "brain": brain_tag}
-                day_count[day] = day_count.get(day, 0) + 1
+                gate.on_entry(bar.timestamp)
 
     return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
 
@@ -393,7 +450,9 @@ def _detect_reversal(spec: dict) -> bool:
 
 def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                       starting_balance: float = 10_000.0, risk_pct: float = 0.01,
-                      brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None) -> dict:
+                      brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None,
+                      max_trades_per_day: int = 0, cooldown_after_loss: int = 0,
+                      max_consecutive_losses: int = 0) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
 
@@ -408,6 +467,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
     pos = None
     trades: list[dict] = []
     blocked: list[dict] = []
+    gate = _RiskGate(max_trades_per_day, cooldown_after_loss, max_consecutive_losses)
 
     for i, bar in enumerate(bars):
         if pos is not None:
@@ -433,6 +493,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                     "entry_time": pos["time"].isoformat(), "exit_time": bar.timestamp.isoformat(),
                     "bars_held": i - pos["idx"],
                 })
+                gate.on_exit(bar.timestamp, r)
                 pos = None
 
         sig = strat.on_bar(bar)  # always feed (warm indicators); act only when flat
@@ -441,6 +502,11 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
             risk = abs(entry - stop)
             if risk > 0:
                 side = "long" if sig.type == SignalType.LONG else "short"
+                rzn = gate.blocked_reason(bar.timestamp)
+                if rzn:
+                    blocked.append({"time": bar.timestamp.isoformat(), "side": side, "score": 0,
+                                    "regime": "—", "htf_bias": rzn, "reason": rzn})
+                    continue
                 if brain is not None:
                     v = brain.evaluate(bars, i, side=side, entry=entry, stop=stop,
                                        target=sig.take_profit)
@@ -459,6 +525,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                 pos = {"side": side, "entry": entry, "stop": stop, "target": sig.take_profit,
                        "risk": risk, "reason": getattr(sig, "reason", "") or f"{side} entry",
                        "time": bar.timestamp, "idx": i, "be": False}
+                gate.on_entry(bar.timestamp)
 
     return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
 

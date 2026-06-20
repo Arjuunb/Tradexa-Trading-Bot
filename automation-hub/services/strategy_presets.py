@@ -64,7 +64,16 @@ DEFAULT_TUNING = {
     "min_score": 60, "rr": 2.0,
     "trend_filter": True, "volume_filter": False, "regime_filter": True,
     "session_filter": False, "max_trades_per_day": 0, "cooldown_after_loss": 0,
+    "max_consecutive_losses": 0,
 }
+
+
+def _risk_kwargs(tuning: dict) -> dict:
+    """The risk-manager limits the simulator enforces (priority: risk manager)."""
+    t = {**DEFAULT_TUNING, **(tuning or {})}
+    return {"max_trades_per_day": int(t["max_trades_per_day"]),
+            "cooldown_after_loss": int(t["cooldown_after_loss"]),
+            "max_consecutive_losses": int(t["max_consecutive_losses"])}
 
 
 def _apply_tuning(spec: dict, tuning: dict) -> dict:
@@ -83,7 +92,8 @@ def _apply_tuning(spec: dict, tuning: dict) -> dict:
     else:
         spec.pop("session", None)
     spec["max_trades_per_day"] = int(t["max_trades_per_day"])
-    spec["cooldown_after_loss"] = int(t["cooldown_after_loss"])   # recorded; used live
+    spec["cooldown_after_loss"] = int(t["cooldown_after_loss"])
+    spec["max_consecutive_losses"] = int(t["max_consecutive_losses"])
     return spec
 
 
@@ -134,7 +144,8 @@ def _run_on(strategy: str, symbol: str, timeframe: str, tuning: dict, custom_spe
         from webhook_api import _build_builtin
         strat = _build_builtin(desc["key"], symbol)
         results = simulate_strategy(strat, rows, brain=brain, min_score=min_score,
-                                    mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
+                                    mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs,
+                                    **_risk_kwargs(tuning))
     else:
         spec = desc["spec"]
         use_brain = spec.get("quality_filter", True)
@@ -185,7 +196,8 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
     gate checks (chosen in the control bar); a trade against either is blocked.
     """
     from data.market_data import get_bars
-    rows, source = get_bars(symbol, n=max(600, min(int(bars), 10000)), timeframe=timeframe)
+    rows, source = get_bars(symbol, n=max(600, min(int(bars), 10000)), timeframe=timeframe,
+                            require_real=True)
     if not rows:
         return {"error": "Historical data not available. Please load Binance data first "
                          "(run /data/sync).", "data_source": source, "available": False}
@@ -208,7 +220,8 @@ def auto_tune(strategy: str, symbol: str, timeframe: str, *, macro: str = None,
     overfit verdict — the bot's 'tune this losing strategy' helper. Optimises on
     the train slice, validates on the unseen test slice."""
     from data.market_data import get_bars
-    rows, source = get_bars(symbol, n=max(800, min(int(bars), 10000)), timeframe=timeframe)
+    rows, source = get_bars(symbol, n=max(800, min(int(bars), 10000)), timeframe=timeframe,
+                            require_real=True)
     if not rows:
         return {"available": False,
                 "error": "Historical data not available. Please load Binance data first."}

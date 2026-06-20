@@ -44,6 +44,25 @@ def test_run_simulation_real_results():
     assert r["warning"] is None or "underperforming" in r["warning"]["message"]
 
 
+def test_risk_manager_limits_apply_to_builtin_and_custom():
+    """The risk-manager tuning (max trades/day, cooldown, max consecutive losses)
+    must actually reduce trades in SIMULATION — for built-in strategies too, not
+    just custom ones (previously the built-in path ignored them entirely)."""
+    for strat in ("Decision Brain", "EMA 8/30"):     # builtin path + custom path
+        base = run_simulation(strat, "BTCUSDT", "15m", tuning={"min_score": 0,
+                              "max_trades_per_day": 0, "cooldown_after_loss": 0}, bars=4000)
+        assert base["available"] and base["results"]["total_trades"] > 5
+        capped = run_simulation(strat, "BTCUSDT", "15m", tuning={"min_score": 0,
+                                "max_trades_per_day": 1}, bars=4000)
+        # a 1-trade/day cap genuinely reduces the count on an intraday timeframe —
+        # proving the limit is enforced (it was previously ignored for built-ins)
+        assert capped["results"]["total_trades"] < base["results"]["total_trades"]
+        # cooldown after a loss also reduces trade count
+        cooled = run_simulation(strat, "BTCUSDT", "15m", tuning={"min_score": 0,
+                                "cooldown_after_loss": 600}, bars=4000)
+        assert cooled["results"]["total_trades"] < base["results"]["total_trades"]
+
+
 def test_macro_confirmation_drive_the_mtf_gate():
     plain = run_simulation("EMA 8/30", "BTCUSDT", "5m", tuning={"min_score": 50}, bars=3000)
     gated = run_simulation("EMA 8/30", "BTCUSDT", "5m", tuning={"min_score": 50}, bars=3000,

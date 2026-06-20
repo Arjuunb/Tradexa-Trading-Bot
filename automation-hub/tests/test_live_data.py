@@ -18,4 +18,4 @@ def test_fetch_never_raises_offline():
 def test_get_bars_always_returns_data():
     bars, src = get_bars("BTCUSDT", n=200, timeframe="4h")
     assert bars
-    assert src in ("bundled sample", "synthetic", "live (ccxt)")
+    assert src in ("local store (real)", "bundled sample", "synthetic", "live (ccxt)")
