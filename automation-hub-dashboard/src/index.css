@@ -177,10 +177,14 @@ button { font-family: inherit; cursor: pointer; }
 /* ----------------------------------------------------------- metric cards */
 .metric-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
 .metric-card {
-  background: linear-gradient(180deg, var(--card-1), var(--card-2));
+  position: relative; overflow: hidden;
+  background: linear-gradient(180deg, var(--card-elevated), var(--card-1));
   border: 1px solid var(--card-border); border-radius: var(--radius);
   padding: 13px 15px; min-height: 112px; display: flex; flex-direction: column; gap: 4px;
+  transition: border-color 0.18s ease, transform 0.18s ease;
 }
+.metric-card:hover { border-color: rgba(139, 92, 246, 0.28); transform: translateY(-1px); }
+.metric-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; opacity: 0.55; }
 .metric-top { display: flex; align-items: center; justify-content: space-between; }
 .metric-label { color: var(--dim); font-size: 12px; }
 .metric-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(139, 92, 246, 0.12); }

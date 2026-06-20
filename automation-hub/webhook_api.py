@@ -387,6 +387,143 @@ def risk_summary():
     }
 
 
+class PositionSizeRequest(BaseModel):
+    equity: float = 10000.0
+    entry: float
+    stop: Optional[float] = None
+    side: str = "long"
+    method: str = "percent"          # fixed | percent | atr | vol_adjusted
+    risk_pct: float = 0.01
+    fixed_risk: Optional[float] = None
+    atr: Optional[float] = None
+    atr_mult: float = 1.5
+    leverage: float = 10.0
+    vol_target_pct: float = 0.02
+
+
+@router.post("/risk/position-size")
+def risk_position_size(body: PositionSizeRequest):
+    """Position sizing — fixed / percent / ATR / volatility-adjusted. Returns
+    size, dollar risk, margin and a liquidation estimate."""
+    from services.risk_engine import position_size
+    return position_size(equity=body.equity, entry=body.entry, stop=body.stop, side=body.side,
+                         method=body.method, risk_pct=body.risk_pct, fixed_risk=body.fixed_risk,
+                         atr=body.atr, atr_mult=body.atr_mult, leverage=body.leverage,
+                         vol_target_pct=body.vol_target_pct)
+
+
+@router.get("/risk/correlation")
+def risk_correlation(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT",
+                     timeframe: str = "1d", lookback: int = 200):
+    """Real correlation matrix of log returns over the cached Binance candles."""
+    from services.risk_engine import correlation_matrix
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:8]
+    return correlation_matrix(syms, timeframe=timeframe, lookback=lookback)
+
+
+@router.get("/risk/portfolio")
+def risk_portfolio(timeframe: str = "1d", conf: float = 0.95):
+    """Portfolio risk: exposure (total/long/short/per-symbol), heat and a
+    parametric Value-at-Risk from the real covariance matrix, with warnings."""
+    from services.risk_engine import portfolio_risk
+    raw = paper.positions()
+    equity = paper.balance()
+    pos = [{"symbol": p.get("symbol", ""), "direction": p.get("side", "long"),
+            "notional": float(p.get("size", 0)) * float(p.get("entry", 0)),
+            "risk": abs(float(p.get("entry", 0)) - float(p.get("stop") or p.get("entry", 0))) * float(p.get("size", 0))}
+           for p in raw]
+    out = portfolio_risk(equity, pos, timeframe=timeframe, conf=conf,
+                         exposure_warn=settings.exposure_limit_pct)
+    out["open_positions"] = len(pos)
+    return out
+
+
+@router.get("/risk/correlation-check")
+def risk_correlation_check(candidate: str = "BTCUSDT", open_symbols: str = "",
+                           timeframe: str = "1d", threshold: float = 0.8):
+    """Would opening ``candidate`` stack onto an already-correlated position?"""
+    from services.risk_engine import correlation_conflicts
+    opens = [s.strip().upper() for s in open_symbols.split(",") if s.strip()]
+    return correlation_conflicts(candidate.strip().upper(), opens,
+                                 timeframe=timeframe, threshold=threshold)
+
+
+@router.get("/coach/review")
+def coach_review_endpoint(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                          timeframe: str = "15m", limit: int = 800):
+    """AI Trading Coach — a mentor-style review of a REAL replay run: why trades
+    won / lost, the recurring mistakes, weak conditions, suggestions, plus
+    performance attribution and per-trade explanations."""
+    from services.replay import build_replay
+    from services.coach import coach_review
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        return {"available": False, "error": rep["meta"].get("data_warning", "No data."),
+                "needs_download": rep["meta"].get("needs_download", False)}
+    review = coach_review(rep["trades"], rep["stats"], symbol=symbol, strategy=strategy)
+    review["available"] = True
+    review["data_source"] = rep["meta"]["data_source_label"]
+    return review
+
+
+@router.get("/coach/leaderboard")
+def coach_leaderboard(symbols: str = "BTCUSDT,ETHUSDT", strategies: str = "Decision Brain,EMA 20/50,Supply/Demand",
+                      timeframe: str = "15m", limit: int = 600):
+    """Performance attribution across strategies × symbols — which strategy and
+    which symbol actually made money (#17). Runs real replays."""
+    from services.replay import build_replay
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:4]
+    strats = [s.strip() for s in strategies.split(",") if s.strip()][:5]
+    grid, by_strategy, by_symbol = [], {}, {}
+    for st in strats:
+        for sym in syms:
+            rep = build_replay(sym, timeframe, limit, strategy=st)
+            s = rep["stats"]
+            row = {"strategy": st, "symbol": sym, "trades": s["trades"],
+                   "win_rate": s["win_rate"], "profit_factor": s["profit_factor"], "net_r": s["net_r"]}
+            grid.append(row)
+            by_strategy[st] = round(by_strategy.get(st, 0.0) + s["net_r"], 2)
+            by_symbol[sym] = round(by_symbol.get(sym, 0.0) + s["net_r"], 2)
+    grid.sort(key=lambda r: r["net_r"], reverse=True)
+    rank = lambda d: sorted(({"key": k, "net_r": v} for k, v in d.items()), key=lambda x: x["net_r"], reverse=True)
+    return {"timeframe": timeframe, "grid": grid,
+            "by_strategy": rank(by_strategy), "by_symbol": rank(by_symbol),
+            "best": grid[0] if grid else None}
+
+
+@router.get("/lab/walk-forward")
+def lab_walk_forward(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                     timeframe: str = "4h", bars: int = 4000, folds: int = 4):
+    """Walk-forward: optimise per train block, validate on the next unseen block."""
+    from services.backtest_lab import walk_forward
+    return walk_forward(strategy, symbol, timeframe, bars=bars, folds=folds)
+
+
+@router.get("/lab/monte-carlo")
+def lab_monte_carlo(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                    timeframe: str = "4h", bars: int = 4000, runs: int = 1000):
+    """Monte Carlo: bootstrap the trade sequence into an outcome distribution."""
+    from services.backtest_lab import monte_carlo
+    return monte_carlo(strategy, symbol, timeframe, bars=bars, runs=runs)
+
+
+@router.get("/lab/out-of-sample")
+def lab_out_of_sample(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                      timeframe: str = "4h", bars: int = 4000, split: float = 0.7):
+    """Out-of-sample train/test split with an honest overfit verdict."""
+    from services.backtest_lab import out_of_sample
+    return out_of_sample(strategy, symbol, timeframe, bars=bars, split=split)
+
+
+@router.get("/lab/sliced")
+def lab_sliced(strategy: str = "Decision Brain", timeframe: str = "15m",
+               symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", limit: int = 800):
+    """Regime- / session- / symbol-conditional performance for one strategy."""
+    from services.backtest_lab import sliced_performance
+    syms = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())[:4]
+    return sliced_performance(strategy, timeframe, symbols=syms, limit=limit)
+
+
 _STRATEGY_CATALOG = [
     {"key": "brain", "label": "Decision Brain",
      "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},

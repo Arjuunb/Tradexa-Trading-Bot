@@ -1,8 +1,9 @@
 import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import { PageHeader } from "../components/common/ui";
-import { useLive, type LedgerPosition, type PaperAccount, type RiskSummary, type StrategyPerformance, type SystemStatus } from "../lib/api";
+import { Badge, PageHeader } from "../components/common/ui";
+import { apiGet, useLive, type CoachReview, type CoachLeaderboard,
+  type LedgerPosition, type PaperAccount, type RiskSummary, type StrategyPerformance, type SystemStatus } from "../lib/api";
 
 interface Ctx {
   sys: SystemStatus | null; acct: PaperAccount | null; perf: StrategyPerformance | null;
@@ -61,6 +62,8 @@ export default function AIAssistantPage() {
         </div>
       </Card>
 
+      <TradingCoach />
+
       {log.length > 0 && (
         <Card title="Conversation">
           <div className="alert-stack">
@@ -78,5 +81,131 @@ export default function AIAssistantPage() {
         </Card>
       )}
     </>
+  );
+}
+
+const COACH_SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
+const COACH_STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+const rTone = (n: number) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
+
+function TradingCoach() {
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [rev, setRev] = useState<CoachReview | null>(null);
+  const [board, setBoard] = useState<CoachLeaderboard | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [busyB, setBusyB] = useState(false);
+
+  const review = async () => {
+    setBusy(true);
+    try { setRev(await apiGet<CoachReview>(`/coach/review?symbol=${symbol}&strategy=${encodeURIComponent(strategy)}&timeframe=15m&limit=800`)); }
+    catch { setRev({ available: false, error: "request failed" } as any); }
+    finally { setBusy(false); }
+  };
+  const leaderboard = async () => {
+    setBusyB(true);
+    try { setBoard(await apiGet<CoachLeaderboard>(`/coach/leaderboard?symbols=BTCUSDT,ETHUSDT&strategies=Decision Brain,EMA 20/50,Supply/Demand&timeframe=15m&limit=600`)); }
+    catch { /* ignore */ } finally { setBusyB(false); }
+  };
+
+  const attrTable = (title: string, rows?: { key: string; trades: number; net_r: number; win_rate: number }[]) => (
+    <div>
+      <div className="card-subtitle" style={{ marginBottom: 4 }}>{title}</div>
+      <table className="data-table" style={{ fontSize: 12 }}>
+        <tbody>
+          {(rows ?? []).map((b) => (
+            <tr key={b.key}><td><b>{b.key}</b></td><td className="dim">{b.trades > 0 ? `${b.trades}t · ${b.win_rate}%` : ""}</td>
+              <td className={rTone(b.net_r)} style={{ textAlign: "right" }}>{b.net_r >= 0 ? "+" : ""}{b.net_r}R</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <Card title="AI Trading Coach" subtitle="mentor review of a real simulation · why won / lost, mistakes, attribution"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{COACH_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{COACH_SYMS.map((s) => <option key={s}>{s}</option>)}</select>
+        <button className="btn btn-primary" disabled={busy} onClick={review}><Icon name="bot" size={14} /> {busy ? "Reviewing…" : "Review"}</button>
+      </div>}>
+      {!rev ? (
+        <div className="dim ta-center" style={{ padding: 16 }}>Pick a strategy + symbol and let the coach review a real replay.</div>
+      ) : rev.available === false ? (
+        <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
+          <Icon name="warning" size={14} className="amber" /> {rev.error || "No data."} {rev.needs_download && "Download Binance history first."}
+        </div>
+      ) : (
+        <>
+          <div className="row-actions" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <b style={{ fontSize: 14 }}>{rev.headline}</b>
+            <span className="row-actions" style={{ gap: 6 }}>
+              <Badge text={`confidence ${rev.confidence_score}`} tone={rev.confidence_score >= 60 ? "green" : rev.confidence_score >= 35 ? "amber" : "red"} />
+              <Badge text={`stability ${rev.stability_score}`} tone={rev.stability_score >= 60 ? "green" : "amber"} />
+            </span>
+          </div>
+
+          <div className="grid-2-eq" style={{ marginTop: 10 }}>
+            <div>
+              <div className="card-subtitle pos" style={{ marginBottom: 4 }}>Why trades won</div>
+              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>{rev.why_won.map((w, i) => <li key={i}>{w}</li>)}</ul>
+              {rev.why_lost.length > 0 && <>
+                <div className="card-subtitle neg" style={{ margin: "10px 0 4px" }}>Why trades lost</div>
+                <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>{rev.why_lost.map((w, i) => <li key={i}>{w}</li>)}</ul>
+              </>}
+            </div>
+            <div>
+              <div className="card-subtitle" style={{ marginBottom: 4 }}>Common mistakes</div>
+              {rev.common_mistakes.length ? rev.common_mistakes.map((m, i) => (
+                <div key={i} className="risk-item"><span className="neg">{m.mistake}</span> <b>×{m.count}</b></div>
+              )) : <div className="dim">No recurring mistake stood out.</div>}
+              {rev.weak_conditions.length > 0 && (
+                <div style={{ marginTop: 8 }}><span className="dim">Avoid: </span>{rev.weak_conditions.map((w) => <Badge key={w} text={w} tone="amber" />)}</div>
+              )}
+            </div>
+          </div>
+
+          <div className="card-subtitle" style={{ margin: "12px 0 4px", color: "var(--purple-2)" }}>Coach suggestions</div>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>{rev.suggestions.map((s, i) => <li key={i}>{s}</li>)}</ul>
+
+          <div className="card-subtitle" style={{ margin: "12px 0 6px" }}>Performance attribution</div>
+          <div className="grid-2-eq">
+            {attrTable("By regime", rev.attribution.by_regime)}
+            {attrTable("By session", rev.attribution.by_session)}
+            {attrTable("By setup", rev.attribution.by_setup)}
+            {attrTable("By side", rev.attribution.by_side)}
+          </div>
+
+          {rev.sample_explanations && rev.sample_explanations.length > 0 && (
+            <details style={{ marginTop: 12 }}>
+              <summary className="dim" style={{ cursor: "pointer", fontSize: 12 }}>Explainable AI — why / why-not / why-trust</summary>
+              {rev.sample_explanations.map((e) => (
+                <div key={e.id} className="card" style={{ marginTop: 8, background: "var(--card-2)" }}>
+                  <div className="row-actions" style={{ justifyContent: "space-between" }}>
+                    <b>Trade #{e.id}</b><Badge text={`${e.result} ${e.rr! >= 0 ? "+" : ""}${e.rr}R`} tone={e.result === "Winner" ? "green" : "red"} />
+                  </div>
+                  <div className="risk-item"><span className="dim" style={{ minWidth: 70 }}>Why</span> <span>{e.why}</span></div>
+                  <div className="risk-item"><span className="dim" style={{ minWidth: 70 }}>Why not</span> <span>{e.why_not}</span></div>
+                  <div className="risk-item"><span className="dim" style={{ minWidth: 70 }}>Why trust</span> <span style={{ color: "var(--purple-2)" }}>{e.why_trust}</span></div>
+                </div>
+              ))}
+            </details>
+          )}
+        </>
+      )}
+
+      <div style={{ borderTop: "1px solid var(--card-border-soft)", marginTop: 14, paddingTop: 12 }}>
+        <div className="row-actions" style={{ justifyContent: "space-between" }}>
+          <div className="card-subtitle">Leaderboard — which strategy / symbol makes money</div>
+          <button className="btn btn-soft" disabled={busyB} onClick={leaderboard}><Icon name="chart" size={13} /> {busyB ? "Running…" : "Run leaderboard"}</button>
+        </div>
+        {board && (
+          <div className="grid-2-eq" style={{ marginTop: 8 }}>
+            {attrTable("By strategy (net R)", board.by_strategy.map((b) => ({ key: b.key, net_r: b.net_r, trades: 0, win_rate: 0 })) as any)}
+            {attrTable("By symbol (net R)", board.by_symbol.map((b) => ({ key: b.key, net_r: b.net_r, trades: 0, win_rate: 0 })) as any)}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }

@@ -24,6 +24,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+          pip install -r automation-hub/requirements.txt
 
-      - name: Run test suite
+      - name: Run engine test suite
+        run: python -m pytest -q tests
+
+      - name: Run automation-hub test suite
+        working-directory: automation-hub
         run: python -m pytest -q

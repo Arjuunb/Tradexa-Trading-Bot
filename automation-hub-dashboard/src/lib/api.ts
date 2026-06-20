@@ -148,6 +148,58 @@ export interface RiskSummary {
   risk_per_trade_pct: number; rejections: number; signals: number;
   trading_state: string; engine_running: boolean;
 }
+export interface PositionSizeResult {
+  error?: string; method: string; side: string; entry: number; stop: number; stop_distance: number;
+  position_size: number; notional: number; dollar_risk: number; risk_pct_of_equity: number;
+  margin_required: number; leverage: number; liquidation_estimate: number;
+}
+export interface CorrelationData {
+  timeframe: string; lookback: number; symbols: string[]; available: string[];
+  matrix: Record<string, Record<string, number | null>>;
+  pairs: { a: string; b: string; correlation: number }[];
+  daily_vol: Record<string, number>;
+}
+export interface PortfolioRisk {
+  equity: number; total_exposure: number; exposure_pct: number;
+  long_exposure: number; short_exposure: number; net_exposure: number;
+  by_symbol: Record<string, number>; open_risk: number; portfolio_heat_pct: number;
+  value_at_risk: number | null; value_at_risk_pct: number | null; var_confidence: number;
+  daily_risk_used_pct: number; warnings: string[]; risk_level: string; open_positions?: number;
+}
+export interface AttrBucket { key: string; trades: number; net_r: number; win_rate: number; avg_r: number; }
+export interface TradeExplain { id: number; result: string; rr: number | null; why: string; why_not: string; why_trust: string; }
+export interface CoachReview {
+  available?: boolean; error?: string; needs_download?: boolean; data_source?: string;
+  symbol: string; strategy: string; trades: number; net_r?: number; headline: string;
+  why_won: string[]; why_lost: string[]; common_mistakes: { mistake: string; count: number }[];
+  weak_conditions: string[]; suggestions: string[]; confidence_score: number; stability_score: number;
+  attribution: Record<string, AttrBucket[]>; sample_explanations?: TradeExplain[];
+}
+export interface CoachLeaderboard {
+  timeframe: string;
+  grid: { strategy: string; symbol: string; trades: number; win_rate: number; profit_factor: number; net_r: number }[];
+  by_strategy: { key: string; net_r: number }[]; by_symbol: { key: string; net_r: number }[];
+  best: { strategy: string; symbol: string; net_r: number } | null;
+}
+export interface WalkForward {
+  available: boolean; error?: string; verdict: string; note: string;
+  oos_net_r: number; positive_folds: number; total_folds: number; data_source?: string;
+  folds: { fold: number; best_min_score: number; train_net_r: number; test_net_r: number; test_trades: number; test_pf: number }[];
+}
+export interface MonteCarlo {
+  available: boolean; error?: string; runs: number; trades: number; prob_profit_pct: number;
+  net_r: { p5: number; median: number; p95: number; mean: number };
+  max_drawdown_r: { median: number; p95: number; worst: number };
+}
+export interface OutOfSample {
+  available: boolean; error?: string; verdict: string; note: string; split: number;
+  train: { net_r: number; trades: number; profit_factor: number; win_rate: number };
+  test: { net_r: number; trades: number; profit_factor: number; win_rate: number };
+}
+export interface SlicedPerf {
+  strategy: string; timeframe: string; total_trades: number;
+  by_regime: AttrBucket[]; by_session: AttrBucket[]; by_symbol: AttrBucket[];
+}
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }
