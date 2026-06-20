@@ -262,11 +262,21 @@ export interface ReplayTrade {
   score: number; breakdown: Record<string, number>;
   entry_reasons: string[]; exit_idx: number | null; exit: number | null;
   exit_reason: string | null; result: string; rr: number | null; loss_analysis: string | null;
+  mtf?: { aligned: boolean; reason: string }; regime?: string; bars_held?: number | null;
 }
 export interface ReplayStats {
   symbol: string; trades: number; win_rate: number; profit_factor: number; net_r: number;
   max_drawdown_r: number; avg_rr: number; expectancy_r: number; best_r: number; worst_r: number;
   long_trades: number; short_trades: number; long_net_r: number; short_net_r: number;
+  max_consecutive_wins: number; max_consecutive_losses: number; current_streak: number;
+}
+/** Every series is candle-aligned; null marks the indicator's warm-up window. */
+export interface ReplayOverlays {
+  ema8: (number | null)[]; ema20: (number | null)[]; ema30: (number | null)[]; ema50: (number | null)[];
+  sma20: (number | null)[]; sma50: (number | null)[]; vwap: (number | null)[];
+  bb_upper: (number | null)[]; bb_mid: (number | null)[]; bb_lower: (number | null)[];
+  rsi: (number | null)[]; atr: (number | null)[];
+  macd: (number | null)[]; macd_signal: (number | null)[]; macd_hist: (number | null)[];
 }
 export interface ReplayData {
   meta: { symbol: string; timeframe: string; data_source: string; bars: number;
@@ -275,9 +285,10 @@ export interface ReplayData {
           data_warning?: string | null;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;
-                    mtf_timeframes: string[]; computed_at: string; error: string | null } };
+                    mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[];
+                    computed_at: string; error: string | null } };
   candles: ReplayCandle[];
-  overlays: { ema20: number[]; ema50: number[]; vwap: number[] };
+  overlays: ReplayOverlays | Record<string, (number | null)[]>;
   markers: ReplayMarker[];
   zones: { type: string; price?: number; left_idx?: number; top?: number; bottom?: number }[];
   frames: ReplayFrame[];

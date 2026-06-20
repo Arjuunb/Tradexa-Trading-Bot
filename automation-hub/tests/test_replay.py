@@ -192,6 +192,77 @@ def test_registry_has_all_strategies():
         assert r["id"] and r["version"] and "description" in r
 
 
+def test_indicator_series_compute_and_are_causal():
+    """Every overlay must be the real, computed series — same length as the
+    candles, with ``None`` only during its warm-up window (never a fake value)."""
+    r = build_replay("BTCUSDT", "15m", 600)
+    nc = len(r["candles"])
+    ov = r["overlays"]
+    for key in ("ema8", "ema20", "ema30", "ema50", "sma20", "sma50", "vwap",
+                "bb_upper", "bb_mid", "bb_lower", "rsi", "atr",
+                "macd", "macd_signal", "macd_hist"):
+        assert key in ov, key
+        assert len(ov[key]) == nc, (key, len(ov[key]), nc)
+    # RSI is bounded 0..100 wherever it is computed
+    for v in ov["rsi"]:
+        assert v is None or 0.0 <= v <= 100.0
+    # Bollinger ordering upper >= mid >= lower wherever all three exist
+    for u, m, l in zip(ov["bb_upper"], ov["bb_mid"], ov["bb_lower"]):
+        if None not in (u, m, l):
+            assert u >= m >= l
+    # ATR is non-negative wherever computed; warm-up is None
+    assert any(v is not None for v in ov["atr"])
+    for v in ov["atr"]:
+        assert v is None or v >= 0.0
+    # SMA20 warm-up: first 19 entries None, value appears at index 19
+    assert ov["sma20"][18] is None and ov["sma20"][19] is not None
+
+
+def test_indicator_values_match_manual_calculation():
+    """Recompute SMA/RSI directly from the returned candles and confirm the
+    overlay matches — proves the series isn't decorative."""
+    from services.replay import _sma_series, _rsi_series
+    r = build_replay("ETHUSDT", "15m", 500)
+    closes = [c["c"] for c in r["candles"]]
+    assert r["overlays"]["sma20"] == _sma_series(closes, 20)
+    assert r["overlays"]["rsi"] == _rsi_series(closes, 14)
+    # last SMA20 equals the mean of the last 20 closes
+    expect = round(sum(closes[-20:]) / 20, 6)
+    assert r["overlays"]["sma20"][-1] == expect
+
+
+def test_macro_confirmation_timeframes_drive_the_gate():
+    """Macro / confirmation selectors must change the multi-timeframe gate the
+    engine enforces (not just a label)."""
+    weekly = build_replay("BTCUSDT", "15m", 1000, macro="1w", confirmation="1d")
+    assert weekly["meta"]["debug"]["gate_timeframes"] == ["Weekly", "Daily"]
+    from services.mtf_engine import htf_consensus
+    for t in weekly["trades"]:
+        side = 1 if t["side"] == "long" else -1
+        ft = weekly["frames"][t["entry_idx"]]["trends"]
+        assert htf_consensus(ft, side, tfs=("Weekly", "Daily"))["allowed"]
+    # default gate differs from a Weekly/Daily-only gate
+    default = build_replay("BTCUSDT", "15m", 1000)
+    assert default["meta"]["debug"]["gate_timeframes"] == ["Weekly", "Daily", "4H"]
+
+
+def test_stats_have_streaks_matching_trades():
+    """Consecutive win/loss metrics must match the actual ordered trade results."""
+    r = build_replay("ETHUSDT", "15m", 900)
+    s = r["stats"]
+    for k in ("max_consecutive_wins", "max_consecutive_losses", "current_streak"):
+        assert k in s
+    rs = [t["rr"] for t in r["trades"] if t.get("rr") is not None]
+    seq = ["W" if x > 0 else "L" if x < 0 else "B" for x in rs]
+    mw = ml = cw = cl = 0
+    for res in seq:
+        cw = cw + 1 if res == "W" else 0
+        cl = cl + 1 if res == "L" else 0
+        mw, ml = max(mw, cw), max(ml, cl)
+    assert s["max_consecutive_wins"] == mw
+    assert s["max_consecutive_losses"] == ml
+
+
 def test_replay_endpoint_strategy_param(client):
     a = client.get("/replay/run", params={"symbol": "BTCUSDT", "timeframe": "15m",
                                           "limit": 400, "strategy": "EMA 20/50"}).json()

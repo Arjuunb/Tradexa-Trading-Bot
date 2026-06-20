@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from bot.data.indicators import atr, ema
+from bot.data.indicators import atr, ema, true_range
 from bot.types import SignalType
 from services.mtf_engine import htf_consensus
 from services.regime import RegimeDetector
@@ -36,6 +36,16 @@ TF_FACTORS = {
 }
 HTF_ORDER = ["1w", "1d", "4h", "15m"]
 HTF_LABEL = {"1w": "Weekly", "1d": "Daily", "4h": "4H", "15m": "15M"}
+# Normalize a macro/confirmation timeframe selector to a trend-dict label.
+_HTF_NORM = {"1w": "Weekly", "1d": "Daily", "4h": "4H", "15m": "15M", "5m": "5M",
+             "weekly": "Weekly", "daily": "Daily", "4hour": "4H",
+             "w": "Weekly", "d": "Daily"}
+
+
+def _norm_htf(tf):
+    if not tf:
+        return None
+    return _HTF_NORM.get(str(tf).strip().lower())
 SCORE_THRESHOLD = 60
 MIN_HTF_CANDLES = 10  # higher-tf trend needs at least this many candles to be meaningful
 PARTIAL_FRAC = 0.5    # portion booked at the first target
@@ -122,6 +132,118 @@ def _block_reason(comp: dict, near_resistance: bool) -> str:
     }.get(worst, "Low Quality Setup")
 
 
+# ----------------------------------------------------------------------------
+# Indicator engine — every series below is CAUSAL (value at bar i uses only
+# bars[:i+1]) and returns ``None`` during the warm-up window so the chart never
+# draws a value that wasn't actually computed. These run on the VIEW candles
+# only, so index i lines up 1:1 with candles[i].
+# ----------------------------------------------------------------------------
+def _ema_warm(values, n):
+    """EMA series seeded by SMA(n); ``None`` until n samples seen. Causal."""
+    out = [None] * len(values)
+    if n < 1 or len(values) < n:
+        return out
+    k = 2.0 / (n + 1)
+    prev = sum(values[:n]) / n
+    out[n - 1] = prev
+    for i in range(n, len(values)):
+        prev = values[i] * k + prev * (1 - k)
+        out[i] = prev
+    return out
+
+
+def _round_opt(seq):
+    return [round(x, 6) if x is not None else None for x in seq]
+
+
+def _sma_series(values, n):
+    """Simple moving average; ``None`` until n samples. Causal O(N)."""
+    out = [None] * len(values)
+    if n < 1 or len(values) < n:
+        return out
+    s = sum(values[:n])
+    out[n - 1] = round(s / n, 6)
+    for i in range(n, len(values)):
+        s += values[i] - values[i - n]
+        out[i] = round(s / n, 6)
+    return out
+
+
+def _rsi_series(closes, n=14):
+    """Wilder's RSI series; ``None`` until n+1 closes. Causal."""
+    out = [None] * len(closes)
+    if len(closes) < n + 1:
+        return out
+    gains = losses = 0.0
+    for i in range(1, n + 1):
+        ch = closes[i] - closes[i - 1]
+        if ch >= 0:
+            gains += ch
+        else:
+            losses -= ch
+    avg_gain, avg_loss = gains / n, losses / n
+    out[n] = round(100.0 - 100.0 / (1.0 + avg_gain / avg_loss), 2) if avg_loss else 100.0
+    for i in range(n + 1, len(closes)):
+        ch = closes[i] - closes[i - 1]
+        gain = ch if ch > 0 else 0.0
+        loss = -ch if ch < 0 else 0.0
+        avg_gain = (avg_gain * (n - 1) + gain) / n
+        avg_loss = (avg_loss * (n - 1) + loss) / n
+        out[i] = round(100.0 - 100.0 / (1.0 + avg_gain / avg_loss), 2) if avg_loss else 100.0
+    return out
+
+
+def _macd_series(closes, fast=12, slow=26, signal=9):
+    """MACD line (EMA fast - EMA slow), signal (EMA of MACD) and histogram.
+    Each list is ``None`` until its own warm-up completes. Causal."""
+    n = len(closes)
+    macd, sig, hist = [None] * n, [None] * n, [None] * n
+    if n < slow:
+        return {"macd": macd, "signal": sig, "hist": hist}
+    ef, es = _ema_warm(closes, fast), _ema_warm(closes, slow)
+    macd_vals, idxs = [], []
+    for i in range(n):
+        if ef[i] is not None and es[i] is not None:
+            macd[i] = round(ef[i] - es[i], 6)
+            macd_vals.append(ef[i] - es[i])
+            idxs.append(i)
+    sig_warm = _ema_warm(macd_vals, signal)
+    for j, i in enumerate(idxs):
+        if sig_warm[j] is not None:
+            sig[i] = round(sig_warm[j], 6)
+            hist[i] = round(macd_vals[j] - sig_warm[j], 6)
+    return {"macd": macd, "signal": sig, "hist": hist}
+
+
+def _atr_series(bars, n=14):
+    """Wilder's ATR series aligned to ``bars``; ``None`` until seeded. Causal."""
+    out = [None] * len(bars)
+    if len(bars) < n + 1:
+        return out
+    trs = [true_range(bars[i - 1].close, bars[i]) for i in range(1, len(bars))]
+    avg = sum(trs[:n]) / n          # trs[k] belongs to bars[k+1]
+    out[n] = round(avg, 6)
+    for k in range(n, len(trs)):
+        avg = (avg * (n - 1) + trs[k]) / n
+        out[k + 1] = round(avg, 6)
+    return out
+
+
+def _bollinger_series(closes, n=20, k=2.0):
+    """Bollinger bands: mid = SMA(n), upper/lower = mid ± k·population-std.
+    ``None`` until n closes. Causal."""
+    import math
+    mid, up, lo = [None] * len(closes), [None] * len(closes), [None] * len(closes)
+    if len(closes) < n:
+        return {"mid": mid, "upper": up, "lower": lo}
+    for i in range(n - 1, len(closes)):
+        window = closes[i - n + 1:i + 1]
+        m = sum(window) / n
+        sd = math.sqrt(sum((x - m) ** 2 for x in window) / n)
+        mid[i], up[i], lo[i] = round(m, 6), round(m + k * sd, 6), round(m - k * sd, 6)
+    return {"mid": mid, "upper": up, "lower": lo}
+
+
 _TF_SECONDS = {"5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
 
 
@@ -151,7 +273,8 @@ def _label_source(source: str) -> dict:
 
 def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                  start=None, end=None, strategy: str = "Supply/Demand",
-                 source: str = "binance", custom_spec: dict = None) -> dict:
+                 source: str = "binance", custom_spec: dict = None,
+                 macro=None, confirmation=None) -> dict:
     from data.market_data import get_bars
     from bot.data.synthetic import generate_bars
     if exec_tf not in TF_FACTORS:
@@ -196,9 +319,8 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                          "data_warning": sl["warning"] or "No data in the selected date range.",
                          "strategy": strategy, "bars": 0, "start": None, "end": None,
                          "htf_available": {}, "note": "No data in the selected date range."},
-                "candles": [], "overlays": {"ema20": [], "ema50": [], "vwap": []},
-                "markers": [], "zones": [], "frames": [], "events": [], "trades": [],
-                "stats": _stats([], symbol)}
+                "candles": [], "overlays": {}, "markers": [], "zones": [],
+                "frames": [], "events": [], "trades": [], "stats": _stats([], symbol)}
 
     # --- precompute higher-timeframe trend series (causal) ---
     factors = TF_FACTORS[exec_tf]
@@ -217,11 +339,27 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                 out[HTF_LABEL[label]] = _trend_code_to_str(series[closed])
         return out
 
-    # --- overlays on the view ---
+    # --- overlays on the view (all causal, 1:1 with candles) ---
     closes_view = [b.close for b in view]
+    ema8 = [round(x, 6) for x in ema(closes_view, 8)] if closes_view else []
     ema20 = [round(x, 6) for x in ema(closes_view, 20)] if closes_view else []
+    ema30 = [round(x, 6) for x in ema(closes_view, 30)] if closes_view else []
     ema50 = [round(x, 6) for x in ema(closes_view, 50)] if closes_view else []
     vwap = _vwap_series(view)
+    bb = _bollinger_series(closes_view, 20, 2.0)
+    macd = _macd_series(closes_view)
+    overlays = {
+        "ema8": ema8, "ema20": ema20, "ema30": ema30, "ema50": ema50,
+        "sma20": _sma_series(closes_view, 20), "sma50": _sma_series(closes_view, 50),
+        "vwap": vwap,
+        "bb_upper": bb["upper"], "bb_mid": bb["mid"], "bb_lower": bb["lower"],
+        "rsi": _rsi_series(closes_view, 14),
+        "atr": _atr_series(view, 14),
+        "macd": macd["macd"], "macd_signal": macd["signal"], "macd_hist": macd["hist"],
+    }
+    # macro/confirmation timeframe selectors drive the multi-timeframe entry gate
+    gate_tfs = tuple(x for x in (_norm_htf(macro), _norm_htf(confirmation)) if x) \
+        or ("Weekly", "Daily", "4H")
 
     detector = RegimeDetector()
     from services.strategy_presets import make_replay_strategy
@@ -368,8 +506,8 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             rr = abs(sig.take_profit - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
             score, breakdown = _score(side, trends, vol_ratio, recent_sweep, recent_struct,
                                       recent_fvg, rr, bar.timestamp.hour, regime, near_res)
-            if score >= SCORE_THRESHOLD and pos is None and htf_consensus(trends, side)["allowed"]:
-                mtf = htf_consensus(trends, side)
+            if score >= SCORE_THRESHOLD and pos is None and htf_consensus(trends, side, tfs=gate_tfs)["allowed"]:
+                mtf = htf_consensus(trends, side, tfs=gate_tfs)
                 trigger = "Entry Confirmed"
                 trade_id += 1
                 entry_reasons = _entry_reasons(side, trends, recent_sweep, recent_struct, recent_fvg)
@@ -401,7 +539,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                                 "type": "Entry", "side": "bull" if side > 0 else "bear"})
             elif pos is None:
                 blocked = True
-                mtf = htf_consensus(trends, side)
+                mtf = htf_consensus(trends, side, tfs=gate_tfs)
                 # an MTF conflict is the more important reason to surface
                 block_reason = mtf["reason"] if (score >= SCORE_THRESHOLD and not mtf["allowed"]) \
                     else _block_reason(breakdown, near_res)
@@ -431,9 +569,11 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                            "candles_loaded": len(view), "warmup_bars": len(warm),
                            "trades_generated": len(trades), "data_source": source,
                            "mtf_timeframes": [HTF_LABEL[k] for k in htf_trends],
+                           "gate_timeframes": list(gate_tfs),
+                           "indicators": [k for k in overlays],
                            "computed_at": datetime.now(timezone.utc).isoformat(),
                            "error": strat_err}},
-        "candles": candles, "overlays": {"ema20": ema20, "ema50": ema50, "vwap": vwap},
+        "candles": candles, "overlays": overlays,
         "markers": markers, "zones": zones, "frames": frames, "events": events,
         "trades": trades, "stats": stats,
     }
@@ -502,6 +642,23 @@ def _stats(trades: list, symbol: str) -> dict:
         dd = max(dd, peak - eq)
     longs = [t["rr"] for t in closed if t["side"] == "long"]
     shorts = [t["rr"] for t in closed if t["side"] == "short"]
+    # streaks over closed trades, in chronological order
+    seq = ["W" if r > 0 else "L" if r < 0 else "B" for r in rs]
+    max_w = max_l = cw = cl = 0
+    for res in seq:
+        cw = cw + 1 if res == "W" else 0
+        cl = cl + 1 if res == "L" else 0
+        max_w, max_l = max(max_w, cw), max(max_l, cl)
+    cur_streak, cur_kind = 0, None
+    for res in reversed(seq):
+        if res == "B":
+            break
+        if cur_kind is None:
+            cur_kind = res
+        if res == cur_kind:
+            cur_streak += 1
+        else:
+            break
     return {
         "symbol": symbol, "trades": n,
         "win_rate": round(len(wins) / n * 100, 1) if n else 0.0,
@@ -514,6 +671,8 @@ def _stats(trades: list, symbol: str) -> dict:
         "worst_r": round(min(rs), 2) if rs else 0.0,
         "long_trades": len(longs), "short_trades": len(shorts),
         "long_net_r": round(sum(longs), 2), "short_net_r": round(sum(shorts), 2),
+        "max_consecutive_wins": max_w, "max_consecutive_losses": max_l,
+        "current_streak": cur_streak if cur_kind == "W" else -cur_streak if cur_kind == "L" else 0,
     }
 
 

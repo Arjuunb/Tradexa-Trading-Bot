@@ -2,13 +2,25 @@ import { useEffect, useRef, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
-import CandleChart from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles } from "../components/replay/CandleChart";
 import { useApp } from "../app-context";
 import { apiGet, apiPost, type ReplayData, type ReplayFrame, type ReplayTrade } from "../lib/api";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
 const SPEEDS = [1, 2, 5, 10, 25];
+const MACRO_TFS = ["1w", "1d", "4h"];
+const CONF_TFS = ["1d", "4h", "15m"];
 const trendTone = (v?: string) => (v === "Bullish" ? "green" : v === "Bearish" ? "red" : "default");
+
+const DEFAULT_TOGGLES: ChartToggles = {
+  ema8: false, ema20: true, ema30: false, ema50: true, sma20: false, sma50: false,
+  vwap: true, bb: false, volume: true, osc: "rsi",
+};
+const OVERLAY_TOGGLES: { key: keyof ChartToggles; label: string }[] = [
+  { key: "ema8", label: "EMA8" }, { key: "ema20", label: "EMA20" }, { key: "ema30", label: "EMA30" },
+  { key: "ema50", label: "EMA50" }, { key: "sma20", label: "SMA20" }, { key: "sma50", label: "SMA50" },
+  { key: "vwap", label: "VWAP" }, { key: "bb", label: "Bollinger" }, { key: "volume", label: "Volume" },
+];
 
 export default function ReplayPage() {
   const app = useApp();
@@ -19,6 +31,8 @@ export default function ReplayPage() {
   const [limit, setLimit] = useState(800);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [macro, setMacro] = useState("1w");
+  const [confirmation, setConfirmation] = useState("4h");
   const [strategies, setStrategies] = useState<{ id: string; name: string; version: string; description: string }[]>([]);
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,6 +40,8 @@ export default function ReplayPage() {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(5);
+  const [toggles, setToggles] = useState<ChartToggles>(DEFAULT_TOGGLES);
+  const [fullscreen, setFullscreen] = useState(false);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -36,6 +52,7 @@ export default function ReplayPage() {
     setLoading(true); setPlaying(false);
     try {
       let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}&strategy=${encodeURIComponent(strategy)}&source=${src}`;
+      q += `&macro=${macro}&confirmation=${confirmation}`;
       if (startDate) q += `&start=${startDate}`;
       if (endDate) q += `&end=${endDate}`;
       const r = await apiGet<ReplayData>(q);
@@ -44,6 +61,16 @@ export default function ReplayPage() {
       setData(r); setIdx(0);
     } catch { app.toast("Replay failed — backend reachable?", "error"); }
     finally { setLoading(false); }
+  };
+
+  const toggle = (k: keyof ChartToggles) => setToggles((t) => ({ ...t, [k]: !t[k] }));
+  const jumpTrade = (dir: 1 | -1) => {
+    if (!data) return;
+    setPlaying(false);
+    const entries = data.trades.map((t) => t.entry_idx).sort((a, b) => a - b);
+    const next = dir > 0 ? entries.find((e) => e > idx) : [...entries].reverse().find((e) => e < idx);
+    if (next !== undefined) setIdx(next);
+    else app.toast(dir > 0 ? "No later trade." : "No earlier trade.", "info");
   };
 
   const syncBinance = async () => {
@@ -88,6 +115,22 @@ export default function ReplayPage() {
     ? (active.tp1_idx !== null && active.tp1_idx <= idx ? "Partial TP / Break-even" : "Open")
     : null;
 
+  // current decision — the single state the brain is in on this candle
+  const justExited = data ? data.trades.find((t) => t.exit_idx === idx) : undefined;
+  const decision: { text: string; tone: "green" | "red" | "amber" | "default" } = justExited
+    ? { text: "Exit trade", tone: justExited.result === "Winner" ? "green" : "red" }
+    : active && active.entry_idx === idx
+      ? { text: `Enter ${active.side}`, tone: active.side === "long" ? "green" : "red" }
+      : active
+        ? { text: "Manage trade", tone: "default" }
+        : frame?.blocked
+          ? { text: `Trade blocked — ${frame.reason}`, tone: "red" }
+          : frame?.trigger === "Entry Confirmed"
+            ? { text: "Enter — confirming", tone: "green" }
+            : frame?.trigger === "Setup Found"
+              ? { text: "Setup forming", tone: "amber" }
+              : { text: "Waiting", tone: "default" };
+
   return (
     <>
       <PageHeader title="Strategy Replay" subtitle="Watch the bot analyse real history candle-by-candle — no lookahead" />
@@ -112,6 +155,12 @@ export default function ReplayPage() {
             <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
           <label className="row-actions" style={{ gap: 4 }}><span className="dim">To</span>
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></label>
+          <label className="row-actions" style={{ gap: 4 }} title="Macro timeframe used by the entry gate">
+            <span className="dim" style={{ fontSize: 11 }}>Macro</span>
+            <select value={macro} onChange={(e) => setMacro(e.target.value)}>{MACRO_TFS.map((t) => <option key={t}>{t}</option>)}</select></label>
+          <label className="row-actions" style={{ gap: 4 }} title="Confirmation timeframe used by the entry gate">
+            <span className="dim" style={{ fontSize: 11 }}>Confirm</span>
+            <select value={confirmation} onChange={(e) => setConfirmation(e.target.value)}>{CONF_TFS.map((t) => <option key={t}>{t}</option>)}</select></label>
           <button className="btn btn-primary" disabled={loading} onClick={load}><Icon name="history" size={14} /> {loading ? "Loading…" : "Load"}</button>
           {src === "binance" && (
             <button className="btn btn-soft" disabled={syncing} onClick={syncBinance}
@@ -148,7 +197,9 @@ export default function ReplayPage() {
               strategy_id: <b>{data.meta.debug.strategy_id}</b> · class: <b>{data.meta.debug.strategy_class}</b> ·
               candles: {data.meta.debug.candles_loaded} (+{data.meta.debug.warmup_bars} warmup) ·
               trades: {data.meta.debug.trades_generated} · source: {data.meta.debug.data_source} ·
-              MTF: {data.meta.debug.mtf_timeframes.join("/") || "—"} · {data.meta.debug.computed_at.slice(11, 19)}
+              MTF: {data.meta.debug.mtf_timeframes.join("/") || "—"} ·
+              gate: {(data.meta.debug.gate_timeframes ?? []).join("/") || "—"} ·
+              indicators: {(data.meta.debug.indicators ?? []).length} · {data.meta.debug.computed_at.slice(11, 19)}
               {data.meta.debug.error && <span className="neg"> · error: {data.meta.debug.error}</span>}
             </div>
           </details>
@@ -162,24 +213,40 @@ export default function ReplayPage() {
           {/* controls */}
           <Card title="">
             <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx(0); }} title="Reset to the first candle"><Icon name="refresh" size={14} /> Reset</button>
+              <button className="btn btn-soft" onClick={() => jumpTrade(-1)} title="Jump to previous trade entry">⏮ Trade</button>
               <button className="btn btn-soft" onClick={() => setIdx((i) => Math.max(0, i - 1))}><Icon name="chevron" size={14} /> Step ←</button>
               <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
                 <Icon name={playing ? "pause" : "play"} size={14} /> {playing ? "Pause" : "Play"}
               </button>
               <button className="btn btn-soft" onClick={() => setIdx((i) => Math.min(data.candles.length - 1, i + 1))}>Step → <Icon name="chevron" size={14} /></button>
+              <button className="btn btn-soft" onClick={() => jumpTrade(1)} title="Jump to next trade entry">Trade ⏭</button>
               <span className="dim">Speed</span>
               {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
               <span className="dim mono" style={{ marginLeft: "auto" }}>{idx + 1} / {data.candles.length} · {(candle?.t ?? "").replace("T", " ").slice(0, 16)}</span>
             </div>
             <input type="range" min={0} max={data.candles.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} style={{ width: "100%", marginTop: 10 }} />
+            {/* indicator toggles — only series that are actually computed server-side */}
+            <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+              <span className="dim" style={{ fontSize: 11 }}>Indicators</span>
+              {OVERLAY_TOGGLES.map((o) => (
+                <button key={o.key} className={`chip-btn ${toggles[o.key] ? "active" : ""}`} onClick={() => toggle(o.key)}>{o.label}</button>
+              ))}
+              <span className="dim" style={{ fontSize: 11, marginLeft: 8 }}>Oscillator</span>
+              {(["none", "rsi", "macd", "atr"] as const).map((o) => (
+                <button key={o} className={`chip-btn ${toggles.osc === o ? "active" : ""}`} onClick={() => setToggles((t) => ({ ...t, osc: o }))}>{o === "none" ? "Off" : o.toUpperCase()}</button>
+              ))}
+            </div>
           </Card>
 
-          <div className="grid-2-1" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)" }}>
-            <Card title={`${symbol} · ${tf}`} className="span-2">
-              <CandleChart data={data} index={idx} />
+          <div className="grid-2-1" style={{ gridTemplateColumns: fullscreen ? "1fr" : "minmax(0,2fr) minmax(0,1fr)" }}>
+            <Card title={`${symbol} · ${tf}`} className="span-2"
+              right={<button className="btn btn-soft" onClick={() => setFullscreen((f) => !f)} title="Toggle wide chart">
+                <Icon name="external" size={14} /> {fullscreen ? "Exit" : "Fullscreen"}</button>}>
+              <CandleChart data={data} index={idx} toggles={toggles} height={fullscreen ? 700 : 520} />
             </Card>
 
-            <BrainPanel frame={frame} active={active} liveRR={liveRR} status={tradeStatus} />
+            {!fullscreen && <BrainPanel frame={frame} active={active} liveRR={liveRR} status={tradeStatus} decision={decision} />}
           </div>
 
           <div className="grid-2-eq">
@@ -211,18 +278,25 @@ function EventDot({ kind }: { kind: string }) {
   return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: c, marginRight: 4 }} />;
 }
 
-function BrainPanel({ frame, active, liveRR, status }: {
+function BrainPanel({ frame, active, liveRR, status, decision }: {
   frame: any; active?: ReplayTrade; liveRR: number | null; status: string | null;
+  decision: { text: string; tone: "green" | "red" | "amber" | "default" };
 }) {
   if (!frame) return <Card title="Bot Brain"><div className="dim">—</div></Card>;
   const trigTone = frame.trigger === "Entry Confirmed" ? "green" : frame.trigger === "Setup Found" ? "amber" : "default";
+  const volText = frame.vol_ratio >= 1.2 ? "Above average" : frame.vol_ratio >= 0.8 ? "Normal" : "Thin";
   return (
     <Card title="Bot Brain" right={<Badge text={frame.regime} tone={frame.regime === "Trending" ? "green" : frame.regime?.includes("Volatility") ? "amber" : "default"} />}>
+      <div className="card" style={{ marginBottom: 10, padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span className="dim" style={{ fontSize: 12 }}>Current decision</span>
+        <Badge text={decision.text} tone={decision.tone} />
+      </div>
       <div className="risk-list">
         {["Weekly", "Daily", "4H", "15M"].map((tf) => (
           <div className="risk-item" key={tf}><span className="dim">{tf} trend</span> <Badge text={frame.trends[tf] ?? "n/a"} tone={trendTone(frame.trends[tf])} /></div>
         ))}
         <div className="risk-item"><span className="dim">5M trigger</span> <Badge text={frame.trigger} tone={trigTone as any} /></div>
+        <div className="risk-item"><span className="dim">Volume</span> <Badge text={`${volText} (${frame.vol_ratio}×)`} tone={frame.vol_ratio >= 1.2 ? "green" : "default"} /></div>
       </div>
 
       <div style={{ marginTop: 10 }}>
@@ -254,9 +328,36 @@ function BrainPanel({ frame, active, liveRR, status }: {
   );
 }
 
+function reviewInsights(trade: ReplayTrade) {
+  const bd = trade.breakdown || {};
+  const entries = Object.entries(bd);
+  const best = entries.length ? entries.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
+  const worst = entries.length ? entries.reduce((a, b) => (b[1] < a[1] ? b : a)) : null;
+  const win = trade.result === "Winner";
+  const helped = win
+    ? best ? `${best[0]} was strongest (+${best[1]})${trade.mtf?.aligned ? " with higher-timeframe alignment" : ""}.`
+      : "Confluence held through to target."
+    : trade.mtf?.aligned ? "Higher-timeframe gate was aligned — the read wasn't the problem."
+      : "Entry passed the score gate but the trade still lost.";
+  const failed = win
+    ? worst && worst[1] <= 8 ? `Weakest input was ${worst[0]} (+${worst[1]}) — the edge was narrower than it looks.`
+      : "Nothing material — a clean trade."
+    : trade.loss_analysis || (worst ? `${worst[0]} was the weakest input (+${worst[1]}).` : "Setup invalidated.");
+  let improve: string;
+  if (win) improve = (trade.rr ?? 0) >= 2 ? "Repeatable — log this setup; consider scaling size on this confluence."
+    : "Winner but small RR — let runners breathe or tighten the entry for a better stop.";
+  else if ((trade.bars_held ?? 9) <= 2) improve = "Stopped fast — wait for a confirmation candle / retest before entering.";
+  else if (worst && worst[0] === "Volatility Condition") improve = "Add a regime filter — skip choppy / ranging conditions.";
+  else if (worst && worst[0] === "Volume Confirmation") improve = "Require above-average volume on the trigger candle.";
+  else if (worst && worst[0] === "Trend Alignment") improve = "Tighten the multi-timeframe gate so entries follow the higher trend.";
+  else improve = "Raise the minimum quality score for this strategy to filter marginal setups.";
+  return { helped, failed, improve };
+}
+
 function TradeReview({ trade }: { trade?: ReplayTrade }) {
   if (!trade) return <Card title="Trade Review"><div className="dim ta-center" style={{ padding: 24 }}>No closed trade yet — keep replaying.</div></Card>;
   const win = trade.result === "Winner";
+  const ins = reviewInsights(trade);
   return (
     <Card title={`Trade Review #${trade.id}`} right={<Badge text={trade.result} tone={win ? "green" : "red"} />}>
       <div className="risk-list">
@@ -281,6 +382,17 @@ function TradeReview({ trade }: { trade?: ReplayTrade }) {
           </p>
         )}
       </div>
+      <div style={{ marginTop: 10, borderTop: "1px solid #1b2336", paddingTop: 8 }}>
+        <div className="risk-item" style={{ alignItems: "flex-start" }}>
+          <span className="dim" style={{ minWidth: 110 }}>What helped</span>
+          <span className="pos" style={{ textAlign: "right" }}>{ins.helped}</span></div>
+        <div className="risk-item" style={{ alignItems: "flex-start" }}>
+          <span className="dim" style={{ minWidth: 110 }}>What failed</span>
+          <span className={win ? "" : "neg"} style={{ textAlign: "right" }}>{ins.failed}</span></div>
+        <div className="risk-item" style={{ alignItems: "flex-start" }}>
+          <span className="dim" style={{ minWidth: 110 }}>Suggested improvement</span>
+          <span style={{ textAlign: "right", color: "#a855f7" }}>{ins.improve}</span></div>
+      </div>
     </Card>
   );
 }
@@ -296,6 +408,10 @@ function StatsPanel({ data }: { data: ReplayData }) {
     ["Expectancy", `${s.expectancy_r}R`, s.expectancy_r >= 0 ? "pos" : "neg"],
     ["Best / Worst", `${s.best_r} / ${s.worst_r}R`, ""],
     ["Long / Short", `${s.long_trades} / ${s.short_trades}`, ""],
+    ["Max Win Streak", `${s.max_consecutive_wins}`, s.max_consecutive_wins ? "pos" : ""],
+    ["Max Loss Streak", `${s.max_consecutive_losses}`, s.max_consecutive_losses ? "neg" : ""],
+    ["Current Streak", s.current_streak === 0 ? "—" : `${s.current_streak > 0 ? `${s.current_streak}W` : `${-s.current_streak}L`}`, s.current_streak > 0 ? "pos" : s.current_streak < 0 ? "neg" : ""],
+    ["Long / Short Net", `${s.long_net_r >= 0 ? "+" : ""}${s.long_net_r} / ${s.short_net_r >= 0 ? "+" : ""}${s.short_net_r}R`, ""],
   ];
   return (
     <Card title="Simulation Statistics" subtitle={`${s.trades} trades · ${s.symbol} (run another asset to compare)`}>
