@@ -1,4 +1,5 @@
 import Card from "../components/common/Card";
+import { PageHeader } from "../components/common/ui";
 import MetricCards from "../components/cards/MetricCards";
 import EquityCurve from "../components/chart/EquityCurve";
 import PerformanceOverview from "../components/cards/PerformanceOverview";
@@ -13,6 +14,7 @@ import WhyNoTrades from "../components/cards/WhyNoTrades";
 export default function Overview() {
   return (
     <>
+      <PageHeader title="Overview" subtitle="Live paper trading · realized P&L, engine health, risk and activity at a glance" />
       <WhyNoTrades />
       <MetricCards />
 

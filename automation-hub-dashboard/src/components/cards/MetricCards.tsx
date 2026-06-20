@@ -13,10 +13,10 @@ export default function MetricCards() {
   const curve = (eq.data?.points ?? []).map((p) => p.equity);
 
   const cards = [
-    { key: "engine", label: "Engine", value: e?.running ? "Running" : "Stopped", sub: e ? `${e.symbols.length} symbols · ${e.timeframe}` : "—", color: e?.running ? "#22c55e" : "#ef4444", tone: e?.running ? "green" : "" },
-    { key: "open", label: "Open Positions", value: String(a?.open_positions ?? 0), sub: "live", color: "#3b82f6", tone: "" },
-    { key: "signals", label: "Signals", value: String(e?.signals ?? 0), sub: `${e?.trades ?? 0} fills`, color: "#8b5cf6", tone: "" },
-    { key: "rejections", label: "Rejections", value: String(e?.rejections ?? 0), sub: "risk-blocked", color: "#f59e0b", tone: "" },
+    { key: "engine", label: "Engine", value: e?.running ? "Running" : "Stopped", sub: e ? `${e.symbols.length} symbols · ${e.timeframe}` : "—", color: e?.running ? "#22c55e" : "#ef4444", icon: "bot", tone: e?.running ? "green" : "" },
+    { key: "open", label: "Open Positions", value: String(a?.open_positions ?? 0), sub: "live", color: "#3b82f6", icon: "layers", tone: "" },
+    { key: "signals", label: "Signals", value: String(e?.signals ?? 0), sub: `${e?.trades ?? 0} fills`, color: "#8b5cf6", icon: "target", tone: "" },
+    { key: "rejections", label: "Rejections", value: String(e?.rejections ?? 0), sub: "risk-blocked", color: "#eab54f", icon: "shield", tone: "" },
   ];
 
   const realized = a?.realized_pnl ?? 0;
@@ -25,9 +25,10 @@ export default function MetricCards() {
     <div className="metric-row">
       {cards.map((m) => (
         <div className="metric-card" key={m.key}>
+          <span className="metric-accent" style={{ background: m.color }} />
           <div className="metric-top">
             <span className="metric-label">{m.label}</span>
-            <span className="metric-icon" style={{ color: m.color }}><Icon name="robot" size={16} /></span>
+            <span className="metric-icon" style={{ background: m.color + "22", color: m.color }}><Icon name={m.icon} size={16} /></span>
           </div>
           <div className="metric-main">
             <span className="metric-value">{m.value}</span>
@@ -37,6 +38,7 @@ export default function MetricCards() {
       ))}
 
       <div className="metric-card pnl-card">
+        <span className="metric-accent" style={{ background: realized >= 0 ? "#22c55e" : "#ef4444" }} />
         <div className="metric-top">
           <span className="metric-label">Realized P&amp;L</span>
           <span className={`metric-icon ${realized >= 0 ? "pos" : "neg"}`}><Icon name="chart" size={16} /></span>
