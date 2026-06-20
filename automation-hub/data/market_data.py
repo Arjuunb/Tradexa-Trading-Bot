@@ -42,13 +42,15 @@ def _from_local_store(symbol: str, n: int, timeframe: str, since_ms):
 
 
 def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
-             seed: int = 1, since_ms: Optional[int] = None) -> tuple[list[Bar], str]:
+             seed: int = 1, since_ms: Optional[int] = None,
+             require_real: bool = False) -> tuple[list[Bar], str]:
     """Return (bars, source) for a symbol, REAL data first.
 
     Order: local cache of real Binance candles -> live ccxt (if enabled) ->
-    bundled sample -> deterministic synthetic. Set ``HUB_REQUIRE_REAL_DATA=1`` to
-    forbid the bundled/synthetic fallbacks entirely (production: never fake data).
-    ``since_ms`` (epoch ms) selects history from a specific start time.
+    bundled sample -> deterministic synthetic. Set ``HUB_REQUIRE_REAL_DATA=1``
+    (env) or pass ``require_real=True`` to forbid the bundled/synthetic
+    fallbacks entirely (production / replay: never fake data). ``since_ms``
+    (epoch ms) selects history from a specific start time.
     """
     # 1. local cache of real candles (populated by the /data/sync engine)
     cached = _from_local_store(symbol, n, timeframe, since_ms)
@@ -63,7 +65,7 @@ def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
         if real:
             return real, "live (ccxt)"
 
-    require_real = os.environ.get("HUB_REQUIRE_REAL_DATA", "").lower() in ("1", "true", "yes")
+    require_real = require_real or os.environ.get("HUB_REQUIRE_REAL_DATA", "").lower() in ("1", "true", "yes")
     if require_real:
         return [], "unavailable (real data required — run /data/sync)"
 

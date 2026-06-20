@@ -48,6 +48,42 @@ def test_env_var_fallback_for_keys(tmp_path, monkeypatch):
     assert {p["id"]: p["connected"] for p in st.status()}["news"] is True
 
 
+def test_provider_debug_panel_present_and_honest(tmp_path):
+    ctx = market_context(ProviderSettings(str(tmp_path / "p.json")))
+    assert "provider_debug" in ctx and "last_updated" in ctx
+    dbg = {d["id"]: d for d in ctx["provider_debug"]}
+    assert {"fear_greed", "coingecko", "news", "liquidations"} <= set(dbg)
+    # key-gated source without a key is reported Not connected (never faked)
+    assert dbg["news"]["connected"] is False and dbg["news"]["status"] == "Not connected"
+    # every debug row carries the freshness/error/status fields
+    for d in ctx["provider_debug"]:
+        for field in ("label", "status", "last_update", "freshness_s", "error", "connected"):
+            assert field in d
+
+
+def test_response_cache_reuses_success_but_not_failure():
+    import services.market_context as mc
+    mc._CACHE.clear()
+    hits = {"ok": 0, "bad": 0}
+
+    def ok():
+        hits["ok"] += 1
+        return {"available": True, "value": 42}
+
+    assert mc._cached("ok", ok, ttl=60)["value"] == 42
+    assert mc._cached("ok", ok, ttl=60)["value"] == 42
+    assert hits["ok"] == 1                       # second call served from cache
+
+    def bad():
+        hits["bad"] += 1
+        return {"available": False, "value": None}
+
+    mc._cached("bad", bad, ttl=60)
+    mc._cached("bad", bad, ttl=60)
+    assert hits["bad"] == 2                       # failures are never cached
+    mc._CACHE.clear()
+
+
 def test_providers_catalog_complete():
     ids = {p["id"] for p in PROVIDERS}
     assert {"fear_greed", "coingecko", "binance_funding", "binance_oi", "news",

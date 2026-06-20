@@ -13,11 +13,75 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from services.sentiment import _get_json, label_mood, risk_mode
 
 _BINANCE_FAPI = ("https://fapi.binance.com", "https://www.binance.com")
+
+# ---- response cache + per-provider freshness/error tracking ----------------
+# Successful fetches are cached for a short TTL so the page is fast and we don't
+# hammer public APIs; failures are NOT cached (they retry next call). Each entry
+# records when it last refreshed and any error, feeding the debug panel.
+_CACHE: dict = {}
+
+
+def _iso(ts: float | None) -> str | None:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else None
+
+
+def _cached(key: str, fn, ttl: float):
+    """Run ``fn`` with a TTL cache keyed by ``key``. Only results that are
+    ``available`` (or non-None) are cached; anything else retries next call.
+    Records last-update time + error for the developer debug panel."""
+    now = time.time()
+    ent = _CACHE.get(key)
+    if ent and ent.get("ok") and (now - ent["ts"]) < ttl:
+        ent["from_cache"] = True
+        return ent["value"]
+    try:
+        val = fn()
+        ok = bool(val.get("available")) if isinstance(val, dict) else val is not None
+        err = None if ok else (val.get("note") if isinstance(val, dict) else "no data")
+    except Exception as e:  # noqa: BLE001 — fail closed, record the error
+        _CACHE[key] = {"value": None, "ts": now, "ok": False, "error": str(e)[:200], "from_cache": False}
+        return {"available": False, "value": None, "note": f"fetch error: {str(e)[:120]}"}
+    _CACHE[key] = {"value": val, "ts": now, "ok": ok, "error": err, "from_cache": False}
+    return val
+
+
+# provider id -> the cache key whose freshness/error it reflects
+_PID_CACHE = {"fear_greed": "fear_greed", "coingecko": "global",
+              "binance_funding": "funding", "binance_oi": "oi", "news": "news"}
+
+
+def provider_debug(settings: "ProviderSettings") -> list:
+    """Developer debug rows: name, connection status, last update, errors,
+    freshness — for every configured provider."""
+    now = time.time()
+    out = []
+    for p in PROVIDERS:
+        connected = (not p["needs_key"]) or bool(settings.key(p["id"]))
+        ent = _CACHE.get(_PID_CACHE.get(p["id"], ""))
+        ts = ent["ts"] if ent else None
+        if not connected:
+            status = "Not connected"
+        elif ent is None:
+            status = "Idle (not fetched yet)"
+        elif ent.get("ok"):
+            status = "Live (cached)" if ent.get("from_cache") else "Live"
+        else:
+            status = "Data unavailable"
+        out.append({
+            "id": p["id"], "label": p["label"], "connected": connected,
+            "status": status,
+            "last_update": _iso(ts),
+            "freshness_s": round(now - ts) if ts else None,
+            "error": (ent or {}).get("error"),
+        })
+    return out
 
 # Provider key fields shown in the settings panel: (id, label, env var, needs_key)
 PROVIDERS = [
@@ -125,21 +189,32 @@ def fetch_news(token: str | None, limit: int = 6):
 # ---- aggregate ----
 def market_context(settings: ProviderSettings) -> dict:
     from services.sentiment import fetch_fear_greed, fetch_global
-    fg = fetch_fear_greed()
-    glob = fetch_global()
-    fg_block = {"available": fg is not None,
+
+    def _fg_block():
+        fg = fetch_fear_greed()
+        return {"available": fg is not None,
                 "value": fg["value"] if fg else None,
                 "label": fg["classification"] if fg else None,
                 "mood": label_mood(fg["value"]) if fg else None}
 
+    def _global():
+        glob = fetch_global()
+        return {"available": glob is not None,
+                "btc_dominance": (glob or {}).get("btc_dominance"),
+                "total_mcap_usd": (glob or {}).get("total_mcap_usd")}
+
+    fg_block = _cached("fear_greed", _fg_block, ttl=60)
+    glob_block = _cached("global", _global, ttl=120)
+    fg = fg_block if fg_block.get("available") else None
+
     out = {
         "fear_greed": fg_block,
-        "btc_dominance": {"available": glob is not None, "value": (glob or {}).get("btc_dominance")},
-        "total_mcap_usd": {"available": glob is not None, "value": (glob or {}).get("total_mcap_usd")},
-        "eth_btc": fetch_eth_btc(),
-        "funding_rate": fetch_funding_rate("BTCUSDT"),
-        "open_interest": fetch_open_interest("BTCUSDT"),
-        "news": fetch_news(settings.key("news")),
+        "btc_dominance": {"available": glob_block.get("available"), "value": glob_block.get("btc_dominance")},
+        "total_mcap_usd": {"available": glob_block.get("available"), "value": glob_block.get("total_mcap_usd")},
+        "eth_btc": _cached("eth_btc", fetch_eth_btc, ttl=300),
+        "funding_rate": _cached("funding", lambda: fetch_funding_rate("BTCUSDT"), ttl=60),
+        "open_interest": _cached("oi", lambda: fetch_open_interest("BTCUSDT"), ttl=60),
+        "news": _cached("news", lambda: fetch_news(settings.key("news")), ttl=180),
         # key-gated, honestly reported as not connected unless configured
         "liquidations": {"available": False, "connected": bool(settings.key("liquidations")),
                          "note": "Not connected — add a Coinglass API key in Data Providers."
@@ -150,12 +225,15 @@ def market_context(settings: ProviderSettings) -> dict:
                                       if not settings.key("econ_calendar") else
                                       "Configured — provider endpoint not wired yet."},
         "providers": settings.status(),
+        "provider_debug": provider_debug(settings),
+        "last_updated": _iso(time.time()),
     }
     # plain-English sentiment summary from whatever is available
+    dom = glob_block.get("btc_dominance") if glob_block.get("available") else None
     if fg:
         mood = label_mood(fg["value"])
         out["sentiment_summary"] = (f"{mood} (Fear & Greed {fg['value']}). Risk mode: {risk_mode(mood)}."
-                                    + (f" BTC dominance {glob['btc_dominance']}%." if glob else ""))
+                                    + (f" BTC dominance {dom}%." if dom is not None else ""))
     else:
         out["sentiment_summary"] = ("Live sentiment sources unavailable — not faking a value. "
                                     "Run on a host with network/API access.")

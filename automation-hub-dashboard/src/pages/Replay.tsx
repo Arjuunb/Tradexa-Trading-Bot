@@ -209,6 +209,24 @@ export default function ReplayPage() {
 
       {!data ? (
         <Card title=""><div className="dim ta-center" style={{ padding: 30 }}>Pick an asset and timeframe, then <b>Load</b> to replay real market history.</div></Card>
+      ) : data.meta.bars === 0 ? (
+        <Card title="">
+          <div className="ta-center" style={{ padding: 30 }}>
+            <Icon name="warning" size={22} className="amber" />
+            <div style={{ fontWeight: 600, marginTop: 8, fontSize: 15 }}>
+              {data.meta.needs_download ? "Historical data missing. Download data first." : (data.meta.note || "No data in the selected date range.")}
+            </div>
+            <p className="dim" style={{ marginTop: 6 }}>
+              Replay uses real Binance history only — it never falls back to synthetic data.
+              {data.meta.needs_download && <> Download {symbol} {tf} candles, or switch <b>Data</b> to Demo sample.</>}
+            </p>
+            {data.meta.needs_download && (
+              <button className="btn btn-primary" disabled={syncing} onClick={syncBinance} style={{ marginTop: 6 }}>
+                <Icon name="refresh" size={14} /> {syncing ? "Downloading…" : `Download ${symbol} ${tf} from Binance`}
+              </button>
+            )}
+          </div>
+        </Card>
       ) : (
         <>
           {/* controls */}
@@ -286,8 +304,11 @@ function BrainPanel({ frame, active, liveRR, status, decision }: {
   if (!frame) return <Card title="Bot Brain"><div className="dim">—</div></Card>;
   const trigTone = frame.trigger === "Entry Confirmed" ? "green" : frame.trigger === "Setup Found" ? "amber" : "default";
   const volText = frame.vol_ratio >= 1.2 ? "Above average" : frame.vol_ratio >= 0.8 ? "Normal" : "Thin";
+  const mreg = frame.market_regime ?? frame.regime;
+  const mregTone = mreg === "Bull trend" ? "green" : mreg === "Bear trend" ? "red"
+    : mreg === "Choppy market" || mreg === "High volatility" ? "amber" : "default";
   return (
-    <Card title="Bot Brain" right={<Badge text={frame.regime} tone={frame.regime === "Trending" ? "green" : frame.regime?.includes("Volatility") ? "amber" : "default"} />}>
+    <Card title="Bot Brain" right={<Badge text={mreg} tone={mregTone as any} />}>
       <div className="card" style={{ marginBottom: 10, padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span className="dim" style={{ fontSize: 12 }}>Current decision</span>
         <Badge text={decision.text} tone={decision.tone} />
@@ -297,6 +318,7 @@ function BrainPanel({ frame, active, liveRR, status, decision }: {
           <div className="risk-item" key={tf}><span className="dim">{tf} trend</span> <Badge text={frame.trends[tf] ?? "n/a"} tone={trendTone(frame.trends[tf])} /></div>
         ))}
         <div className="risk-item"><span className="dim">5M trigger</span> <Badge text={frame.trigger} tone={trigTone as any} /></div>
+        <div className="risk-item"><span className="dim">Volatility</span> <Badge text={frame.regime} tone={frame.regime?.includes("Volatility") ? "amber" : "default"} /></div>
         <div className="risk-item"><span className="dim">Volume</span> <Badge text={`${volText} (${frame.vol_ratio}×)`} tone={frame.vol_ratio >= 1.2 ? "green" : "default"} /></div>
       </div>
 

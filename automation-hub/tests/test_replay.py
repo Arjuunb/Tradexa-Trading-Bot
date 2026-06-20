@@ -182,6 +182,42 @@ def test_data_source_labelled_and_demo_flagged():
     assert "Demo sample" in (demo["meta"]["data_warning"] or "")
 
 
+def test_directional_market_regime_classified():
+    """Every frame carries a directional regime drawn from the spec's six
+    categories, derived from real volatility + higher-timeframe direction."""
+    from services.replay import _directional_regime
+    allowed = {"Bull trend", "Bear trend", "Range", "Choppy market",
+               "High volatility", "Low volatility"}
+    r = build_replay("BTCUSDT", "15m", 600)
+    assert r["frames"], "expected frames from seeded real data"
+    for f in r["frames"]:
+        assert f["market_regime"] in allowed
+    # mapping rules
+    assert _directional_regime("High Volatility", {}) == "High volatility"
+    assert _directional_regime("Low Volatility", {}) == "Low volatility"
+    assert _directional_regime("Trending", {"Daily": "Bullish", "4H": "Bullish"}) == "Bull trend"
+    assert _directional_regime("Trending", {"Daily": "Bearish", "4H": "Bearish"}) == "Bear trend"
+    assert _directional_regime("Ranging", {"Daily": "Bullish", "4H": "Bearish"}) == "Choppy market"
+    assert _directional_regime("Ranging", {"Daily": "Neutral"}) == "Range"
+
+
+def test_missing_real_data_prompts_download_not_synthetic(monkeypatch):
+    """Default (binance) replay must NEVER fall back to synthetic — when no real
+    Binance data is cached it surfaces a download prompt instead."""
+    import services.replay as rp
+    import data.market_data as md
+    monkeypatch.setattr(md, "get_bars", lambda *a, **k: ([], "unavailable (real data required — run /data/sync)"))
+    r = rp.build_replay("BTCUSDT", "15m", 400, source="binance")
+    assert r["meta"]["bars"] == 0
+    assert r["meta"]["needs_download"] is True
+    assert r["meta"]["data_is_real"] is False
+    assert r["meta"]["data_warning"] == "Historical data missing. Download data first."
+    assert r["candles"] == [] and r["trades"] == []
+    # demo is the ONLY way to get synthetic, and it stays clearly labelled
+    demo = rp.build_replay("BTCUSDT", "15m", 400, source="demo")
+    assert demo["meta"]["data_is_real"] is False and "Demo" in demo["meta"]["data_source_label"]
+
+
 def test_registry_has_all_strategies():
     from services.strategy_presets import REGISTRY
     names = {r["name"] for r in REGISTRY}
@@ -224,11 +260,18 @@ def test_indicator_values_match_manual_calculation():
     from services.replay import _sma_series, _rsi_series
     r = build_replay("ETHUSDT", "15m", 500)
     closes = [c["c"] for c in r["candles"]]
-    assert r["overlays"]["sma20"] == _sma_series(closes, 20)
-    assert r["overlays"]["rsi"] == _rsi_series(closes, 14)
+    # recompute from the (6-dp rounded) candle closes — must match to within rounding
+    def close_enough(a, b, tol=1e-4):
+        assert len(a) == len(b)
+        for x, y in zip(a, b):
+            assert (x is None) == (y is None)
+            if x is not None:
+                assert abs(x - y) <= tol, (x, y)
+    close_enough(r["overlays"]["sma20"], _sma_series(closes, 20))
+    close_enough(r["overlays"]["rsi"], _rsi_series(closes, 14), tol=0.5)
     # last SMA20 equals the mean of the last 20 closes
-    expect = round(sum(closes[-20:]) / 20, 6)
-    assert r["overlays"]["sma20"][-1] == expect
+    expect = sum(closes[-20:]) / 20
+    assert abs(r["overlays"]["sma20"][-1] - expect) <= 1e-4
 
 
 def test_macro_confirmation_timeframes_drive_the_gate():

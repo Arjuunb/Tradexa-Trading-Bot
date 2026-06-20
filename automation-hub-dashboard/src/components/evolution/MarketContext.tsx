@@ -38,10 +38,15 @@ export default function MarketContextPanel() {
     } catch { app.toast("Saving keys needs the webhook secret", "error"); }
   };
 
+  const fresh = (s: number | null) => (s == null ? "—" : s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`);
+
   return (
     <Card title="Live Market Context"
       subtitle={c?.sentiment_summary ?? "real-world market data"}
-      right={<button className="btn btn-soft" onClick={() => setShowProviders((x) => !x)}><Icon name="settings" size={13} /> Data Providers</button>}>
+      right={<div className="row-actions" style={{ gap: 8 }}>
+        {c?.last_updated && <span className="dim" style={{ fontSize: 11 }}>updated {c.last_updated.slice(11, 19)} UTC</span>}
+        <button className="btn btn-soft" onClick={() => setShowProviders((x) => !x)}><Icon name="settings" size={13} /> Data Providers</button>
+      </div>}>
       <div className="stat-row" style={{ flexWrap: "wrap" }}>
         <W label="Fear & Greed" ok={!!c?.fear_greed.available} note="Live source unavailable">
           {c?.fear_greed.value} <Badge text={c?.fear_greed.mood ?? ""} tone={moodTone(c?.fear_greed.mood) as any} />
@@ -73,6 +78,31 @@ export default function MarketContextPanel() {
           <div className="dim" style={{ fontSize: 13 }}><Icon name="info" size={13} /> {c?.news.note ?? "No news yet."}</div>
         )}
       </div>
+
+      {/* developer debug panel — provider name / status / last update / errors / freshness */}
+      {c?.provider_debug && (
+        <details style={{ marginTop: 10 }}>
+          <summary className="dim" style={{ cursor: "pointer", fontSize: 12 }}>Debug — provider status &amp; freshness</summary>
+          <div style={{ marginTop: 6, overflowX: "auto" }}>
+            <table className="mono" style={{ fontSize: 11, width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr className="dim" style={{ textAlign: "left" }}>
+                <th style={{ padding: "2px 8px 2px 0" }}>Provider</th><th>Status</th><th>Last update</th><th>Fresh</th><th>Error</th>
+              </tr></thead>
+              <tbody>
+                {c.provider_debug.map((d) => (
+                  <tr key={d.id} style={{ borderTop: "1px solid #1b2336" }}>
+                    <td style={{ padding: "3px 8px 3px 0" }}>{d.label}</td>
+                    <td style={{ color: d.status === "Not connected" ? "#8a93a6" : d.status.startsWith("Live") ? "#22c55e" : "#f59e0b" }}>{d.status}</td>
+                    <td className="dim">{d.last_update ? d.last_update.slice(11, 19) : "—"}</td>
+                    <td className="dim">{fresh(d.freshness_s)}</td>
+                    <td className="neg" style={{ maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={d.error ?? ""}>{d.error ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
 
       {/* provider settings */}
       {showProviders && (

@@ -250,7 +250,7 @@ export interface EngineDiagnostics {
 export interface ReplayCandle { t: string; o: number; h: number; l: number; c: number; v: number; }
 export interface ReplayMarker { idx: number; price: number; type: string; side: "bull" | "bear"; }
 export interface ReplayFrame {
-  regime: string; trends: Record<string, string>; trigger: string;
+  regime: string; market_regime?: string; trends: Record<string, string>; trigger: string;
   score: number; breakdown: Record<string, number> | null; blocked: boolean;
   reason: string; vol_ratio: number;
 }
@@ -282,7 +282,7 @@ export interface ReplayData {
   meta: { symbol: string; timeframe: string; data_source: string; bars: number;
           start: string | null; end: string | null; htf_available: Record<string, boolean>;
           strategy?: string; data_source_label?: string; data_is_real?: boolean;
-          data_warning?: string | null;
+          data_warning?: string | null; needs_download?: boolean; note?: string;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;
                     mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[];
@@ -338,8 +338,14 @@ export interface MarketContext {
   economic_calendar: { available: boolean; connected: boolean; note: string };
   sentiment_summary: string;
   providers: ProviderStatus[];
+  provider_debug?: ProviderDebug[];
+  last_updated?: string;
 }
 export interface ProviderStatus { id: string; label: string; needs_key: boolean; connected: boolean; }
+export interface ProviderDebug {
+  id: string; label: string; connected: boolean; status: string;
+  last_update: string | null; freshness_s: number | null; error: string | null;
+}
 
 export interface EvoDashboard {
   sentiment: { available: boolean; mood: string | null; risk_mode: string; fear_greed: number | null };

@@ -77,6 +77,27 @@ def _trend_code_to_str(code) -> str:
     return {1: "Bullish", -1: "Bearish", 0: "Neutral"}.get(code, "n/a")
 
 
+def _directional_regime(base: str, trends: dict) -> str:
+    """Fold the volatility/efficiency regime + higher-timeframe direction into one
+    of the six labels the brain reasons about: Bull trend, Bear trend, Range,
+    Choppy market, High volatility, Low volatility."""
+    if base in ("High Volatility", "Extreme Volatility"):
+        return "High volatility"
+    if base == "Low Volatility":
+        return "Low volatility"
+    dirs = [v for v in trends.values() if v in ("Bullish", "Bearish")]
+    bull = dirs.count("Bullish")
+    bear = dirs.count("Bearish")
+    if base == "Trending":
+        if bull and bear:               # higher timeframes pull both ways
+            return "Choppy market"
+        return "Bull trend" if bull >= bear else "Bear trend"
+    # Ranging / insufficient: conflicting HTF direction => choppy, else a clean range
+    if bull and bear:
+        return "Choppy market"
+    return "Range"
+
+
 def _vwap_series(bars):
     """Rolling VWAP that resets each UTC day. Causal."""
     out = []
@@ -268,6 +289,9 @@ def _label_source(source: str) -> dict:
     if source == "synthetic":
         return {"label": "Demo sample (synthetic)", "is_real": False,
                 "warning": "Demo sample data only — not real market data. Run /data/sync to load Binance history."}
+    if str(source).startswith("unavailable"):
+        return {"label": "No Binance data", "is_real": False, "needs_download": True,
+                "warning": "Historical data missing. Download data first."}
     return {"label": source, "is_real": False, "warning": None}
 
 
@@ -293,7 +317,10 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
         except ValueError:
             bars, source = [], "unavailable"
     else:
-        bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf, since_ms=since_ms)
+        # Replay defaults to REAL Binance history only — never silently fall back
+        # to bundled/synthetic data. Missing data surfaces a download prompt.
+        bars, source = get_bars(symbol, n=n + 1200, timeframe=exec_tf,
+                                since_ms=since_ms, require_real=True)
 
     if start_dt is not None or end_dt is not None:
         sel = [k for k, b in enumerate(bars)
@@ -314,11 +341,14 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
 
     if not view:
         sl = _label_source(source)
+        needs_dl = sl.get("needs_download", False)
+        note = ("Historical data missing. Download data first." if needs_dl
+                else "No data in the selected date range.")
         return {"meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
                          "data_source_label": sl["label"], "data_is_real": sl["is_real"],
-                         "data_warning": sl["warning"] or "No data in the selected date range.",
+                         "data_warning": sl["warning"] or note, "needs_download": needs_dl,
                          "strategy": strategy, "bars": 0, "start": None, "end": None,
-                         "htf_available": {}, "note": "No data in the selected date range."},
+                         "htf_available": {}, "note": note},
                 "candles": [], "overlays": {}, "markers": [], "zones": [],
                 "frames": [], "events": [], "trades": [], "stats": _stats([], symbol)}
 
@@ -547,7 +577,8 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                                "text": f"Trade blocked — {block_reason} (score {score}/100)."})
 
         frames.append({
-            "regime": regime, "trends": trends, "trigger": trigger,
+            "regime": regime, "market_regime": _directional_regime(regime, trends),
+            "trends": trends, "trigger": trigger,
             "score": score, "breakdown": breakdown, "blocked": blocked, "reason": block_reason,
             "vol_ratio": round(vol_ratio, 2),
         })
