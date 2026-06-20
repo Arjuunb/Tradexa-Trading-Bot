@@ -4,7 +4,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import CandleChart from "../components/replay/CandleChart";
 import { useApp } from "../app-context";
-import { apiGet, type ReplayData, type ReplayFrame, type ReplayTrade } from "../lib/api";
+import { apiGet, apiPost, type ReplayData, type ReplayFrame, type ReplayTrade } from "../lib/api";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
 const SPEEDS = [1, 2, 5, 10, 25];
@@ -22,6 +22,7 @@ export default function ReplayPage() {
   const [strategies, setStrategies] = useState<{ id: string; name: string; version: string; description: string }[]>([]);
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(5);
@@ -43,6 +44,18 @@ export default function ReplayPage() {
       setData(r); setIdx(0);
     } catch { app.toast("Replay failed — backend reachable?", "error"); }
     finally { setLoading(false); }
+  };
+
+  const syncBinance = async () => {
+    setSyncing(true);
+    try {
+      app.toast(`Fetching real ${symbol} ${tf} candles from Binance…`, "info");
+      const r = await apiPost<any>(`/data/sync?symbol=${symbol}&timeframe=${tf}&target_candles=5000`);
+      if (r?.error) app.toast(`Binance fetch failed: ${r.error}`, "error");
+      else if (r?.detail) app.toast(r.detail, "error");
+      else { app.toast(`Cached ${r.stored ?? r.candles ?? 0} real ${symbol} ${tf} candles.`, "success"); await load(); }
+    } catch { app.toast("Sync needs the webhook secret (or no network on this host).", "error"); }
+    finally { setSyncing(false); }
   };
 
   // playback loop
@@ -100,7 +113,18 @@ export default function ReplayPage() {
           <label className="row-actions" style={{ gap: 4 }}><span className="dim">To</span>
             <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></label>
           <button className="btn btn-primary" disabled={loading} onClick={load}><Icon name="history" size={14} /> {loading ? "Loading…" : "Load"}</button>
+          {src === "binance" && (
+            <button className="btn btn-soft" disabled={syncing} onClick={syncBinance}
+              title="Download real Binance candles for this symbol/timeframe and cache them locally">
+              <Icon name="refresh" size={14} /> {syncing ? "Syncing…" : "Sync Binance"}
+            </button>
+          )}
         </div>
+        {data && !data.meta.data_is_real && src === "binance" && (
+          <div className="card" style={{ marginTop: 8, borderColor: "#f59e0b", background: "#f59e0b14" }}>
+            <Icon name="warning" size={14} className="amber" /> Not real Binance data yet — click <b>Sync Binance</b> to download and cache real candles (needs network + webhook secret).
+          </div>
+        )}
         <p className="dim" style={{ marginTop: 6, fontSize: 12 }}>
           Leave dates blank for the most recent window. Date ranges need a live data source
           (HUB_USE_LIVE_DATA) to jump to arbitrary months; otherwise they filter the available history.
