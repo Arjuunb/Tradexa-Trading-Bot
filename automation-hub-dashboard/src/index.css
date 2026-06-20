@@ -641,6 +641,21 @@ button { font-family: inherit; cursor: pointer; }
 .watch-foot { display: flex; align-items: center; gap: 14px; font-size: 12px; flex-wrap: wrap; }
 .watch-empty { display: flex; flex-direction: column; padding: 10px 0; font-size: 12.5px; }
 
+/* ----------------------------------------------------------- opportunity scanner */
+.scan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.scan-card {
+  position: relative; overflow: hidden;
+  background: var(--card-2); border: 1px solid var(--card-border-soft); border-radius: var(--radius-sm);
+  padding: 12px 14px 12px 16px; display: flex; flex-direction: column; gap: 7px;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+.scan-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--sc-accent, var(--purple)); }
+.scan-card:hover { border-color: rgba(139, 92, 246, 0.3); transform: translateY(-1px); }
+.scan-type { font-size: 13px; font-weight: 600; }
+.scan-strength { display: flex; align-items: center; gap: 8px; }
+.scan-bar { flex: 1; height: 6px; border-radius: 3px; background: #0d1322; overflow: hidden; }
+.scan-bar-fill { display: block; height: 6px; border-radius: 3px; }
+
 /* ----------------------------------------------------------- evolution lab */
 .evo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .evo-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
