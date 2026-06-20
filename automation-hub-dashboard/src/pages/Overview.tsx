@@ -1,5 +1,6 @@
 import Card from "../components/common/Card";
 import { PageHeader } from "../components/common/ui";
+import DashboardHero from "../components/cards/DashboardHero";
 import MetricCards from "../components/cards/MetricCards";
 import EquityCurve from "../components/chart/EquityCurve";
 import PerformanceOverview from "../components/cards/PerformanceOverview";
@@ -16,6 +17,7 @@ export default function Overview() {
     <>
       <PageHeader title="Overview" subtitle="Live paper trading · realized P&L, engine health, risk and activity at a glance" />
       <WhyNoTrades />
+      <DashboardHero />
       <MetricCards />
 
       <div className="grid-mid">

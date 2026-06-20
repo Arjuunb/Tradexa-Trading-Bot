@@ -581,6 +581,40 @@ button { font-family: inherit; cursor: pointer; }
   .replay-bottom { grid-template-columns: 1fr !important; }
 }
 
+/* ----------------------------------------------------------- dashboard hero */
+.dash-hero {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  gap: 24px; align-items: center;
+  padding: 22px 26px; border-radius: var(--radius-lg);
+  border: 1px solid var(--card-border);
+  background:
+    radial-gradient(700px 240px at 12% -40%, rgba(139, 92, 246, 0.18), transparent 70%),
+    radial-gradient(500px 200px at 95% 140%, rgba(234, 181, 79, 0.10), transparent 70%),
+    linear-gradient(180deg, var(--card-elevated), var(--card-1));
+  box-shadow: var(--shadow);
+  position: relative; overflow: hidden;
+}
+.dash-hero::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg, var(--purple), var(--gold));
+}
+.hero-eyebrow { color: var(--gold); font-size: 11px; font-weight: 600; letter-spacing: 1.5px; }
+.hero-equity { font-size: 38px; font-weight: 800; letter-spacing: -1px; margin: 6px 0 8px; line-height: 1; }
+.hero-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.hero-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--dim-2); }
+.hero-mid { display: flex; gap: 26px; }
+.hero-stat { display: flex; flex-direction: column; gap: 4px; }
+.hero-stat-label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.hero-stat b { font-size: 20px; font-weight: 700; }
+.hero-bar { width: 92px; height: 6px; border-radius: 3px; background: #0d1322; overflow: hidden; margin-top: 2px; }
+.hero-bar-fill { display: block; height: 6px; border-radius: 3px; }
+.hero-right { display: flex; flex-direction: column; gap: 6px; }
+.hero-spark { height: 56px; }
+@media (max-width: 1100px) {
+  .dash-hero { grid-template-columns: 1fr; gap: 16px; }
+  .hero-equity { font-size: 30px; }
+}
+
 /* ----------------------------------------------------------- evolution lab */
 .evo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .evo-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
