@@ -93,7 +93,9 @@ from services.runtime_settings import load_overrides, save_overrides  # noqa: E4
 
 
 def _apply_setting(key: str, value) -> None:
-    if key in ("notify_trades", "notify_risk"):
+    if key == "auto_strategy":
+        settings.auto_strategy = str(value)
+    elif key in ("notify_trades", "notify_risk"):
         setattr(notifier, key, bool(int(value)))
     elif key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
@@ -122,6 +124,7 @@ def _settings_snapshot() -> dict:
         "trading_days_mask": pipeline.trading_days_mask,
         "notify_trades": 1 if notifier.notify_trades else 0,
         "notify_risk": 1 if notifier.notify_risk else 0,
+        "auto_strategy": settings.auto_strategy,
     }
 
 
@@ -769,13 +772,16 @@ def data_sync_all(target_candles: int = 2000, x_webhook_secret: Optional[str] = 
 @router.get("/replay/run")
 def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800,
                start: Optional[str] = None, end: Optional[str] = None,
-               strategy: str = "Supply/Demand", source: str = "binance"):
+               strategy: str = "Supply/Demand", source: str = "binance",
+               macro: Optional[str] = None, confirmation: Optional[str] = None):
     """Precompute a no-lookahead decision timeline for TradingView-style replay
     using the SELECTED strategy. ``source`` = binance | demo. ``start``/``end``
-    (YYYY-MM-DD) jump to a specific historical window."""
+    (YYYY-MM-DD) jump to a specific historical window. ``macro``/``confirmation``
+    pick the higher timeframes that drive the multi-timeframe entry gate."""
     from services.replay import build_replay
     return build_replay(symbol, timeframe, limit, start=start, end=end,
-                        strategy=strategy, source=source)
+                        strategy=strategy, source=source,
+                        macro=macro, confirmation=confirmation)
 
 
 @router.get("/strategies/registry")
@@ -1149,6 +1155,42 @@ def strategy_list():
     """Real list of selectable engine strategies + which one is active."""
     return {"active": settings.auto_strategy, "timeframe": engine.timeframe,
             "strategies": _STRATEGY_CATALOG}
+
+
+class StrategySelect(BaseModel):
+    strategy: str
+
+
+@router.post("/strategy/select")
+def strategy_select(body: StrategySelect, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Switch the live (paper) engine's active built-in strategy and persist it.
+
+    This actually changes the backend logic: the engine is reconfigured with the
+    selected strategy factory so every symbol now trades the chosen strategy. The
+    choice is saved so it survives a restart. Live trading stays locked (paper)."""
+    _check_secret(x_webhook_secret)
+    key = (body.strategy or "").strip()
+    entry = next((s for s in _STRATEGY_CATALOG if s["key"] == key or s["label"] == key), None)
+    if not entry:
+        raise HTTPException(400, f"Unknown strategy '{key}'. "
+                                 f"Choose one of: {', '.join(s['key'] for s in _STRATEGY_CATALOG)}.")
+    if entry["key"] == settings.auto_strategy:
+        return {"applied": True, "active": settings.auto_strategy, "unchanged": True,
+                "status": engine.status()}
+    settings.auto_strategy = entry["key"]                 # _make_strategy reads this live
+    if engine.running:                                    # swap on the running engine
+        engine.reconfigure(symbols=engine.symbols, timeframe=engine.timeframe,
+                           strategy_factory=_make_strategy, label=entry["label"])
+    else:                                                 # respect a stopped engine
+        engine.strategy_factory = _make_strategy
+        engine.strategy_label = entry["label"]
+    save_overrides(settings.settings_path, _settings_snapshot())
+    ledger.log(level="info", stage="audit",
+               message=f"Active strategy switched to {entry['label']} ({entry['key']})")
+    ledger.add_alert(severity="info", category="system", title="Strategy switched",
+                     detail=f"Engine now trading {entry['label']} (paper mode)")
+    return {"applied": True, "active": settings.auto_strategy,
+            "label": entry["label"], "status": engine.status()}
 
 
 @router.get("/strategy/performance")

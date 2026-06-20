@@ -60,7 +60,8 @@ export default function EvolutionPage() {
 
   return (
     <>
-      <PageHeader title="Evolution Engine" subtitle="The bot learns, suggests and tests — but live changes always need your approval" />
+      <PageHeader title="Evolution Engine"
+        subtitle="AI research lab — observe → diagnose → suggest → version → backtest → paper → your approval → live" />
 
       {/* dashboard widgets */}
       <div className="stat-row">
@@ -77,7 +78,7 @@ export default function EvolutionPage() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
           {(d?.workflow ?? []).map((w, i) => (
             <span key={w} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span className="ui-badge" style={{ background: "#1e2438", color: "#cfd6e4" }}>{w}</span>
+              <span className="ui-badge" style={{ background: "rgba(139,92,246,0.14)", color: "var(--purple-2)", border: "1px solid rgba(139,92,246,0.25)" }}>{w}</span>
               {i < (d?.workflow.length ?? 0) - 1 && <Icon name="chevron" size={12} className="dim" />}
             </span>
           ))}
@@ -87,6 +88,8 @@ export default function EvolutionPage() {
 
       <MarketContextPanel />
 
+      <div className="evo-grid">
+       <div className="evo-col">
       <Card title="Study & Learn" subtitle="analyse real replay history → derive evidence-based lessons">
         <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8 }}>
           <select value={learnSym} onChange={(e) => setLearnSym(e.target.value)}>{SYMBOLS.map((s) => <option key={s}>{s}</option>)}</select>
@@ -100,7 +103,7 @@ export default function EvolutionPage() {
         {(upgrades.data?.upgrades?.length ?? 0) === 0 ? (
           <div className="dim ta-center" style={{ padding: 18 }}>No suggestions yet — run <b>Study &amp; Learn</b>.</div>
         ) : (upgrades.data!.upgrades.map((u) => (
-          <div key={u.id} className="card" style={{ marginBottom: 8, background: "#131a2c" }}>
+          <div key={u.id} className="card" style={{ marginBottom: 8, background: "var(--card-2)" }}>
             <div className="row-actions" style={{ justifyContent: "space-between" }}>
               <b>{u.title}</b>
               <Badge text={u.status} tone={statusTone(u.status)} />
@@ -129,6 +132,12 @@ export default function EvolutionPage() {
           </div>
         )))}
       </Card>
+       </div>
+       <div className="evo-col">
+      <ExperimentLab />
+      <VersionsPanel data={versions.data} onAdvance={advanceVersion} />
+       </div>
+      </div>
 
       {/* learning journal */}
       <Card title="Bot Learning Journal" subtitle={`${lessons.data?.weekly ?? 0} new this week`}>
@@ -155,9 +164,6 @@ export default function EvolutionPage() {
         </div>
       </Card>
 
-      <VersionsPanel data={versions.data} onAdvance={advanceVersion} />
-
-      <ExperimentLab />
     </>
   );
 }
@@ -182,7 +188,7 @@ function VersionsPanel({ data, onAdvance }: { data?: VersionCompare | null; onAd
       {vers.length === 0 ? (
         <div className="dim ta-center" style={{ padding: 18 }}>No versions yet. Approve an auto-applicable upgrade and click <b>Promote to Version</b>.</div>
       ) : vers.map((v) => (
-        <div key={v.id} className="card" style={{ marginBottom: 8, background: "#131a2c" }}>
+        <div key={v.id} className="card" style={{ marginBottom: 8, background: "var(--card-2)" }}>
           <div className="row-actions" style={{ justifyContent: "space-between" }}>
             <b>{v.label}{data?.best === v.label && <span className="pos"> · best</span>}</b>
             <span className="dim mono">{v.created_at.slice(0, 10)}</span>

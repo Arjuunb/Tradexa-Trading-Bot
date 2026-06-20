@@ -1,0 +1,60 @@
+{
+  "$description": "Tradexa Trading Bot — design tokens. Premium fintech, dark-mode-first, 8px system. Portable to Figma (Variables / Tokens Studio) and Style Dictionary so the bot UI merges into Tradexa without a redesign.",
+  "color": {
+    "bg": {
+      "primary":   { "value": "#050816", "type": "color", "description": "Primary background" },
+      "secondary": { "value": "#0B1020", "type": "color", "description": "Secondary background" },
+      "card":      { "value": "#111827", "type": "color", "description": "Card background" },
+      "elevated":  { "value": "#141B2D", "type": "color", "description": "Elevated card" }
+    },
+    "border": { "default": { "value": "#1F2937", "type": "color" } },
+    "brand": {
+      "purple":       { "value": "#8B5CF6", "type": "color", "description": "Primary purple" },
+      "purple-hover": { "value": "#9D72FF", "type": "color", "description": "Purple hover" },
+      "gold":         { "value": "#EAB54F", "type": "color", "description": "Accent gold" }
+    },
+    "state": {
+      "profit": { "value": "#22C55E", "type": "color" },
+      "loss":   { "value": "#EF4444", "type": "color" }
+    },
+    "text": {
+      "primary":   { "value": "#FFFFFF", "type": "color" },
+      "secondary": { "value": "#B0B8C4", "type": "color" },
+      "muted":     { "value": "#7C8798", "type": "color" }
+    }
+  },
+  "font": {
+    "family": { "sans": { "value": "Inter", "type": "fontFamily" } },
+    "weight": {
+      "regular":  { "value": 400, "type": "fontWeight" },
+      "medium":   { "value": 500, "type": "fontWeight" },
+      "semibold": { "value": 600, "type": "fontWeight" },
+      "bold":     { "value": 700, "type": "fontWeight" }
+    },
+    "size": {
+      "display": { "value": "40px", "type": "fontSize" },
+      "h1":      { "value": "32px", "type": "fontSize" },
+      "h2":      { "value": "24px", "type": "fontSize" },
+      "h3":      { "value": "20px", "type": "fontSize" },
+      "body-lg": { "value": "16px", "type": "fontSize" },
+      "body":    { "value": "14px", "type": "fontSize" },
+      "caption": { "value": "12px", "type": "fontSize" }
+    }
+  },
+  "space": {
+    "1": { "value": "8px",  "type": "spacing" },
+    "2": { "value": "16px", "type": "spacing" },
+    "3": { "value": "24px", "type": "spacing" },
+    "4": { "value": "32px", "type": "spacing" },
+    "5": { "value": "40px", "type": "spacing" }
+  },
+  "radius": {
+    "sm": { "value": "12px", "type": "borderRadius" },
+    "md": { "value": "16px", "type": "borderRadius" },
+    "lg": { "value": "20px", "type": "borderRadius" }
+  },
+  "shadow": {
+    "card": { "value": "0 8px 24px rgba(0,0,0,0.45)", "type": "boxShadow", "description": "Soft elevation" },
+    "glow": { "value": "0 0 20px rgba(139,92,246,0.35)", "type": "boxShadow", "description": "Subtle purple glow — no neon" }
+  }
+}

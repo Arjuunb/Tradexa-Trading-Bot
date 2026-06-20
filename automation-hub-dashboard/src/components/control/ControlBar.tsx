@@ -13,6 +13,7 @@ type Cfg = { strategy: string; symbol: string; timeframe: string; mode: string;
 const DEFAULT_TUNING: ControlTuning = {
   min_score: 60, rr: 2.0, trend_filter: true, volume_filter: false,
   regime_filter: true, session_filter: false, max_trades_per_day: 0, cooldown_after_loss: 0,
+  max_consecutive_losses: 0,
 };
 
 /** Real bot control center: switch strategy/symbol/timeframe/mode + tune the
@@ -149,6 +150,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
             <Num label="Risk/Reward target" value={cfg.tuning.rr} min={1} max={5} step={0.1} onChange={(v) => setTune({ rr: v })} />
             <Num label="Max trades / day (0 = ∞)" value={cfg.tuning.max_trades_per_day} min={0} max={50} step={1} onChange={(v) => setTune({ max_trades_per_day: v })} />
             <Num label="Cooldown after loss (min)" value={cfg.tuning.cooldown_after_loss} min={0} max={240} step={5} onChange={(v) => setTune({ cooldown_after_loss: v })} />
+            <Num label="Max consecutive losses (0 = ∞)" value={cfg.tuning.max_consecutive_losses} min={0} max={20} step={1} onChange={(v) => setTune({ max_consecutive_losses: v })} />
           </div>
           <div className="row-actions" style={{ justifyContent: "flex-start", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
             <Chk label="Trend filter" on={cfg.tuning.trend_filter} onChange={(v) => setTune({ trend_filter: v })} />

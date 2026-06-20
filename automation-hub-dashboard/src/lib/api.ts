@@ -250,7 +250,7 @@ export interface EngineDiagnostics {
 export interface ReplayCandle { t: string; o: number; h: number; l: number; c: number; v: number; }
 export interface ReplayMarker { idx: number; price: number; type: string; side: "bull" | "bear"; }
 export interface ReplayFrame {
-  regime: string; trends: Record<string, string>; trigger: string;
+  regime: string; market_regime?: string; trends: Record<string, string>; trigger: string;
   score: number; breakdown: Record<string, number> | null; blocked: boolean;
   reason: string; vol_ratio: number;
 }
@@ -262,22 +262,33 @@ export interface ReplayTrade {
   score: number; breakdown: Record<string, number>;
   entry_reasons: string[]; exit_idx: number | null; exit: number | null;
   exit_reason: string | null; result: string; rr: number | null; loss_analysis: string | null;
+  mtf?: { aligned: boolean; reason: string }; regime?: string; bars_held?: number | null;
 }
 export interface ReplayStats {
   symbol: string; trades: number; win_rate: number; profit_factor: number; net_r: number;
   max_drawdown_r: number; avg_rr: number; expectancy_r: number; best_r: number; worst_r: number;
   long_trades: number; short_trades: number; long_net_r: number; short_net_r: number;
+  max_consecutive_wins: number; max_consecutive_losses: number; current_streak: number;
+}
+/** Every series is candle-aligned; null marks the indicator's warm-up window. */
+export interface ReplayOverlays {
+  ema8: (number | null)[]; ema20: (number | null)[]; ema30: (number | null)[]; ema50: (number | null)[];
+  sma20: (number | null)[]; sma50: (number | null)[]; vwap: (number | null)[];
+  bb_upper: (number | null)[]; bb_mid: (number | null)[]; bb_lower: (number | null)[];
+  rsi: (number | null)[]; atr: (number | null)[];
+  macd: (number | null)[]; macd_signal: (number | null)[]; macd_hist: (number | null)[];
 }
 export interface ReplayData {
   meta: { symbol: string; timeframe: string; data_source: string; bars: number;
           start: string | null; end: string | null; htf_available: Record<string, boolean>;
           strategy?: string; data_source_label?: string; data_is_real?: boolean;
-          data_warning?: string | null;
+          data_warning?: string | null; needs_download?: boolean; note?: string;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;
-                    mtf_timeframes: string[]; computed_at: string; error: string | null } };
+                    mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[];
+                    computed_at: string; error: string | null } };
   candles: ReplayCandle[];
-  overlays: { ema20: number[]; ema50: number[]; vwap: number[] };
+  overlays: ReplayOverlays | Record<string, (number | null)[]>;
   markers: ReplayMarker[];
   zones: { type: string; price?: number; left_idx?: number; top?: number; bottom?: number }[];
   frames: ReplayFrame[];
@@ -327,8 +338,14 @@ export interface MarketContext {
   economic_calendar: { available: boolean; connected: boolean; note: string };
   sentiment_summary: string;
   providers: ProviderStatus[];
+  provider_debug?: ProviderDebug[];
+  last_updated?: string;
 }
 export interface ProviderStatus { id: string; label: string; needs_key: boolean; connected: boolean; }
+export interface ProviderDebug {
+  id: string; label: string; connected: boolean; status: string;
+  last_update: string | null; freshness_s: number | null; error: string | null;
+}
 
 export interface EvoDashboard {
   sentiment: { available: boolean; mood: string | null; risk_mode: string; fear_greed: number | null };
@@ -344,6 +361,7 @@ export interface ControlOptions {
 export interface ControlTuning {
   min_score: number; rr: number; trend_filter: boolean; volume_filter: boolean;
   regime_filter: boolean; session_filter: boolean; max_trades_per_day: number; cooldown_after_loss: number;
+  max_consecutive_losses: number;
 }
 export interface ControlSimResult {
   strategy: string; symbol: string; timeframe: string; data_source: string;
