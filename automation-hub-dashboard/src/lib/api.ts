@@ -181,6 +181,25 @@ export interface CoachLeaderboard {
   by_strategy: { key: string; net_r: number }[]; by_symbol: { key: string; net_r: number }[];
   best: { strategy: string; symbol: string; net_r: number } | null;
 }
+export interface WalkForward {
+  available: boolean; error?: string; verdict: string; note: string;
+  oos_net_r: number; positive_folds: number; total_folds: number; data_source?: string;
+  folds: { fold: number; best_min_score: number; train_net_r: number; test_net_r: number; test_trades: number; test_pf: number }[];
+}
+export interface MonteCarlo {
+  available: boolean; error?: string; runs: number; trades: number; prob_profit_pct: number;
+  net_r: { p5: number; median: number; p95: number; mean: number };
+  max_drawdown_r: { median: number; p95: number; worst: number };
+}
+export interface OutOfSample {
+  available: boolean; error?: string; verdict: string; note: string; split: number;
+  train: { net_r: number; trades: number; profit_factor: number; win_rate: number };
+  test: { net_r: number; trades: number; profit_factor: number; win_rate: number };
+}
+export interface SlicedPerf {
+  strategy: string; timeframe: string; total_trades: number;
+  by_regime: AttrBucket[]; by_session: AttrBucket[]; by_symbol: AttrBucket[];
+}
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }

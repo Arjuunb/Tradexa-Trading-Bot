@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Card from "../components/common/Card";
 import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, hhmmss, API_BASE, type StrategyPerformance } from "../lib/api";
+import { apiGet, useLive, hhmmss, API_BASE,
+  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket } from "../lib/api";
 import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -87,6 +88,119 @@ export default function BacktestingPage() {
           </div>
         </Card>
       </div>
+
+      <RobustnessLab />
     </>
+  );
+}
+
+const LAB_SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
+const LAB_STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+const vTone = (v: string) => (["robust", "holds"].includes(v) ? "green" : ["fragile", "overfit"].includes(v) ? "red" : "amber");
+const rt = (n: number) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
+
+function RobustnessLab() {
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [tf, setTf] = useState("4h");
+  const [busy, setBusy] = useState("");
+  const [wf, setWf] = useState<WalkForward | null>(null);
+  const [mc, setMc] = useState<MonteCarlo | null>(null);
+  const [oos, setOos] = useState<OutOfSample | null>(null);
+  const [sliced, setSliced] = useState<SlicedPerf | null>(null);
+
+  const run = async (kind: string) => {
+    setBusy(kind);
+    const q = `symbol=${symbol}&strategy=${encodeURIComponent(strategy)}&timeframe=${tf}`;
+    try {
+      if (kind === "wf") setWf(await apiGet<WalkForward>(`/lab/walk-forward?${q}&bars=4000&folds=4`));
+      else if (kind === "mc") setMc(await apiGet<MonteCarlo>(`/lab/monte-carlo?${q}&bars=4000&runs=1000`));
+      else if (kind === "oos") setOos(await apiGet<OutOfSample>(`/lab/out-of-sample?${q}&bars=4000&split=0.7`));
+      else setSliced(await apiGet<SlicedPerf>(`/lab/sliced?strategy=${encodeURIComponent(strategy)}&timeframe=15m&symbols=${LAB_SYMS.join(",")}&limit=800`));
+    } catch { /* ignore */ } finally { setBusy(""); }
+  };
+
+  const bucketTable = (rows?: AttrBucket[]) => (
+    <table className="data-table" style={{ fontSize: 12 }}><tbody>
+      {(rows ?? []).map((b) => (
+        <tr key={b.key}><td><b>{b.key.replace("USDT", "")}</b></td><td className="dim">{b.trades}t · {b.win_rate}%</td>
+          <td className={rt(b.net_r)} style={{ textAlign: "right" }}>{b.net_r >= 0 ? "+" : ""}{b.net_r}R</td></tr>
+      ))}
+    </tbody></table>
+  );
+
+  return (
+    <Card title="Robustness Lab" subtitle="walk-forward · Monte Carlo · out-of-sample · regime/session/symbol — real Binance data"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{LAB_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{LAB_SYMS.map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={tf} onChange={(e) => setTf(e.target.value)}>{["15m", "4h", "1d"].map((t) => <option key={t}>{t}</option>)}</select>
+      </div>}>
+      <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
+        <button className="btn btn-primary" disabled={!!busy} onClick={() => run("wf")}>{busy === "wf" ? "…" : "Walk-forward"}</button>
+        <button className="btn btn-soft" disabled={!!busy} onClick={() => run("mc")}>{busy === "mc" ? "…" : "Monte Carlo"}</button>
+        <button className="btn btn-soft" disabled={!!busy} onClick={() => run("oos")}>{busy === "oos" ? "…" : "Out-of-sample"}</button>
+        <button className="btn btn-soft" disabled={!!busy} onClick={() => run("sliced")}>{busy === "sliced" ? "…" : "Regime / Session / Symbol"}</button>
+      </div>
+
+      {wf && (wf.available
+        ? <div style={{ marginTop: 12 }}>
+            <div className="row-actions" style={{ justifyContent: "space-between" }}>
+              <b>Walk-forward — {wf.positive_folds}/{wf.total_folds} folds positive, OOS net <span className={rt(wf.oos_net_r)}>{wf.oos_net_r >= 0 ? "+" : ""}{wf.oos_net_r}R</span></b>
+              <Badge text={wf.verdict} tone={vTone(wf.verdict) as any} />
+            </div>
+            <p className="dim" style={{ margin: "4px 0 6px" }}>{wf.note}</p>
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead><tr><th>Fold</th><th>Best score</th><th>Train R</th><th>Test R (OOS)</th><th>Test trades</th><th>Test PF</th></tr></thead>
+              <tbody>{wf.folds.map((f) => (
+                <tr key={f.fold}><td>{f.fold}</td><td className="dim">{f.best_min_score}</td>
+                  <td className={rt(f.train_net_r)}>{f.train_net_r}R</td><td className={rt(f.test_net_r)}>{f.test_net_r}R</td>
+                  <td className="dim">{f.test_trades}</td><td>{f.test_pf}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        : <p className="neg" style={{ marginTop: 8 }}><Icon name="warning" size={13} /> {wf.error}</p>)}
+
+      {mc && (mc.available && !mc.error
+        ? <div className="perf-grid" style={{ marginTop: 12 }}>
+            {[["P(profit)", `${mc.prob_profit_pct}%`, mc.prob_profit_pct >= 50 ? "pos" : "neg"],
+              ["Median net", `${mc.net_r.median >= 0 ? "+" : ""}${mc.net_r.median}R`, rt(mc.net_r.median)],
+              ["5th–95th net", `${mc.net_r.p5} … ${mc.net_r.p95}R`, ""],
+              ["Median DD", `${mc.max_drawdown_r.median}R`, "amber"],
+              ["95th DD", `${mc.max_drawdown_r.p95}R`, "amber"],
+              ["Worst DD", `${mc.max_drawdown_r.worst}R`, "neg"]].map(([l, v, t]) => (
+              <div className="perf-item" key={l as string}><span className="perf-label">{l}</span><div className="perf-value-row"><span className={`perf-value ${t}`}>{v}</span></div></div>
+            ))}
+          </div>
+        : mc && <p className="amber" style={{ marginTop: 8 }}><Icon name="warning" size={13} /> {mc.error || "unavailable"} · {mc.runs} runs over {mc.trades} trades</p>)}
+
+      {oos && (oos.available
+        ? <div style={{ marginTop: 12 }}>
+            <div className="row-actions" style={{ justifyContent: "space-between" }}>
+              <b>Out-of-sample ({Math.round(oos.split * 100)}/{Math.round((1 - oos.split) * 100)} split)</b>
+              <Badge text={oos.verdict} tone={vTone(oos.verdict) as any} />
+            </div>
+            <p className="dim" style={{ margin: "4px 0 6px" }}>{oos.note}</p>
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead><tr><th></th><th>Net R</th><th>PF</th><th>Win%</th><th>Trades</th></tr></thead>
+              <tbody>
+                <tr><td><b>Train</b></td><td className={rt(oos.train.net_r)}>{oos.train.net_r}R</td><td>{oos.train.profit_factor}</td><td className="dim">{oos.train.win_rate}%</td><td className="dim">{oos.train.trades}</td></tr>
+                <tr><td><b>Test (unseen)</b></td><td className={rt(oos.test.net_r)}>{oos.test.net_r}R</td><td>{oos.test.profit_factor}</td><td className="dim">{oos.test.win_rate}%</td><td className="dim">{oos.test.trades}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        : <p className="neg" style={{ marginTop: 8 }}><Icon name="warning" size={13} /> {oos.error}</p>)}
+
+      {sliced && (
+        <div style={{ marginTop: 12 }}>
+          <div className="card-subtitle" style={{ marginBottom: 6 }}>Conditional performance · {sliced.total_trades} trades</div>
+          <div className="grid-2-eq">
+            <div><div className="card-subtitle" style={{ marginBottom: 4 }}>By regime</div>{bucketTable(sliced.by_regime)}</div>
+            <div><div className="card-subtitle" style={{ marginBottom: 4 }}>By session</div>{bucketTable(sliced.by_session)}</div>
+            <div><div className="card-subtitle" style={{ marginBottom: 4 }}>By symbol</div>{bucketTable(sliced.by_symbol)}</div>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

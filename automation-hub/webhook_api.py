@@ -491,6 +491,39 @@ def coach_leaderboard(symbols: str = "BTCUSDT,ETHUSDT", strategies: str = "Decis
             "best": grid[0] if grid else None}
 
 
+@router.get("/lab/walk-forward")
+def lab_walk_forward(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                     timeframe: str = "4h", bars: int = 4000, folds: int = 4):
+    """Walk-forward: optimise per train block, validate on the next unseen block."""
+    from services.backtest_lab import walk_forward
+    return walk_forward(strategy, symbol, timeframe, bars=bars, folds=folds)
+
+
+@router.get("/lab/monte-carlo")
+def lab_monte_carlo(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                    timeframe: str = "4h", bars: int = 4000, runs: int = 1000):
+    """Monte Carlo: bootstrap the trade sequence into an outcome distribution."""
+    from services.backtest_lab import monte_carlo
+    return monte_carlo(strategy, symbol, timeframe, bars=bars, runs=runs)
+
+
+@router.get("/lab/out-of-sample")
+def lab_out_of_sample(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                      timeframe: str = "4h", bars: int = 4000, split: float = 0.7):
+    """Out-of-sample train/test split with an honest overfit verdict."""
+    from services.backtest_lab import out_of_sample
+    return out_of_sample(strategy, symbol, timeframe, bars=bars, split=split)
+
+
+@router.get("/lab/sliced")
+def lab_sliced(strategy: str = "Decision Brain", timeframe: str = "15m",
+               symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", limit: int = 800):
+    """Regime- / session- / symbol-conditional performance for one strategy."""
+    from services.backtest_lab import sliced_performance
+    syms = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())[:4]
+    return sliced_performance(strategy, timeframe, symbols=syms, limit=limit)
+
+
 _STRATEGY_CATALOG = [
     {"key": "brain", "label": "Decision Brain",
      "desc": "Multi-factor trend: EMA trend + filter, momentum, RSI, regime; conviction-weighted sizing"},
