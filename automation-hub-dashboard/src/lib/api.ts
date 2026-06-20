@@ -200,6 +200,11 @@ export interface SlicedPerf {
   strategy: string; timeframe: string; total_trades: number;
   by_regime: AttrBucket[]; by_session: AttrBucket[]; by_symbol: AttrBucket[];
 }
+export interface WatchRow {
+  symbol: string; available: boolean; source?: string;
+  last?: number; change_pct?: number; vol_pct?: number; spark?: number[]; bars?: number;
+}
+export interface Watchlist { timeframe: string; symbols: WatchRow[]; }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }
