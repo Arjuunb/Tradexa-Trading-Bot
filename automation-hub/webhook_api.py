@@ -63,6 +63,22 @@ from services.alerts import AlertChannels  # noqa: E402
 import os as _os  # noqa: E402
 alert_channels = AlertChannels(notifier, _os.path.join(_os.path.dirname(settings.providers_path), "alert_channels.json"))
 
+# Economic-event calendar (user-set / provider-fed upcoming events).
+from services.econ_guard import EconCalendar  # noqa: E402
+econ_calendar = EconCalendar(_os.path.join(_os.path.dirname(settings.providers_path), "econ_events.json"))
+
+# Trade journal (auto-entries from closed trades, human-editable).
+from services.journal import JournalStore  # noqa: E402
+journal_store = JournalStore(_os.path.join(_os.path.dirname(settings.providers_path), "journal.json"))
+
+# Bot OS — the service/event layer the engines communicate through.
+from services.bot_os import BotOS  # noqa: E402
+bot_os = BotOS()
+bot_os.set_status_fn("Execution Engine", lambda: {"state": "up" if engine.status().get("running") else "idle",
+                                                  "detail": "running" if engine.status().get("running") else "stopped"})
+bot_os.set_status_fn("Strategy Engine", lambda: {"state": "up", "detail": settings.auto_strategy})
+bot_os.bus.publish("system", "boot", {"msg": "Bot OS initialised"})
+
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
 # the simple EMA crossover instead.
@@ -690,6 +706,140 @@ def marketplace_clone_template(body: CloneTemplateBody, x_webhook_secret: Option
     if "error" in r:
         raise HTTPException(400, r["error"])
     return r
+
+
+@router.get("/bot-os")
+def bot_os_snapshot():
+    """Bot Operating System — the nine engines, their live state and recent
+    events on the shared bus (#20)."""
+    # reflect live data freshness for the Market engine before snapshotting
+    try:
+        cov = market_store.all_coverage()
+        have = sum(1 for c in cov if (c.get("candles") or 0) > 0)
+        bot_os.set_status_fn("Market Engine", lambda h=have, n=len(cov):
+                             {"state": "up" if h else "idle", "detail": f"{h}/{n} datasets cached"})
+    except Exception:  # noqa: BLE001
+        pass
+    return bot_os.snapshot()
+
+
+@router.get("/journal")
+def journal_list():
+    """Trade journal entries (auto-created from trades, human-editable)."""
+    return {"entries": journal_store.list()}
+
+
+@router.post("/journal/from-replay")
+def journal_from_replay(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                        timeframe: str = "15m", limit: int = 800,
+                        x_webhook_secret: Optional[str] = Header(default=None)):
+    """Auto-journal every closed trade from a real replay run (#11)."""
+    _check_secret(x_webhook_secret)
+    from services.replay import build_replay
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        raise HTTPException(400, rep["meta"].get("data_warning", "No data."))
+    closed = [t for t in rep["trades"] if t.get("rr") is not None]
+    added = journal_store.add_from_trades(closed, symbol=symbol, strategy=strategy, timeframe=timeframe)
+    return {"added": len(added), "entries": added}
+
+
+class JournalEdit(BaseModel):
+    notes: Optional[str] = None
+    emotions: Optional[str] = None
+    mistakes: Optional[list] = None
+    lessons: Optional[list] = None
+    tags: Optional[list] = None
+
+
+@router.patch("/journal/{eid}")
+def journal_update(eid: str, body: JournalEdit, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Edit the human fields of a journal entry."""
+    _check_secret(x_webhook_secret)
+    r = journal_store.update(eid, body.model_dump(exclude_none=True))
+    if r is None:
+        raise HTTPException(404, "Entry not found")
+    return r
+
+
+@router.delete("/journal/{eid}")
+def journal_delete(eid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    return {"deleted": journal_store.delete(eid)}
+
+
+@router.get("/production/readiness")
+def production_readiness():
+    """Production Readiness — API / DB / data freshness / errors / memory /
+    engine uptime in one operational status (#19)."""
+    from services.production import readiness
+    # database + data coverage
+    db_ok, db_detail, coverage = True, "SQLite reachable", []
+    try:
+        coverage = market_store.all_coverage()
+    except Exception as e:  # noqa: BLE001
+        db_ok, db_detail = False, f"market store error: {str(e)[:80]}"
+    # recent errors from the ledger, split into strategy vs order/execution
+    strat_err = order_err = 0
+    try:
+        for row in ledger.get_logs(200):
+            if str(row.get("level", "")).lower() in ("error", "critical"):
+                stage = str(row.get("stage", "")).lower()
+                if stage in ("execution", "order", "paper", "risk"):
+                    order_err += 1
+                else:
+                    strat_err += 1
+    except Exception:  # noqa: BLE001
+        pass
+    st = engine.status()
+    return readiness(api_ok=True, db_ok=db_ok, db_detail=db_detail, coverage=coverage,
+                     strategy_errors=strat_err, order_errors=order_err,
+                     uptime_s=round(time.time() - _BOOT, 0), engine_running=st.get("running", False))
+
+
+@router.get("/econ/protection")
+def econ_protection():
+    """Economic-event protection — halt / reduce-size / widen-stops around the
+    next high-impact macro event (#7)."""
+    from services.econ_guard import evaluate, EVENT_TYPES
+    out = evaluate(econ_calendar.events())
+    out["connected"] = econ_calendar.connected
+    out["tracked_event_types"] = EVENT_TYPES
+    if not econ_calendar.connected:
+        out["note"] = ("No economic calendar connected — add upcoming events (or an "
+                       "ECON_CALENDAR_KEY) to enable event protection. Not faking dates.")
+    return out
+
+
+class EconEvents(BaseModel):
+    events: list = []
+
+
+@router.post("/econ/events")
+def econ_set_events(body: EconEvents, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Set the upcoming economic events the guard watches."""
+    _check_secret(x_webhook_secret)
+    return {"events": econ_calendar.set_events(body.events)}
+
+
+@router.get("/memory/strategy")
+def memory_strategy(strategy: str = "Decision Brain", timeframe: str = "15m",
+                    symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", limit: int = 800):
+    """Market Memory + Strategy DNA — where this strategy performs best/worst and
+    its preferred market / volatility / session / symbols (#12 / #13)."""
+    from services.memory import build_memory
+    syms = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())[:4]
+    return build_memory(strategy, timeframe, symbols=syms, limit=limit)
+
+
+@router.get("/memory/dna-check")
+def memory_dna_check(strategy: str = "Decision Brain", symbol: str = "BTCUSDT",
+                     regime: str = "", session: str = "", timeframe: str = "15m"):
+    """Does the current context fit the strategy's DNA? (live memory filter)."""
+    from services.memory import build_memory, dna_match
+    mem = build_memory(strategy, timeframe, symbols=(symbol,) if symbol else ("BTCUSDT",))
+    ctx = {"symbol": symbol, "market_regime": regime or None, "session": session or None}
+    return {"strategy": strategy, "dna": mem["dna"], "context": ctx, "match": dna_match(mem["dna"], ctx)}
 
 
 @router.get("/marketplace/rank")

@@ -3,7 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPost, apiPostJson, useLive, type PaperTradeRow, type SystemStatus, type AlertChannels, type AlertEvent } from "../lib/api";
+import { apiPost, apiPostJson, useLive, type PaperTradeRow, type SystemStatus, type AlertChannels, type AlertEvent, type EconProtection } from "../lib/api";
 import { getProgress } from "../lib/progress";
 
 const STAGES = ["Backtest", "Simulation", "Paper Trading", "Live Trading"];
@@ -71,7 +71,35 @@ export default function SafetyCenterPage() {
       </Card>
 
       <AlertsPanel />
+      <EconProtectionPanel />
     </>
+  );
+}
+
+function EconProtectionPanel() {
+  const e = useLive<EconProtection>("/econ/protection", 15000).data;
+  const tone = e?.mode === "normal" ? "green" : e?.mode === "caution" ? "amber" : "red";
+  return (
+    <Card title="Economic Event Protection" subtitle="halt / reduce size / widen stops around CPI · FOMC · NFP · rate decisions"
+      right={e && <Badge text={e.mode} tone={tone as any} />}>
+      {!e ? <div className="dim">—</div> : (
+        <>
+          <div className="risk-list">
+            <div className="risk-item"><span className="dim">Next high-impact event</span> <b>{e.next_event ? `${e.next_event.name} · in ${e.minutes_to_event! >= 60 ? `${(e.minutes_to_event! / 60).toFixed(1)}h` : `${e.minutes_to_event}m`}` : "none scheduled"}</b></div>
+            <div className="risk-item"><span className="dim">Risk multiplier</span> <b>{Math.round(e.risk_multiplier * 100)}%</b></div>
+            <div className="risk-item"><span className="dim">Stop multiplier</span> <b>{e.stop_multiplier}×</b></div>
+            <div className="risk-item"><span className="dim">New entries</span> <Badge text={e.halt_new_entries ? "halted" : "allowed"} tone={e.halt_new_entries ? "red" : "green"} /></div>
+          </div>
+          {e.actions.length > 0 && (
+            <div className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
+              <b className="amber"><Icon name="shield" size={13} /> Protective actions</b>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{e.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+            </div>
+          )}
+          {!e.connected && <p className="dim" style={{ fontSize: 11, marginTop: 8 }}><Icon name="info" size={12} /> {e.note}</p>}
+        </>
+      )}
+    </Card>
   );
 }
 
