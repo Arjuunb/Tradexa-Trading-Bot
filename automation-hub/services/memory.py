@@ -10,6 +10,10 @@ buckets). Pure aside from that real-data load.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
 # regime -> coarse volatility + trend descriptors for the DNA card
 _VOL = {"High volatility": "high", "Extreme Volatility": "high", "Low volatility": "low",
         "Bull trend": "normal", "Bear trend": "normal", "Range": "low", "Choppy market": "high",
@@ -99,3 +103,79 @@ def dna_match(dna: dict, context: dict) -> dict:
     verdict = "favorable" if score >= 25 else "unfavorable" if score <= -25 else "neutral"
     return {"fit_score": max(-100, min(100, score)), "verdict": verdict,
             "trade_here": score > -25, "reasons": reasons}
+
+
+def strategy_combinations(strategy: str, timeframe: str = "15m", *,
+                          symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"),
+                          limit: int = 800) -> dict:
+    """Symbol × market-regime win-rate combinations for one strategy — e.g.
+    'BTC + Trend Following + Bull trend → 63% win' (#1)."""
+    from services.replay import build_replay
+    combos: dict = {}
+    for sym in symbols:
+        rep = build_replay(sym, timeframe, limit, strategy=strategy)
+        frames = rep.get("frames", [])
+        for t in rep["trades"]:
+            if t.get("rr") is None:
+                continue
+            ei = t.get("entry_idx")
+            reg = (frames[ei].get("market_regime") if isinstance(ei, int) and ei < len(frames)
+                   else t.get("regime")) or "—"
+            combos.setdefault((sym, reg), []).append(t["rr"])
+    rows = []
+    for (sym, reg), rs in combos.items():
+        wins = sum(1 for r in rs if r > 0)
+        rows.append({"symbol": sym, "regime": reg, "strategy": strategy, "trades": len(rs),
+                     "win_rate": round(wins / len(rs) * 100, 1), "net_r": round(sum(rs), 2)})
+    strong = sorted([c for c in rows if c["trades"] >= 3], key=lambda c: c["net_r"], reverse=True)
+    return {"strategy": strategy, "timeframe": timeframe, "combinations": strong,
+            "best": strong[:5], "worst": strong[::-1][:5], "all": rows}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class MemoryStore:
+    """Persistent memory — snapshots of each strategy's mined stats (#1)."""
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+
+    def _load(self) -> dict:
+        try:
+            if self.path.exists():
+                return json.loads(self.path.read_text())
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
+
+    def _write(self, data: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, indent=2))
+
+    def save(self, strategy: str, snapshot: dict) -> dict:
+        data = self._load()
+        rec = {**snapshot, "strategy": strategy, "updated_at": _now()}
+        data[strategy] = rec
+        self._write(data)
+        return rec
+
+    def get(self, strategy: str):
+        return self._load().get(strategy)
+
+    def list(self) -> list:
+        return sorted(self._load().values(), key=lambda r: r.get("updated_at", ""), reverse=True)
+
+    def recommendations(self) -> dict:
+        """From stored snapshots: best strategy per regime + per symbol."""
+        by_regime: dict = {}
+        by_symbol: dict = {}
+        for snap in self._load().values():
+            for c in snap.get("combinations", []):
+                for key, bucket in ((c["regime"], by_regime), (c["symbol"], by_symbol)):
+                    cur = bucket.get(key)
+                    if c["trades"] >= 3 and (cur is None or c["net_r"] > cur["net_r"]):
+                        bucket[key] = {"strategy": c["strategy"], "symbol": c["symbol"],
+                                       "regime": c["regime"], "win_rate": c["win_rate"], "net_r": c["net_r"]}
+        return {"best_strategy_by_regime": by_regime, "best_strategy_by_symbol": by_symbol}

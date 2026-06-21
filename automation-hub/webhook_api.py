@@ -71,6 +71,10 @@ econ_calendar = EconCalendar(_os.path.join(_os.path.dirname(settings.providers_p
 from services.journal import JournalStore  # noqa: E402
 journal_store = JournalStore(_os.path.join(_os.path.dirname(settings.providers_path), "journal.json"))
 
+# Persistent market memory (mined per-strategy stat snapshots).
+from services.memory import MemoryStore  # noqa: E402
+memory_store = MemoryStore(_os.path.join(_os.path.dirname(settings.providers_path), "memory.json"))
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -898,6 +902,52 @@ def memory_dna_check(strategy: str = "Decision Brain", symbol: str = "BTCUSDT",
     mem = build_memory(strategy, timeframe, symbols=(symbol,) if symbol else ("BTCUSDT",))
     ctx = {"symbol": symbol, "market_regime": regime or None, "session": session or None}
     return {"strategy": strategy, "dna": mem["dna"], "context": ctx, "match": dna_match(mem["dna"], ctx)}
+
+
+@router.get("/memory/combinations")
+def memory_combinations(strategy: str = "Decision Brain", timeframe: str = "15m",
+                        symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", limit: int = 800):
+    """Symbol × market-regime win-rate combinations for a strategy (#1)."""
+    from services.memory import strategy_combinations
+    syms = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())[:4]
+    return strategy_combinations(strategy, timeframe, symbols=syms, limit=limit)
+
+
+@router.post("/memory/snapshot")
+def memory_snapshot(strategy: str = "Decision Brain", timeframe: str = "15m",
+                    symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", limit: int = 800,
+                    x_webhook_secret: Optional[str] = Header(default=None)):
+    """Mine a strategy's memory + combinations and PERSIST the snapshot (#1)."""
+    _check_secret(x_webhook_secret)
+    from services.memory import build_memory, strategy_combinations
+    syms = tuple(s.strip().upper() for s in symbols.split(",") if s.strip())[:4]
+    mem = build_memory(strategy, timeframe, symbols=syms, limit=limit)
+    mem["combinations"] = strategy_combinations(strategy, timeframe, symbols=syms, limit=limit)["combinations"]
+    return memory_store.save(strategy, mem)
+
+
+@router.get("/memory/snapshots")
+def memory_snapshots():
+    """Stored memory snapshots + cross-strategy recommendations (#1)."""
+    return {"snapshots": memory_store.list(), "recommendations": memory_store.recommendations()}
+
+
+@router.get("/execution/realism")
+def execution_realism(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                      timeframe: str = "15m", limit: int = 800,
+                      spread_pct: float = 0.0002, slippage_pct: float = 0.0003,
+                      partial_fill_prob: float = 0.1, reject_prob: float = 0.02):
+    """Re-price a real run with spread / slippage / latency / partial fills /
+    rejections — ideal vs realistic (#9)."""
+    from services.replay import build_replay
+    from services.execution_sim import apply_execution_realism
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        return {"available": False, "error": rep["meta"].get("data_warning", "No data.")}
+    out = apply_execution_realism(rep["trades"], spread_pct=spread_pct, slippage_pct=slippage_pct,
+                                  partial_fill_prob=partial_fill_prob, reject_prob=reject_prob)
+    out["available"] = True; out["symbol"] = symbol; out["strategy"] = strategy
+    return out
 
 
 @router.get("/marketplace/rank")
