@@ -1,6 +1,7 @@
 import Card from "../components/common/Card";
 import { PageHeader } from "../components/common/ui";
 import DashboardHero from "../components/cards/DashboardHero";
+import MarketStrip from "../components/cards/MarketStrip";
 import MetricCards from "../components/cards/MetricCards";
 import EquityCurve from "../components/chart/EquityCurve";
 import PerformanceOverview from "../components/cards/PerformanceOverview";
@@ -40,6 +41,8 @@ export default function Overview() {
         <RiskCenter />
         <RecentAlerts />
       </div>
+
+      <MarketStrip />
     </>
   );
 }
