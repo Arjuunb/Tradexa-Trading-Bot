@@ -187,10 +187,14 @@ export interface WalkForward {
   folds: { fold: number; best_min_score: number; train_net_r: number; test_net_r: number; test_trades: number; test_pf: number }[];
 }
 export interface MonteCarlo {
-  available: boolean; error?: string; runs: number; trades: number; prob_profit_pct: number;
+  available: boolean; error?: string; runs: number; trades: number; prob_profit_pct: number; ruin_r?: number;
   net_r: { p5: number; median: number; p95: number; mean: number };
   max_drawdown_r: { median: number; p95: number; worst: number };
+  probability_of_ruin_pct?: number; survival_probability_pct?: number;
+  recovery_probability_pct?: number; expected_return_r?: number;
 }
+export interface ExecStats { trades: number; net_r: number; win_rate: number; profit_factor: number; expectancy_r: number; max_drawdown_r: number; }
+export interface ExecRealism { available: boolean; error?: string; trades: number; rejected: number; partial_fills: number; slippage_cost_r: number; edge_survives: boolean; ideal: ExecStats; realistic: ExecStats; }
 export interface OutOfSample {
   available: boolean; error?: string; verdict: string; note: string; split: number;
   train: { net_r: number; trades: number; profit_factor: number; win_rate: number };
@@ -210,9 +214,9 @@ export interface ScanRow { symbol: string; available: boolean; source?: string; 
 export interface ScanResult { timeframe: string; symbols: ScanRow[]; opportunities: ScanSignal[]; count: number; }
 export interface HealthCard {
   available?: boolean; error?: string; needs_download?: boolean;
-  status: string; unhealthy: boolean; win_rate: number; profit_factor: number; expectancy: number;
-  max_drawdown: number; stability_score: number; confidence_score: number; trades: number;
-  warnings: { metric: string; severity: string; detail: string }[]; symbol?: string; strategy?: string;
+  status: string; classification?: string; unhealthy: boolean; win_rate: number; profit_factor: number; expectancy: number;
+  max_drawdown: number; stability_score: number; confidence_score: number; drawdown_score?: number; health_score?: number;
+  trades: number; warnings: { metric: string; severity: string; detail: string }[]; reasons?: string[]; symbol?: string; strategy?: string;
 }
 export interface Recovery {
   drawdown_pct: number; mode: string; risk_multiplier: number; max_trades_factor: number;

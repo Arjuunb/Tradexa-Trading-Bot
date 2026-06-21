@@ -65,22 +65,60 @@ def confidence_score(trades: Sequence[dict]) -> int:
     return _clamp(100 * (0.45 * sample + 0.55 * edge))
 
 
+def drawdown_score(trades: Sequence[dict]) -> int:
+    """0-100 — how shallow the worst equity drawdown is relative to net (#6)."""
+    rs = _rs(trades)
+    if len(rs) < 4:
+        return 0
+    net = sum(rs)
+    cum = peak = dd = 0.0
+    for r in rs:
+        cum += r
+        peak = max(peak, cum)
+        dd = max(dd, peak - cum)
+    return _clamp(100 * (1.0 - dd / (abs(net) + dd + 1e-9)))
+
+
 def health_scorecard(trades: Sequence[dict]) -> dict:
-    """Full health card: the monitor's stats + Stability + Confidence + an auto
-    unhealthy flag (#10)."""
+    """Full health card: the monitor's stats + Stability / Confidence / Drawdown
+    scores, a Healthy / Warning / Critical classification with reasons, and an
+    auto unhealthy flag (#6 / #10)."""
     health = StrategyHealthMonitor().evaluate(list(trades)).to_dict()
     recent = health["recent"]
     stab = stability_score(trades)
     conf = confidence_score(trades)
-    unhealthy = health["status"] == "Unhealthy" or (conf < 25 and len(trades) >= 8)
+    ddscore = drawdown_score(trades)
+    n = recent["n"]
+
+    reasons = []
+    if recent["profit_factor"] < 1 and n >= 8:
+        reasons.append(f"Profit factor {recent['profit_factor']} below 1.")
+    if recent["expectancy"] < 0 and n >= 8:
+        reasons.append("Negative expectancy over the recent window.")
+    if conf < 35:
+        reasons.append(f"Low confidence ({conf}) — small sample or weak edge.")
+    if stab < 40:
+        reasons.append(f"Low stability ({stab}) — lumpy equity curve.")
+    if ddscore < 35:
+        reasons.append(f"Deep drawdowns relative to net ({ddscore}).")
+    reasons += [w["detail"] for w in health["warnings"]]
+
+    critical = health["status"] == "Unhealthy" or (n >= 8 and (conf < 25 or ddscore < 25))
+    warning = not critical and (health["status"] == "Degrading" or stab < 45 or conf < 45)
+    classification = "Critical" if critical else "Warning" if warning else "Healthy"
+
     return {
-        "status": health["status"], "unhealthy": unhealthy,
+        "status": health["status"], "classification": classification,
+        "unhealthy": critical,
         "win_rate": round(recent["win_rate"] * 100, 1),
         "profit_factor": recent["profit_factor"],
         "expectancy": recent["expectancy"],
         "max_drawdown": recent["max_drawdown"],
         "stability_score": stab, "confidence_score": conf,
-        "trades": recent["n"], "warnings": health["warnings"],
+        "drawdown_score": ddscore,
+        "health_score": _clamp((stab + conf + ddscore) / 3),
+        "trades": n, "warnings": health["warnings"],
+        "reasons": reasons[:5] or (["No issues detected."] if n >= 8 else ["Too few trades to judge."]),
     }
 
 

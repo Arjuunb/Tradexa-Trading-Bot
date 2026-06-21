@@ -4,7 +4,7 @@ import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { apiGet, apiPostJson, useLive, hhmmss, API_BASE,
-  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket, type ResearchSummary } from "../lib/api";
+  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket, type ResearchSummary, type ExecRealism } from "../lib/api";
 import { useApp } from "../app-context";
 import { markDone } from "../lib/progress";
 
@@ -91,8 +91,53 @@ export default function BacktestingPage() {
       </div>
 
       <RobustnessLab />
+      <ExecutionRealism />
       <ResearchLab />
     </>
+  );
+}
+
+const ER_STRATS = ["Decision Brain", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+
+function ExecutionRealism() {
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [d, setD] = useState<ExecRealism | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { setD(await apiGet<ExecRealism>(`/execution/realism?symbol=${symbol}&strategy=${encodeURIComponent(strategy)}&timeframe=15m&limit=800`)); }
+    catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const cmp = (label: string, ideal: number, real: number, suffix = "") => (
+    <div className="perf-item"><span className="perf-label">{label}</span>
+      <div className="perf-value-row"><span className="perf-value dim" style={{ fontSize: 14 }}>{ideal}{suffix}</span>
+        <span className="perf-value" style={{ fontSize: 14 }}>→ <b className={real >= ideal ? "pos" : "neg"}>{real}{suffix}</b></span></div></div>
+  );
+  return (
+    <Card title="Execution Realism" subtitle="ideal vs spread + slippage + latency + partial fills + rejections"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{ER_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"].map((s) => <option key={s}>{s}</option>)}</select>
+        <button className="btn btn-soft" disabled={busy} onClick={run}>{busy ? "…" : "Simulate fills"}</button>
+      </div>}>
+      {!d ? <div className="dim ta-center" style={{ padding: 12 }}>Re-price a real run with realistic execution friction.</div>
+        : d.available === false ? <p className="neg"><Icon name="warning" size={13} /> {d.error}</p>
+        : (
+        <>
+          <div className="row-actions" style={{ justifyContent: "space-between" }}>
+            <Badge text={d.edge_survives ? "edge survives" : "edge eroded"} tone={d.edge_survives ? "green" : "red"} />
+            <span className="dim" style={{ fontSize: 12 }}>{d.rejected} rejected · {d.partial_fills} partial · cost {d.slippage_cost_r}R</span>
+          </div>
+          <div className="perf-grid" style={{ marginTop: 10 }}>
+            {cmp("Net R", d.ideal.net_r, d.realistic.net_r, "R")}
+            {cmp("Profit Factor", d.ideal.profit_factor, d.realistic.profit_factor)}
+            {cmp("Win %", d.ideal.win_rate, d.realistic.win_rate, "%")}
+            {cmp("Expectancy", d.ideal.expectancy_r, d.realistic.expectancy_r, "R")}
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -219,10 +264,12 @@ function RobustnessLab() {
       {mc && (mc.available && !mc.error
         ? <div className="perf-grid" style={{ marginTop: 12 }}>
             {[["P(profit)", `${mc.prob_profit_pct}%`, mc.prob_profit_pct >= 50 ? "pos" : "neg"],
-              ["Median net", `${mc.net_r.median >= 0 ? "+" : ""}${mc.net_r.median}R`, rt(mc.net_r.median)],
+              ["Survival", `${mc.survival_probability_pct ?? "—"}%`, (mc.survival_probability_pct ?? 100) >= 95 ? "pos" : "neg"],
+              ["P(ruin)", `${mc.probability_of_ruin_pct ?? "—"}%`, (mc.probability_of_ruin_pct ?? 0) <= 5 ? "pos" : "neg"],
+              ["Expected", `${(mc.expected_return_r ?? 0) >= 0 ? "+" : ""}${mc.expected_return_r ?? mc.net_r.mean}R`, rt(mc.expected_return_r ?? mc.net_r.mean)],
+              ["Recovery", `${mc.recovery_probability_pct ?? "—"}%`, ""],
               ["5th–95th net", `${mc.net_r.p5} … ${mc.net_r.p95}R`, ""],
               ["Median DD", `${mc.max_drawdown_r.median}R`, "amber"],
-              ["95th DD", `${mc.max_drawdown_r.p95}R`, "amber"],
               ["Worst DD", `${mc.max_drawdown_r.worst}R`, "neg"]].map(([l, v, t]) => (
               <div className="perf-item" key={l as string}><span className="perf-label">{l}</span><div className="perf-value-row"><span className={`perf-value ${t}`}>{v}</span></div></div>
             ))}

@@ -321,17 +321,20 @@ function StrategyHealthCard() {
         : (
         <>
           <div className="row-actions" style={{ justifyContent: "space-between" }}>
-            <Badge text={card.status} tone={card.status === "Healthy" ? "green" : card.status === "Degrading" ? "amber" : "red"} />
-            {card.unhealthy && <Badge text="auto-flagged unhealthy" tone="red" />}
+            <Badge text={card.classification ?? card.status} tone={(card.classification ?? card.status) === "Healthy" ? "green" : (card.classification ?? card.status) === "Warning" ? "amber" : "red"} />
+            {card.health_score != null && <span className="dim" style={{ fontSize: 12 }}>health {card.health_score}/100</span>}
           </div>
           <div className="perf-grid" style={{ marginTop: 8 }}>
             {ring("Stability", card.stability_score)}
             {ring("Confidence", card.confidence_score)}
+            {ring("Drawdown", card.drawdown_score ?? 0)}
             <div className="perf-item"><span className="perf-label">Win rate</span><div className="perf-value-row"><span className="perf-value">{card.win_rate}%</span></div></div>
             <div className="perf-item"><span className="perf-label">Profit factor</span><div className="perf-value-row"><span className={`perf-value ${card.profit_factor >= 1 ? "pos" : "neg"}`}>{card.profit_factor}</span></div></div>
-            <div className="perf-item"><span className="perf-label">Expectancy</span><div className="perf-value-row"><span className={`perf-value ${card.expectancy >= 0 ? "pos" : "neg"}`}>{card.expectancy}R</span></div></div>
             <div className="perf-item"><span className="perf-label">Trades</span><div className="perf-value-row"><span className="perf-value">{card.trades}</span></div></div>
           </div>
+          {(card.reasons?.length ?? 0) > 0 && (
+            <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>{card.reasons!.slice(0, 2).join(" · ")}</p>
+          )}
           {card.warnings.length > 0 && card.warnings.map((w, i) => (
             <p key={i} className={w.severity === "critical" ? "neg" : "amber"} style={{ marginTop: 4, fontSize: 12 }}><Icon name="warning" size={12} /> {w.detail}</p>
           ))}

@@ -87,9 +87,12 @@ def walk_forward(strategy: str, symbol: str, timeframe: str = "4h", *, bars: int
 
 # ─────────────────────────────────── Monte Carlo ────────────────────────────
 def monte_carlo(strategy: str, symbol: str, timeframe: str = "4h", *, bars: int = 4000,
-                runs: int = 1000, seed: int = 1, custom_spec: Optional[dict] = None) -> dict:
+                runs: int = 1000, seed: int = 1, ruin_r: float = 20.0,
+                custom_spec: Optional[dict] = None) -> dict:
     """Bootstrap-resample the realised trade sequence into a distribution of net
-    R and max drawdown — how much of the result is luck vs edge."""
+    R and max drawdown, plus probability of ruin / survival / recovery — how much
+    of the result is luck vs edge, and how survivable it is. ``ruin_r`` is the
+    drawdown (in R) that counts as account ruin."""
     rows, src = _fetch(symbol, timeframe, bars)
     if not rows:
         return {"available": False, "error": "Historical data not available. Load Binance data first."}
@@ -101,26 +104,40 @@ def monte_carlo(strategy: str, symbol: str, timeframe: str = "4h", *, bars: int 
     rnd = random.Random(seed)
     runs = max(100, min(int(runs), 5000))
     nets, dds = [], []
+    ruined = recovered = 0
     for _ in range(runs):
         eq = peak = dd = 0.0
+        hit_ruin = False
         for _ in range(len(rs)):
             eq += rs[rnd.randrange(len(rs))]
             peak = max(peak, eq)
             dd = max(dd, peak - eq)
+            if peak - eq >= ruin_r:
+                hit_ruin = True
         nets.append(eq)
         dds.append(dd)
+        if hit_ruin:
+            ruined += 1
+        if dd >= ruin_r * 0.5 and eq >= peak - 1e-9:    # had a deep dip but ended at a new high
+            recovered += 1
     nets.sort(); dds.sort()
 
     def pctl(a, p):
         return round(a[min(len(a) - 1, int(p * len(a)))], 2)
 
+    deep = sum(1 for d in dds if d >= ruin_r * 0.5) or 1
     return {
-        "available": True, "data_source": src, "runs": runs, "trades": len(rs),
+        "available": True, "data_source": src, "runs": runs, "trades": len(rs), "ruin_r": ruin_r,
         "net_r": {"p5": pctl(nets, 0.05), "median": pctl(nets, 0.5),
                   "p95": pctl(nets, 0.95), "mean": round(sum(nets) / len(nets), 2)},
         "max_drawdown_r": {"median": pctl(dds, 0.5), "p95": pctl(dds, 0.95), "worst": round(dds[-1], 2)},
         "prob_profit_pct": round(sum(1 for x in nets if x > 0) / len(nets) * 100, 1),
+        "expected_return_r": round(sum(nets) / len(nets), 2),
+        "probability_of_ruin_pct": round(ruined / runs * 100, 1),
+        "survival_probability_pct": round((runs - ruined) / runs * 100, 1),
+        "recovery_probability_pct": round(recovered / deep * 100, 1),
     }
+
 
 
 # ─────────────────────────────────── out-of-sample ──────────────────────────
