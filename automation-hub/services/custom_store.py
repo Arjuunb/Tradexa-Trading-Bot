@@ -52,6 +52,24 @@ class CustomStore:
             return True
         return False
 
+    def set_favorite(self, sid: str, fav: bool):
+        data = self._load()
+        if sid not in data:
+            return None
+        data[sid]["favorite"] = bool(fav)
+        data[sid]["updated_at"] = _now()
+        self._write(data)
+        return data[sid]
+
+    def set_tags(self, sid: str, tags: list):
+        data = self._load()
+        if sid not in data:
+            return None
+        data[sid]["tags"] = [str(t).strip() for t in (tags or []) if str(t).strip()][:8]
+        data[sid]["updated_at"] = _now()
+        self._write(data)
+        return data[sid]
+
     def duplicate(self, sid: str):
         data = self._load()
         src = data.get(sid)

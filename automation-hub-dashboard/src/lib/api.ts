@@ -208,6 +208,27 @@ export interface Watchlist { timeframe: string; symbols: WatchRow[]; }
 export interface ScanSignal { symbol?: string; type: string; side: string; strength: number; detail: string; }
 export interface ScanRow { symbol: string; available: boolean; source?: string; signals: ScanSignal[]; score: number; bias?: string; last?: number; }
 export interface ScanResult { timeframe: string; symbols: ScanRow[]; opportunities: ScanSignal[]; count: number; }
+export interface HealthCard {
+  available?: boolean; error?: string; needs_download?: boolean;
+  status: string; unhealthy: boolean; win_rate: number; profit_factor: number; expectancy: number;
+  max_drawdown: number; stability_score: number; confidence_score: number; trades: number;
+  warnings: { metric: string; severity: string; detail: string }[]; symbol?: string; strategy?: string;
+}
+export interface Recovery {
+  drawdown_pct: number; mode: string; risk_multiplier: number; max_trades_factor: number;
+  recovery_active: boolean; actions: string[]; equity?: number; peak_equity?: number;
+}
+export interface AlertChannelStatus { connected: boolean; note: string; }
+export interface AlertChannels { telegram: AlertChannelStatus; discord: AlertChannelStatus; email: AlertChannelStatus; }
+export interface AlertEvent { type: string; severity: string; title: string; detail: string; }
+export interface MarketItem {
+  id: string; name: string; kind: string; source: string; favorite: boolean; tags: string[];
+  version: string; description: string; symbol?: string; timeframe?: string; timeframes?: string[]; clonable?: boolean;
+}
+export interface MarketCatalog {
+  library: MarketItem[]; templates: MarketItem[]; favorites: MarketItem[]; tags: string[];
+  counts: { library: number; favorites: number };
+}
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }
