@@ -283,7 +283,9 @@ button { font-family: inherit; cursor: pointer; }
 /* ----------------------------------------------------------- bottom grid */
 .grid-bottom { display: grid; grid-template-columns: 1.25fr 1fr 1.05fr 1.2fr; gap: 14px; align-items: stretch; }
 
-.activity-list, .alerts-list { display: flex; flex-direction: column; gap: 4px; }
+.activity-list, .alerts-list { display: flex; flex-direction: column; gap: 4px; max-height: 420px; overflow-y: auto; }
+.activity-list::-webkit-scrollbar, .alerts-list::-webkit-scrollbar { width: 6px; }
+.activity-list::-webkit-scrollbar-thumb, .alerts-list::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 6px; }
 .activity-item, .alert-item { display: flex; align-items: center; gap: 11px; padding: 9px 6px; border-bottom: 1px solid var(--card-border-soft); }
 .activity-item:last-child, .alert-item:last-child { border-bottom: none; }
 .activity-icon, .alert-icon { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; background: #0f1726; }
