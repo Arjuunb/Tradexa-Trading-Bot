@@ -2,8 +2,9 @@ import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
-import { apiGet, useLive, type CoachReview, type CoachLeaderboard,
+import { apiGet, apiPost, useLive, type CoachReview, type CoachLeaderboard, type JournalEntry,
   type LedgerPosition, type PaperAccount, type RiskSummary, type StrategyPerformance, type SystemStatus } from "../lib/api";
+import { useApp } from "../app-context";
 
 interface Ctx {
   sys: SystemStatus | null; acct: PaperAccount | null; perf: StrategyPerformance | null;
@@ -63,6 +64,7 @@ export default function AIAssistantPage() {
       </Card>
 
       <TradingCoach />
+      <TradeJournal />
 
       {log.length > 0 && (
         <Card title="Conversation">
@@ -206,6 +208,47 @@ function TradingCoach() {
           </div>
         )}
       </div>
+    </Card>
+  );
+}
+
+const J_STRATS = ["Decision Brain", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+
+function TradeJournal() {
+  const app = useApp();
+  const j = useLive<{ entries: JournalEntry[] }>("/journal", 8000);
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [busy, setBusy] = useState(false);
+  const entries = j.data?.entries ?? [];
+  const gen = async () => {
+    setBusy(true);
+    try { const r = await apiPost<any>(`/journal/from-replay?symbol=BTCUSDT&strategy=${encodeURIComponent(strategy)}&timeframe=15m&limit=800`);
+      app.toast(`Journaled ${r.added ?? 0} trades`, "success"); j.refetch(); }
+    catch { app.toast("Journaling needs the webhook secret", "error"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Card title="Trade Journal" subtitle="auto-entries per trade · notes, mistakes, lessons (editable)"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{J_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <button className="btn btn-soft" disabled={busy} onClick={gen}><Icon name="history" size={13} /> {busy ? "…" : "Auto-journal"}</button>
+      </div>}>
+      {entries.length === 0 ? <div className="dim ta-center" style={{ padding: 14 }}>No journal entries yet — auto-journal a strategy's trades.</div> : (
+        <div className="alert-stack" style={{ maxHeight: 360, overflowY: "auto" }}>
+          {entries.slice(0, 25).map((e) => (
+            <div key={e.id} className="card" style={{ background: "var(--card-2)", marginBottom: 6 }}>
+              <div className="row-actions" style={{ justifyContent: "space-between" }}>
+                <b>{e.symbol.replace("USDT", "")} · {e.side}</b>
+                <Badge text={`${e.result} ${e.rr != null ? `${e.rr >= 0 ? "+" : ""}${e.rr}R` : ""}`} tone={e.result === "Winner" ? "green" : e.result === "Loser" ? "red" : "default"} />
+              </div>
+              <span className="dim" style={{ fontSize: 12 }}>{e.notes}</span>
+              {e.mistakes.length > 0 && <div className="neg" style={{ fontSize: 12 }}><Icon name="warning" size={11} /> {e.mistakes.join("; ")}</div>}
+              {e.lessons.length > 0 && <div style={{ fontSize: 12, color: "var(--purple-2)" }}>Lesson: {e.lessons.join("; ")}</div>}
+              <div className="row-actions" style={{ gap: 4, flexWrap: "wrap" }}>{e.tags.map((t) => <span key={t} className="ui-badge" style={{ background: "rgba(139,92,246,0.14)", color: "var(--purple-2)" }}>{t}</span>)}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }

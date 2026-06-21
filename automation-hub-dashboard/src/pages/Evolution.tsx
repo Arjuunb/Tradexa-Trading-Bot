@@ -3,8 +3,8 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPost, apiPostJson, useLive,
-  type EvoDashboard, type Lesson, type Upgrade, type Experiment, type VersionCompare } from "../lib/api";
+import { apiGet, apiPost, apiPostJson, useLive,
+  type EvoDashboard, type Lesson, type Upgrade, type Experiment, type VersionCompare, type StrategyMemory } from "../lib/api";
 import MarketContextPanel from "../components/evolution/MarketContext";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
@@ -87,6 +87,8 @@ export default function EvolutionPage() {
       </Card>
 
       <MarketContextPanel />
+
+      <StrategyDNA />
 
       <div className="evo-grid">
        <div className="evo-col">
@@ -283,6 +285,55 @@ function ExperimentLab() {
           {res.warnings.length > 0 && res.warnings.map((w, i) => (
             <p key={i} className="amber" style={{ marginTop: 4, display: "flex", gap: 6 }}><Icon name="warning" size={13} /> {w}</p>
           ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+const DNA_STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+
+function StrategyDNA() {
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [m, setM] = useState<StrategyMemory | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    try { setM(await apiGet<StrategyMemory>(`/memory/strategy?strategy=${encodeURIComponent(strategy)}&timeframe=15m&limit=800`)); }
+    catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const row = (label: string, b?: any) => b && (
+    <div className="risk-item"><span className="dim">{label}</span>
+      <b className={b.net_r >= 0 ? "pos" : "neg"}>{b.key} ({b.net_r >= 0 ? "+" : ""}{b.net_r}R)</b></div>
+  );
+  return (
+    <Card title="Market Memory & Strategy DNA" subtitle="where this strategy performs best/worst — used as a live filter"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{DNA_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <button className="btn btn-primary" disabled={busy} onClick={load}><Icon name="bot" size={14} /> {busy ? "Mining…" : "Build DNA"}</button>
+      </div>}>
+      {!m ? <div className="dim ta-center" style={{ padding: 14 }}>Mine real results into this strategy's memory + DNA.</div> : (
+        <div className="grid-2-eq">
+          <div>
+            <div className="card-subtitle" style={{ marginBottom: 6 }}>DNA profile <Badge text={`${m.confidence} confidence`} tone={m.confidence === "high" ? "green" : m.confidence === "medium" ? "amber" : "default"} /></div>
+            <div className="risk-list">
+              <div className="risk-item"><span className="dim">Preferred market</span> <b>{m.dna.preferred_market}</b></div>
+              <div className="risk-item"><span className="dim">Volatility / trend</span> <b>{m.dna.preferred_volatility} · {m.dna.preferred_trend}</b></div>
+              <div className="risk-item"><span className="dim">Best session</span> <b>{m.dna.preferred_session}</b></div>
+              <div className="risk-item"><span className="dim">Preferred symbols</span> <b className="pos">{m.dna.preferred_symbols.map((s) => s.replace("USDT", "")).join(", ") || "—"}</b></div>
+              <div className="risk-item"><span className="dim">Avoid symbols</span> <b className="neg">{m.dna.avoid_symbols.map((s) => s.replace("USDT", "")).join(", ") || "—"}</b></div>
+            </div>
+          </div>
+          <div>
+            <div className="card-subtitle" style={{ marginBottom: 6 }}>Memory ({m.sample} trades)</div>
+            <div className="risk-list">
+              {row("Best regime", m.memory.best_regime)}
+              {row("Worst regime", m.memory.worst_regime)}
+              {row("Best session", m.memory.best_session)}
+              {row("Best symbol", m.memory.best_symbol)}
+              {row("Worst symbol", m.memory.worst_symbol)}
+            </div>
+          </div>
         </div>
       )}
     </Card>

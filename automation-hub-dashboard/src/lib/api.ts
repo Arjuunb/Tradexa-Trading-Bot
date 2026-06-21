@@ -229,6 +229,15 @@ export interface MarketCatalog {
   library: MarketItem[]; templates: MarketItem[]; favorites: MarketItem[]; tags: string[];
   counts: { library: number; favorites: number };
 }
+export interface ProdCheck { name: string; ok: boolean; level: string; detail: string; }
+export interface Readiness { status: string; checks: ProdCheck[]; memory_mb: number | null; uptime_s: number | null; summary: string; data_freshness: { datasets: number; with_data: number; freshest_age_s: number | null }; }
+export interface OsService { name: string; topic: string; desc: string; state: string; detail: string; }
+export interface BotOsSnap { engines: number; up: number; status: string; services: OsService[]; recent_events: { topic: string; kind: string; ts: string }[]; architecture: string; }
+export interface DnaProfile { preferred_market: string; preferred_volatility: string; preferred_trend: string; preferred_session: string; preferred_symbols: string[]; avoid_symbols: string[]; }
+export interface MemoryBucket { key: string; trades: number; net_r: number; win_rate: number; }
+export interface StrategyMemory { strategy: string; timeframe: string; sample: number; confidence: string; dna: DnaProfile; memory: Record<string, MemoryBucket | null>; by_regime: MemoryBucket[]; by_session: MemoryBucket[]; by_symbol: MemoryBucket[]; }
+export interface EconProtection { mode: string; risk_multiplier: number; stop_multiplier: number; halt_new_entries: boolean; minutes_to_event: number | null; next_event: { name: string; time: string } | null; actions: string[]; note: string; connected: boolean; tracked_event_types: { name: string; desc: string }[]; }
+export interface JournalEntry { id: string; symbol: string; strategy: string; side: string; result: string; rr: number | null; notes: string; emotions: string; mistakes: string[]; lessons: string[]; tags: string[]; created_at: string; snapshot: { symbol: string; timeframe: string; entry_idx: number | null; exit_idx: number | null }; }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }

@@ -1,7 +1,55 @@
 import { useMemo, useState } from "react";
+import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
-import { useLive, hhmmss, API_BASE, type LogRow } from "../lib/api";
+import { useLive, hhmmss, API_BASE, type LogRow, type Readiness, type BotOsSnap } from "../lib/api";
+
+function stTone(s: string) { return s === "healthy" || s === "up" ? "green" : s === "down" || s === "error" ? "red" : "amber"; }
+
+function SystemHealth() {
+  const rd = useLive<Readiness>("/production/readiness", 6000);
+  const os = useLive<BotOsSnap>("/bot-os", 8000);
+  const r = rd.data, o = os.data;
+  return (
+    <div className="grid-2-eq">
+      <Card title="Production Readiness" subtitle={r?.summary ?? "operational health"}
+        right={r && <Badge text={r.status} tone={stTone(r.status) as any} />}>
+        {r && (
+          <>
+            <div className="risk-list">
+              {r.checks.map((c) => (
+                <div className="risk-item" key={c.name}>
+                  <span className="dim">{c.name}</span>
+                  <span className="row-actions" style={{ gap: 6 }}>
+                    <span className="dim" style={{ fontSize: 11 }}>{c.detail}</span>
+                    <Badge text={c.ok ? "ok" : c.level} tone={c.ok ? "green" : stTone(c.level) as any} />
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="dim" style={{ fontSize: 11, marginTop: 8 }}>
+              Memory {r.memory_mb ?? "—"} MB · uptime {r.uptime_s ? `${Math.round(r.uptime_s / 60)}m` : "—"} ·
+              data {r.data_freshness.with_data}/{r.data_freshness.datasets} cached
+            </p>
+          </>
+        )}
+      </Card>
+      <Card title="Bot OS — engine map" subtitle={o?.architecture ?? "service / event layer"}
+        right={o && <Badge text={`${o.up}/${o.engines} up`} tone={stTone(o.status) as any} />}>
+        {o && (
+          <div className="risk-list">
+            {o.services.map((s) => (
+              <div className="risk-item" key={s.name}>
+                <span><b style={{ fontSize: 12 }}>{s.name}</b> <span className="dim" style={{ fontSize: 11 }}>· {s.desc}</span></span>
+                <Badge text={s.state} tone={stTone(s.state) as any} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 
 const LEVELS = ["All", "info", "warning", "error"] as const;
 const tone = (l: string) => ({ info: "blue", warning: "amber", error: "red" }[l] as any) ?? "default";
@@ -28,6 +76,8 @@ export default function LogsPage() {
             <a className="btn btn-soft" href={`${API_BASE}/ledger/logs/export?fmt=json`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> JSON</a>
           </div>
         } />
+
+      <SystemHealth />
 
       {error && !data && (
         <div className="card" style={{ borderColor: "#ef4444" }}>
