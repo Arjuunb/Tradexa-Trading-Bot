@@ -43,6 +43,7 @@ export default function ReplayPage() {
   const [speed, setSpeed] = useState(5);
   const [toggles, setToggles] = useState<ChartToggles>(DEFAULT_TOGGLES);
   const [fullscreen, setFullscreen] = useState(false);
+  const [memoryFilter, setMemoryFilter] = useState(false);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export default function ReplayPage() {
     try {
       let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}&strategy=${encodeURIComponent(strategy)}&source=${src}`;
       q += `&macro=${macro}&confirmation=${confirmation}`;
+      if (memoryFilter) q += `&memory_filter=true`;
       if (startDate) q += `&start=${startDate}`;
       if (endDate) q += `&end=${endDate}`;
       const r = await apiGet<ReplayData>(q);
@@ -162,6 +164,8 @@ export default function ReplayPage() {
           <label className="row-actions" style={{ gap: 4 }} title="Confirmation timeframe used by the entry gate">
             <span className="dim" style={{ fontSize: 11 }}>Confirm</span>
             <select value={confirmation} onChange={(e) => setConfirmation(e.target.value)}>{CONF_TFS.map((t) => <option key={t}>{t}</option>)}</select></label>
+          <button className={`chip-btn ${memoryFilter ? "active" : ""}`} onClick={() => setMemoryFilter((m) => !m)}
+            title="Skip this strategy's historically-weak regimes (from its saved memory snapshot)">Memory filter</button>
           <button className="btn btn-primary" disabled={loading} onClick={load}><Icon name="history" size={14} /> {loading ? "Loading…" : "Load"}</button>
           {src === "binance" && (
             <button className="btn btn-soft" disabled={syncing} onClick={syncBinance}
@@ -200,6 +204,7 @@ export default function ReplayPage() {
               trades: {data.meta.debug.trades_generated} · source: {data.meta.debug.data_source} ·
               MTF: {data.meta.debug.mtf_timeframes.join("/") || "—"} ·
               gate: {(data.meta.debug.gate_timeframes ?? []).join("/") || "—"} ·
+              {(data.meta.debug.memory_filter?.length ?? 0) > 0 && <> DNA-skip: {data.meta.debug.memory_filter!.join("/")} ·</>}
               indicators: {(data.meta.debug.indicators ?? []).length} · {data.meta.debug.computed_at.slice(11, 19)}
               {data.meta.debug.error && <span className="neg"> · error: {data.meta.debug.error}</span>}
             </div>

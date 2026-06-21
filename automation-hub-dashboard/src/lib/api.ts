@@ -382,7 +382,7 @@ export interface ReplayData {
           data_warning?: string | null; needs_download?: boolean; note?: string;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;
-                    mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[];
+                    mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[]; memory_filter?: string[];
                     computed_at: string; error: string | null } };
   candles: ReplayCandle[];
   overlays: ReplayOverlays | Record<string, (number | null)[]>;
