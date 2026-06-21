@@ -3,8 +3,9 @@ import Card from "../components/common/Card";
 import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { apiGet, useLive, hhmmss, API_BASE,
-  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket } from "../lib/api";
+import { apiGet, apiPostJson, useLive, hhmmss, API_BASE,
+  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket, type ResearchSummary } from "../lib/api";
+import { useApp } from "../app-context";
 import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -90,7 +91,61 @@ export default function BacktestingPage() {
       </div>
 
       <RobustnessLab />
+      <ResearchLab />
     </>
+  );
+}
+
+const emaSpec = (fast: number, slow: number) => ({
+  symbol: "BTCUSDT", timeframe: "4h", side: "long",
+  entry: { op: "AND", rules: [{ type: "ema_cross", fast, slow, dir: "above" }] },
+  stop: { type: "atr", mult: 1.5, period: 14 }, target: { type: "rr", rr: 2.0 },
+  risk_per_trade_pct: 0.01, min_score: 60,
+});
+const vTone2 = (v: string) => (v === "improvement" ? "green" : v === "overfit" ? "red" : "amber");
+
+function ResearchLab() {
+  const app = useApp();
+  const list = useLive<{ experiments: ResearchSummary[] }>("/research", 8000);
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState<{ name: string; report: string } | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      await apiPostJson("/research/run", { name: "EMA 20/50 vs 9/33", spec_a: emaSpec(20, 50), spec_b: emaSpec(9, 33), bars: 4000, label_a: "EMA 20/50", label_b: "EMA 9/33" });
+      app.toast("Experiment saved", "success"); list.refetch();
+    } catch { app.toast("Research run needs the webhook secret", "error"); } finally { setBusy(false); }
+  };
+  const view = async (id: string) => { try { setReport(await apiGet(`/research/${id}/report`)); } catch { /* ignore */ } };
+
+  return (
+    <Card title="Research Lab" subtitle="save A/B experiments + generate reports"
+      right={<button className="btn btn-soft" disabled={busy} onClick={run}><Icon name="flask" size={13} /> {busy ? "Running…" : "Run EMA A/B"}</button>}>
+      {(list.data?.experiments.length ?? 0) === 0 ? (
+        <div className="dim ta-center" style={{ padding: 12 }}>No saved experiments — run one to compare ideas out-of-sample.</div>
+      ) : (
+        <table className="data-table" style={{ fontSize: 12 }}>
+          <thead><tr><th>Experiment</th><th>Market</th><th>Verdict</th><th>OOS gain</th><th>Saved</th><th></th></tr></thead>
+          <tbody>{list.data!.experiments.map((e) => (
+            <tr key={e.id}>
+              <td><b>{e.name}</b></td><td className="dim">{e.symbol} {e.timeframe}</td>
+              <td><Badge text={e.verdict} tone={vTone2(e.verdict) as any} /></td>
+              <td className={e.test_gain_r >= 0 ? "pos" : "neg"}>{e.test_gain_r >= 0 ? "+" : ""}{e.test_gain_r}R</td>
+              <td className="dim mono">{(e.created_at || "").slice(5, 16).replace("T", " ")}</td>
+              <td><button className="btn btn-soft sm" onClick={() => view(e.id)}>Report</button></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+      {report && (
+        <div className="card" style={{ marginTop: 10, background: "var(--card-2)" }}>
+          <div className="row-actions" style={{ justifyContent: "space-between" }}><b>{report.name}</b>
+            <button className="icon-btn sm" onClick={() => setReport(null)}><Icon name="close" size={13} /></button></div>
+          <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.5, margin: "8px 0 0", fontFamily: "inherit" }}>{report.report}</pre>
+        </div>
+      )}
+    </Card>
   );
 }
 

@@ -2,7 +2,8 @@ import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { PageHeader } from "../components/common/ui";
-import { useLive, type BotSettings, type PaperTradeRow, type SystemStatus } from "../lib/api";
+import { useLive, type BotSettings, type PaperTradeRow, type SystemStatus, type BrokerList } from "../lib/api";
+import { Badge } from "../components/common/ui";
 import { getProgress } from "../lib/progress";
 
 function riskValid(s: BotSettings | null): boolean {
@@ -73,6 +74,31 @@ export default function LiveTradingPage() {
           <p className="dim" style={{ marginTop: 8 }}>All software gates pass — only a real broker connection is missing.</p>
         )}
       </Card>
+
+      <BrokerConnections />
     </>
+  );
+}
+
+function BrokerConnections() {
+  const b = useLive<BrokerList>("/brokers", 10000).data;
+  return (
+    <Card title="Broker Connections" subtitle="one interface · Binance · Bybit · IBKR · Alpaca"
+      right={b && <Badge text={b.live_locked ? "live locked" : "live unlocked"} tone={b.live_locked ? "amber" : "green"} />}>
+      {!b ? <div className="dim">—</div> : (
+        <>
+          <div className="risk-list">
+            {b.brokers.map((br) => (
+              <div className="risk-item" key={br.kind}>
+                <span><b>{br.name}</b> <span className="dim" style={{ fontSize: 11 }}>· {br.mode}</span></span>
+                <Badge text={br.connected ? (br.kind === "paper" ? "Executable" : "Connected") : "Not connected"}
+                  tone={br.connected ? (br.kind === "paper" ? "green" : "blue") : "default"} />
+              </div>
+            ))}
+          </div>
+          <p className="dim" style={{ fontSize: 12, marginTop: 8 }}><Icon name="lock" size={12} /> {b.note}</p>
+        </>
+      )}
+    </Card>
   );
 }

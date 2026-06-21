@@ -71,6 +71,14 @@ econ_calendar = EconCalendar(_os.path.join(_os.path.dirname(settings.providers_p
 from services.journal import JournalStore  # noqa: E402
 journal_store = JournalStore(_os.path.join(_os.path.dirname(settings.providers_path), "journal.json"))
 
+# Broker layer (#14) — one interface, paper executable, live locked.
+from services.broker import BrokerRegistry  # noqa: E402
+broker_registry = BrokerRegistry()
+
+# Research lab (#15) — saved A/B experiments + reports.
+from services.research import ResearchStore  # noqa: E402
+research_store = ResearchStore(_os.path.join(_os.path.dirname(settings.providers_path), "research.json"))
+
 # Bot OS — the service/event layer the engines communicate through.
 from services.bot_os import BotOS  # noqa: E402
 bot_os = BotOS()
@@ -706,6 +714,56 @@ def marketplace_clone_template(body: CloneTemplateBody, x_webhook_secret: Option
     if "error" in r:
         raise HTTPException(400, r["error"])
     return r
+
+
+@router.get("/brokers")
+def brokers_list():
+    """Broker layer — one interface for Binance / Bybit / IBKR / Alpaca; paper is
+    executable, live execution is locked by design (#14)."""
+    return broker_registry.list()
+
+
+class ResearchRunBody(BaseModel):
+    name: str = "Experiment"
+    spec_a: dict
+    spec_b: dict
+    bars: int = 4000
+    label_a: str = "A"
+    label_b: str = "B"
+
+
+@router.post("/research/run")
+def research_run(body: ResearchRunBody, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Run an A/B research experiment on real data (train/test + overfit verdict)
+    and save it (#15)."""
+    _check_secret(x_webhook_secret)
+    from services.research import run_research
+    rec = run_research(body.name, body.spec_a, body.spec_b, bars=body.bars,
+                       label_a=body.label_a, label_b=body.label_b)
+    research_store.save(rec)
+    return rec
+
+
+@router.get("/research")
+def research_list():
+    """Saved research experiments (summaries)."""
+    return {"experiments": research_store.list()}
+
+
+@router.get("/research/{rid}/report")
+def research_report(rid: str):
+    """Markdown report for a saved experiment."""
+    from services.research import report_markdown
+    rec = research_store.get(rid)
+    if not rec:
+        raise HTTPException(404, "Experiment not found")
+    return {"id": rid, "name": rec.get("name"), "report": report_markdown(rec)}
+
+
+@router.delete("/research/{rid}")
+def research_delete(rid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    _check_secret(x_webhook_secret)
+    return {"deleted": research_store.delete(rid)}
 
 
 @router.get("/bot-os")
