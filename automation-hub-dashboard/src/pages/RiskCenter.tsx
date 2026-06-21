@@ -7,6 +7,7 @@ import { useApp } from "../app-context";
 import {
   apiPost, apiPostJson, apiGet, useLive, hhmmss,
   type AlertRow, type RiskSummary, type PositionSizeResult, type CorrelationData, type PortfolioRisk,
+  type Recovery, type HealthCard,
 } from "../lib/api";
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
@@ -82,6 +83,11 @@ export default function RiskCenterPage() {
       </div>
 
       <PortfolioRiskPanel />
+
+      <div className="grid-2-eq">
+        <DrawdownRecovery />
+        <StrategyHealthCard />
+      </div>
 
       <div className="grid-2-eq">
         <PositionSizer />
@@ -255,5 +261,82 @@ function Num({ label, value, step, onChange }: { label: string; value: number; s
       <span className="field-label">{label}</span>
       <input type="number" value={value} step={step} onChange={(e) => onChange(Number(e.target.value))} />
     </label>
+  );
+}
+
+const HEALTH_SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
+const HEALTH_STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30", "EMA 20/50", "Liquidity Sweep"];
+const modeTone = (m: string) => (m === "normal" ? "green" : m === "caution" ? "amber" : "red");
+
+function DrawdownRecovery() {
+  const rec = useLive<Recovery>("/risk/recovery", 5000);
+  const r = rec.data;
+  return (
+    <Card title="Drawdown Recovery" subtitle="auto risk-down as drawdown deepens"
+      right={r && <Badge text={r.mode} tone={modeTone(r.mode) as any} />}>
+      {!r ? <div className="dim">—</div> : (
+        <>
+          <div className="risk-list">
+            <div className="risk-item"><span className="dim">Drawdown</span> <b className={r.drawdown_pct > 0 ? "neg" : ""}>{r.drawdown_pct}%</b></div>
+            <div className="risk-item"><span className="dim">Risk multiplier</span> <b>{Math.round(r.risk_multiplier * 100)}%</b></div>
+            <div className="risk-item"><span className="dim">Max trades</span> <b>{Math.round(r.max_trades_factor * 100)}%</b></div>
+            <div className="risk-item"><span className="dim">Equity / peak</span> <b>${(r.equity ?? 0).toLocaleString()} / ${(r.peak_equity ?? 0).toLocaleString()}</b></div>
+          </div>
+          {r.recovery_active ? (
+            <div className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
+              <b className="amber"><Icon name="shield" size={13} /> Recovery actions</b>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{r.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+            </div>
+          ) : <p className="dim" style={{ marginTop: 8 }}>Within the safe band — full risk allowed.</p>}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function StrategyHealthCard() {
+  const [strategy, setStrategy] = useState("Decision Brain");
+  const [symbol, setSymbol] = useState("BTCUSDT");
+  const [card, setCard] = useState<HealthCard | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { setCard(await apiGet<HealthCard>(`/health/scorecard?symbol=${symbol}&strategy=${encodeURIComponent(strategy)}&timeframe=15m&limit=800`)); }
+    catch { setCard({ available: false, error: "request failed" } as any); }
+    finally { setBusy(false); }
+  };
+  const ring = (label: string, val: number) => (
+    <div className="perf-item"><span className="perf-label">{label}</span>
+      <div className="perf-value-row"><span className={`perf-value ${val >= 60 ? "pos" : val >= 35 ? "amber" : "neg"}`}>{val}</span></div></div>
+  );
+  return (
+    <Card title="Strategy Health" subtitle="win/PF/drawdown + stability & confidence — auto-flagged"
+      right={<div className="row-actions" style={{ gap: 6 }}>
+        <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{HEALTH_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>{HEALTH_SYMS.map((s) => <option key={s}>{s}</option>)}</select>
+        <button className="btn btn-primary" disabled={busy} onClick={run}>{busy ? "…" : "Check"}</button>
+      </div>}>
+      {!card ? <div className="dim ta-center" style={{ padding: 14 }}>Run a health check on a strategy.</div>
+        : card.available === false ? <p className="neg"><Icon name="warning" size={13} /> {card.error}</p>
+        : (
+        <>
+          <div className="row-actions" style={{ justifyContent: "space-between" }}>
+            <Badge text={card.status} tone={card.status === "Healthy" ? "green" : card.status === "Degrading" ? "amber" : "red"} />
+            {card.unhealthy && <Badge text="auto-flagged unhealthy" tone="red" />}
+          </div>
+          <div className="perf-grid" style={{ marginTop: 8 }}>
+            {ring("Stability", card.stability_score)}
+            {ring("Confidence", card.confidence_score)}
+            <div className="perf-item"><span className="perf-label">Win rate</span><div className="perf-value-row"><span className="perf-value">{card.win_rate}%</span></div></div>
+            <div className="perf-item"><span className="perf-label">Profit factor</span><div className="perf-value-row"><span className={`perf-value ${card.profit_factor >= 1 ? "pos" : "neg"}`}>{card.profit_factor}</span></div></div>
+            <div className="perf-item"><span className="perf-label">Expectancy</span><div className="perf-value-row"><span className={`perf-value ${card.expectancy >= 0 ? "pos" : "neg"}`}>{card.expectancy}R</span></div></div>
+            <div className="perf-item"><span className="perf-label">Trades</span><div className="perf-value-row"><span className="perf-value">{card.trades}</span></div></div>
+          </div>
+          {card.warnings.length > 0 && card.warnings.map((w, i) => (
+            <p key={i} className={w.severity === "critical" ? "neg" : "amber"} style={{ marginTop: 4, fontSize: 12 }}><Icon name="warning" size={12} /> {w.detail}</p>
+          ))}
+        </>
+      )}
+    </Card>
   );
 }

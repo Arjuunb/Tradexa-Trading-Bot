@@ -57,6 +57,12 @@ from services.notifier import Notifier  # noqa: E402
 notifier = Notifier(settings.telegram_token, settings.telegram_chat_id)
 pipeline.notifier = notifier.dispatch
 
+# Multi-channel alerts (Telegram / Discord / Email) — credentials in a local
+# JSON store next to the provider settings (gitignored), or env vars.
+from services.alerts import AlertChannels  # noqa: E402
+import os as _os  # noqa: E402
+alert_channels = AlertChannels(notifier, _os.path.join(_os.path.dirname(settings.providers_path), "alert_channels.json"))
+
 # Autonomous engine: real strategy signals -> the same pipeline (paper-only).
 # Default brain is the multi-signal DecisionBrain; HUB_AUTO_STRATEGY=ema selects
 # the simple EMA crossover instead.
@@ -533,6 +539,175 @@ def scanner_scan(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT", timeframe: st
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:12]
     tlist = [t.strip() for t in types.split(",") if t.strip()] or None
     return scan(syms, timeframe=timeframe, bars=bars, types=tlist)
+
+
+@router.get("/health/scorecard")
+def health_scorecard_endpoint(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                              timeframe: str = "15m", limit: int = 800):
+    """Strategy Health scorecard — win rate / PF / drawdown / expectancy plus
+    Stability and Confidence scores, with an auto unhealthy flag (#10)."""
+    from services.replay import build_replay
+    from services.recovery import health_scorecard
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        return {"available": False, "error": rep["meta"].get("data_warning", "No data."),
+                "needs_download": rep["meta"].get("needs_download", False)}
+    trades = [{"pnl": t["rr"], "r": t["rr"]} for t in rep["trades"] if t.get("rr") is not None]
+    card = health_scorecard(trades)
+    card.update({"available": True, "symbol": symbol, "strategy": strategy})
+    return card
+
+
+@router.get("/risk/recovery")
+def risk_recovery():
+    """Drawdown Recovery — current drawdown off the equity peak and the
+    protective actions / risk multiplier it recommends (#18)."""
+    from services.recovery import drawdown_recovery
+    trades = sorted((t for t in paper.history() if t.get("closed_at")), key=lambda t: t["closed_at"])
+    eq = peak = paper.starting_balance
+    for t in trades:
+        eq += (t.get("pnl") or 0.0)
+        peak = max(peak, eq)
+    equity = paper.balance()
+    out = drawdown_recovery(peak, equity)
+    out["equity"] = round(equity, 2); out["peak_equity"] = round(peak, 2)
+    return out
+
+
+@router.get("/alerts/channels")
+def alerts_channels():
+    """Which alert channels are connected (Telegram / Discord / Email) — never
+    exposes a secret value."""
+    return {"channels": alert_channels.status()}
+
+
+class AlertChannelSave(BaseModel):
+    discord_webhook: Optional[str] = None
+    email_to: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_pass: Optional[str] = None
+
+
+@router.post("/alerts/channels")
+def alerts_channels_save(body: AlertChannelSave, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Save alert-channel credentials (Discord webhook / SMTP). Secret-gated."""
+    _check_secret(x_webhook_secret)
+    return {"channels": alert_channels.save(body.model_dump(exclude_none=True))}
+
+
+@router.get("/alerts/check")
+def alerts_check():
+    """Evaluate live alert conditions from real state (drawdown, sentiment,
+    funding, strategy health) and return the alerts that would fire."""
+    from services.alerts import evaluate_alerts
+    from services.recovery import drawdown_recovery, health_scorecard
+    # drawdown from the paper equity curve
+    trades = sorted((t for t in paper.history() if t.get("closed_at")), key=lambda t: t["closed_at"])
+    eq = peak = paper.starting_balance
+    for t in trades:
+        eq += (t.get("pnl") or 0.0); peak = max(peak, eq)
+    dd = drawdown_recovery(peak, paper.balance())["drawdown_pct"]
+    ctx = {"drawdown_pct": dd, "underperforming": [], "events": []}
+    # market context (best-effort; None when offline so no alert fires)
+    try:
+        from services.sentiment import fetch_fear_greed
+        fg = fetch_fear_greed()
+        if fg:
+            ctx["fear_greed"] = fg["value"]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from services.market_context import fetch_funding_rate
+        fr = fetch_funding_rate("BTCUSDT")
+        if fr.get("available"):
+            ctx["funding_rate_pct"] = fr["value"]
+    except Exception:  # noqa: BLE001
+        pass
+    # strategy health on recent paper trades
+    rtrades = [{"pnl": t.get("pnl", 0.0), "r": t.get("rr", 0.0)} for t in trades]
+    if len(rtrades) >= 8:
+        card = health_scorecard(rtrades)
+        if card["unhealthy"]:
+            ctx["underperforming"] = [{"strategy": settings.auto_strategy,
+                                       "reason": f"PF {card['profit_factor']}, confidence {card['confidence_score']}"}]
+    return {"alerts": evaluate_alerts(ctx), "context": {"drawdown_pct": dd}}
+
+
+@router.post("/alerts/test")
+def alerts_test(x_webhook_secret: Optional[str] = Header(default=None)):
+    """Send a test alert to every configured channel."""
+    _check_secret(x_webhook_secret)
+    from services.alerts import dispatch_alert
+    alert = {"type": "test", "severity": "info", "title": "Test alert",
+             "detail": "Automation Hub alerts are wired up correctly."}
+    return dispatch_alert(alert, alert_channels)
+
+
+@router.get("/marketplace")
+def marketplace_catalog():
+    """Strategy marketplace — built-in templates + your saved library (with
+    favorites, tags, versions)."""
+    from services.marketplace import catalog
+    return catalog(custom_store)
+
+
+class TagsBody(BaseModel):
+    tags: list[str] = []
+
+
+@router.post("/marketplace/{sid}/favorite")
+def marketplace_favorite(sid: str, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Toggle favorite on a library strategy."""
+    _check_secret(x_webhook_secret)
+    cur = custom_store.get(sid)
+    if not cur:
+        raise HTTPException(404, "Strategy not found")
+    return custom_store.set_favorite(sid, not cur.get("favorite", False))
+
+
+@router.post("/marketplace/{sid}/tags")
+def marketplace_tags(sid: str, body: TagsBody, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Set tags on a library strategy."""
+    _check_secret(x_webhook_secret)
+    r = custom_store.set_tags(sid, body.tags)
+    if r is None:
+        raise HTTPException(404, "Strategy not found")
+    return r
+
+
+class CloneTemplateBody(BaseModel):
+    template: str
+
+
+@router.post("/marketplace/clone-template")
+def marketplace_clone_template(body: CloneTemplateBody, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Clone a rule-based built-in template into your editable library."""
+    _check_secret(x_webhook_secret)
+    from services.marketplace import clone_template
+    r = clone_template(custom_store, body.template)
+    if "error" in r:
+        raise HTTPException(400, r["error"])
+    return r
+
+
+@router.get("/marketplace/rank")
+def marketplace_rank(symbol: str = "BTCUSDT", timeframe: str = "15m",
+                     strategies: str = "Decision Brain,Trend Following,Supply/Demand,EMA 20/50",
+                     limit: int = 600):
+    """Performance ranking — net R per strategy on real data (which strategy
+    performs best for this symbol/timeframe)."""
+    from services.replay import build_replay
+    strats = [s.strip() for s in strategies.split(",") if s.strip()][:6]
+    rows = []
+    for st in strats:
+        rep = build_replay(symbol, timeframe, limit, strategy=st)
+        s = rep["stats"]
+        rows.append({"strategy": st, "trades": s["trades"], "win_rate": s["win_rate"],
+                     "profit_factor": s["profit_factor"], "net_r": s["net_r"]})
+    rows.sort(key=lambda r: r["net_r"], reverse=True)
+    return {"symbol": symbol, "timeframe": timeframe, "ranking": rows, "best": rows[0] if rows else None}
 
 
 @router.get("/markets/watchlist")

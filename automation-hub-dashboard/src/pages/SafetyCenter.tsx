@@ -1,8 +1,9 @@
+import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import { PageHeader } from "../components/common/ui";
+import { Badge, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
-import { apiPost, useLive, type PaperTradeRow, type SystemStatus } from "../lib/api";
+import { apiPost, apiPostJson, useLive, type PaperTradeRow, type SystemStatus, type AlertChannels, type AlertEvent } from "../lib/api";
 import { getProgress } from "../lib/progress";
 
 const STAGES = ["Backtest", "Simulation", "Paper Trading", "Live Trading"];
@@ -68,6 +69,71 @@ export default function SafetyCenterPage() {
           <button className="btn btn-danger" onClick={killAll}><Icon name="close" size={14} /> Stop Everything</button>
         </div>
       </Card>
+
+      <AlertsPanel />
     </>
+  );
+}
+
+function AlertsPanel() {
+  const app = useApp();
+  const ch = useLive<{ channels: AlertChannels }>("/alerts/channels", 8000);
+  const live = useLive<{ alerts: AlertEvent[] }>("/alerts/check", 10000);
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const c = ch.data?.channels;
+
+  const save = async () => {
+    try { const r = await apiPostJson<any>("/alerts/channels", keys); if (r?.error || r?.detail) app.toast(r.error || r.detail, "error"); else { app.toast("Alert channels saved", "success"); setKeys({}); ch.refetch(); } }
+    catch { app.toast("Saving needs the webhook secret", "error"); }
+  };
+  const test = async () => {
+    try { await apiPost("/alerts/test"); app.toast("Test alert sent to connected channels", "success"); }
+    catch { app.toast("Test needs the webhook secret", "error"); }
+  };
+  const sev = (s: string) => (s === "critical" ? "red" : s === "warning" ? "amber" : "blue");
+  const chip = (name: string, st?: { connected: boolean; note: string }) => (
+    <div className="risk-item"><span className="dim">{name}</span>
+      <Badge text={st?.connected ? "Connected" : "Not connected"} tone={st?.connected ? "green" : "default"} /></div>
+  );
+
+  return (
+    <Card title="Alerts" subtitle="trade / risk / sentiment alerts to Telegram, Discord, Email"
+      right={<div className="row-actions" style={{ gap: 6 }}><button className="btn btn-soft" onClick={test}><Icon name="bell" size={13} /> Test</button></div>}>
+      <div className="grid-2-eq">
+        <div>
+          <div className="card-subtitle" style={{ marginBottom: 6 }}>Channels</div>
+          <div className="risk-list">
+            {chip("Telegram", c?.telegram)}
+            {chip("Discord", c?.discord)}
+            {chip("Email", c?.email)}
+          </div>
+          <div className="form-grid-2" style={{ marginTop: 8 }}>
+            <label className="field"><span className="field-label">Discord webhook</span>
+              <input type="password" placeholder={c?.discord.connected ? "•••• connected" : "webhook URL"} value={keys.discord_webhook ?? ""} onChange={(e) => setKeys((k) => ({ ...k, discord_webhook: e.target.value }))} /></label>
+            <label className="field"><span className="field-label">Alert email</span>
+              <input placeholder="you@example.com" value={keys.email_to ?? ""} onChange={(e) => setKeys((k) => ({ ...k, email_to: e.target.value }))} /></label>
+            <label className="field"><span className="field-label">SMTP host</span>
+              <input placeholder="smtp.gmail.com" value={keys.smtp_host ?? ""} onChange={(e) => setKeys((k) => ({ ...k, smtp_host: e.target.value }))} /></label>
+            <label className="field"><span className="field-label">SMTP user / pass</span>
+              <input type="password" placeholder="user:pass via two fields" value={keys.smtp_user ?? ""} onChange={(e) => setKeys((k) => ({ ...k, smtp_user: e.target.value }))} /></label>
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={save}><Icon name="check" size={13} /> Save Channels</button>
+          <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>Missing channels show “Not connected” — never faked. Telegram uses the env token.</p>
+        </div>
+        <div>
+          <div className="card-subtitle" style={{ marginBottom: 6 }}>Live alerts now</div>
+          {(live.data?.alerts.length ?? 0) === 0 ? <div className="dim" style={{ fontSize: 13 }}>No alert conditions firing right now.</div> : (
+            <div className="alert-stack">
+              {live.data!.alerts.map((a, i) => (
+                <div key={i} className="risk-item" style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}>
+                  <span className="row-actions" style={{ gap: 6 }}><Badge text={a.severity} tone={sev(a.severity) as any} /> <b>{a.title}</b></span>
+                  <span className="dim" style={{ fontSize: 12 }}>{a.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
