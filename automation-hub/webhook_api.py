@@ -1380,15 +1380,27 @@ def data_sync_all(target_candles: int = 2000, x_webhook_secret: Optional[str] = 
 def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800,
                start: Optional[str] = None, end: Optional[str] = None,
                strategy: str = "Supply/Demand", source: str = "binance",
-               macro: Optional[str] = None, confirmation: Optional[str] = None):
+               macro: Optional[str] = None, confirmation: Optional[str] = None,
+               memory_filter: bool = False):
     """Precompute a no-lookahead decision timeline for TradingView-style replay
     using the SELECTED strategy. ``source`` = binance | demo. ``start``/``end``
     (YYYY-MM-DD) jump to a specific historical window. ``macro``/``confirmation``
-    pick the higher timeframes that drive the multi-timeframe entry gate."""
+    pick the higher timeframes that drive the multi-timeframe entry gate.
+    ``memory_filter`` makes the engine skip the strategy's historically-weak
+    regimes, learned from its saved memory snapshot (#1/#13)."""
     from services.replay import build_replay
-    return build_replay(symbol, timeframe, limit, start=start, end=end,
-                        strategy=strategy, source=source,
-                        macro=macro, confirmation=confirmation)
+    avoid = None
+    if memory_filter:
+        from services.memory import avoid_regimes_from_combinations
+        snap = memory_store.get(strategy)
+        if snap and snap.get("combinations"):
+            avoid = avoid_regimes_from_combinations(snap["combinations"])
+    rep = build_replay(symbol, timeframe, limit, start=start, end=end,
+                       strategy=strategy, source=source,
+                       macro=macro, confirmation=confirmation, avoid_regimes=avoid)
+    if rep.get("meta", {}).get("debug") is not None:
+        rep["meta"]["debug"]["memory_filter"] = avoid or []
+    return rep
 
 
 @router.get("/strategies/registry")

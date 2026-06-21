@@ -179,3 +179,13 @@ class MemoryStore:
                         bucket[key] = {"strategy": c["strategy"], "symbol": c["symbol"],
                                        "regime": c["regime"], "win_rate": c["win_rate"], "net_r": c["net_r"]}
         return {"best_strategy_by_regime": by_regime, "best_strategy_by_symbol": by_symbol}
+
+
+def avoid_regimes_from_combinations(combinations, min_trades: int = 3) -> list:
+    """Regimes where a strategy is net-negative with enough sample — the set the
+    DNA filter should skip in the engine."""
+    agg: dict = {}
+    for c in combinations or []:
+        a = agg.setdefault(c["regime"], {"net": 0.0, "trades": 0})
+        a["net"] += c["net_r"]; a["trades"] += c["trades"]
+    return [reg for reg, v in agg.items() if v["trades"] >= min_trades and v["net"] < 0]

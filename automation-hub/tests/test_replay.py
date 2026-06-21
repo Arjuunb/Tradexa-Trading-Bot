@@ -313,3 +313,21 @@ def test_replay_endpoint_strategy_param(client):
     assert a["meta"]["debug"]["strategy_id"] == "ema_20_50"
     reg = client.get("/strategies/registry").json()["strategies"]
     assert any(s["id"] == "ema_20_50" for s in reg)
+
+
+def test_memory_dna_filter_blocks_avoided_regimes():
+    """The DNA memory filter must skip trades whose market regime is in the
+    avoid set, recording a DNA-filter block — fewer trades, no entry in those
+    regimes (#1/#13)."""
+    base = build_replay("BTCUSDT", "15m", 800, strategy="EMA 8/30")
+    regimes = {f["market_regime"] for f in base["frames"] if base["frames"]}
+    avoid = list(regimes)[:1]  # avoid one present regime
+    filt = build_replay("BTCUSDT", "15m", 800, strategy="EMA 8/30", avoid_regimes=avoid)
+    # no taken trade may sit in an avoided regime
+    for t in filt["trades"]:
+        assert filt["frames"][t["entry_idx"]]["market_regime"] not in avoid
+    # and the filter can only reduce (or equal) the trade count
+    assert len(filt["trades"]) <= len(base["trades"])
+    # a DNA-filter block is recorded when it bites
+    if len(filt["trades"]) < len(base["trades"]):
+        assert any("DNA filter" in e["text"] for e in filt["events"] if e["kind"] == "blocked")

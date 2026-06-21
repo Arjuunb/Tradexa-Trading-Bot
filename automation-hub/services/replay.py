@@ -298,9 +298,10 @@ def _label_source(source: str) -> dict:
 def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                  start=None, end=None, strategy: str = "Supply/Demand",
                  source: str = "binance", custom_spec: dict = None,
-                 macro=None, confirmation=None) -> dict:
+                 macro=None, confirmation=None, avoid_regimes=None) -> dict:
     from data.market_data import get_bars
     from bot.data.synthetic import generate_bars
+    avoid_set = set(avoid_regimes or [])   # DNA memory filter — regimes to skip
     if exec_tf not in TF_FACTORS:
         exec_tf = "15m"
     n = max(300, min(int(limit or 800), 1500))
@@ -462,6 +463,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
 
         trends = trends_at(gi)
         regime = detector.detect(bars[:gi + 1]).name
+        mregime = _directional_regime(regime, trends)
 
         # decision-timeline: trend flips + regime changes
         for tf_name, val in trends.items():
@@ -536,7 +538,8 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             rr = abs(sig.take_profit - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
             score, breakdown = _score(side, trends, vol_ratio, recent_sweep, recent_struct,
                                       recent_fvg, rr, bar.timestamp.hour, regime, near_res)
-            if score >= SCORE_THRESHOLD and pos is None and htf_consensus(trends, side, tfs=gate_tfs)["allowed"]:
+            dna_block = bool(avoid_set) and mregime in avoid_set
+            if score >= SCORE_THRESHOLD and pos is None and not dna_block and htf_consensus(trends, side, tfs=gate_tfs)["allowed"]:
                 mtf = htf_consensus(trends, side, tfs=gate_tfs)
                 trigger = "Entry Confirmed"
                 trade_id += 1
@@ -569,15 +572,19 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                                 "type": "Entry", "side": "bull" if side > 0 else "bear"})
             elif pos is None:
                 blocked = True
-                mtf = htf_consensus(trends, side, tfs=gate_tfs)
-                # an MTF conflict is the more important reason to surface
-                block_reason = mtf["reason"] if (score >= SCORE_THRESHOLD and not mtf["allowed"]) \
-                    else _block_reason(breakdown, near_res)
-                events.append({"idx": li, "kind": "blocked",
-                               "text": f"Trade blocked — {block_reason} (score {score}/100)."})
+                if dna_block:
+                    block_reason = f"DNA filter — {mregime} is a weak regime for this strategy"
+                    events.append({"idx": li, "kind": "blocked", "text": f"Trade blocked — {block_reason}."})
+                else:
+                    mtf = htf_consensus(trends, side, tfs=gate_tfs)
+                    # an MTF conflict is the more important reason to surface
+                    block_reason = mtf["reason"] if (score >= SCORE_THRESHOLD and not mtf["allowed"]) \
+                        else _block_reason(breakdown, near_res)
+                    events.append({"idx": li, "kind": "blocked",
+                                   "text": f"Trade blocked — {block_reason} (score {score}/100)."})
 
         frames.append({
-            "regime": regime, "market_regime": _directional_regime(regime, trends),
+            "regime": regime, "market_regime": mregime,
             "trends": trends, "trigger": trigger,
             "score": score, "breakdown": breakdown, "blocked": blocked, "reason": block_reason,
             "vol_ratio": round(vol_ratio, 2),
