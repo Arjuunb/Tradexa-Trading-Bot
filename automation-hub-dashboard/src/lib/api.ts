@@ -238,6 +238,9 @@ export interface MemoryBucket { key: string; trades: number; net_r: number; win_
 export interface StrategyMemory { strategy: string; timeframe: string; sample: number; confidence: string; dna: DnaProfile; memory: Record<string, MemoryBucket | null>; by_regime: MemoryBucket[]; by_session: MemoryBucket[]; by_symbol: MemoryBucket[]; }
 export interface EconProtection { mode: string; risk_multiplier: number; stop_multiplier: number; halt_new_entries: boolean; minutes_to_event: number | null; next_event: { name: string; time: string } | null; actions: string[]; note: string; connected: boolean; tracked_event_types: { name: string; desc: string }[]; }
 export interface JournalEntry { id: string; symbol: string; strategy: string; side: string; result: string; rr: number | null; notes: string; emotions: string; mistakes: string[]; lessons: string[]; tags: string[]; created_at: string; snapshot: { symbol: string; timeframe: string; entry_idx: number | null; exit_idx: number | null }; }
+export interface BrokerStatus { name: string; kind: string; connected: boolean; mode: string; live_enabled: boolean; note: string; }
+export interface BrokerList { active: string; live_locked: boolean; brokers: BrokerStatus[]; note: string; }
+export interface ResearchSummary { id: string; name: string; created_at: string; verdict: string; test_gain_r: number; symbol: string; timeframe: string; }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
 export interface EquityCurvePoint { t: string | null; equity: number; }
