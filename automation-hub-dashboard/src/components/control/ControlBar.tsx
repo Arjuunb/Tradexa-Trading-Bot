@@ -27,6 +27,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   });
   const [showTune, setShowTune] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [realistic, setRealistic] = useState(false);
   const [last, setLast] = useState<ControlSimResult | null>(null);
   const [cmp, setCmp] = useState<ControlCompare | null>(null);
   const [tune, setTune2] = useState<ControlAutoTune | null>(null);
@@ -40,7 +41,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   }, []);
 
   const body = () => ({ strategy: cfg.strategy, symbol: cfg.symbol, timeframe: cfg.entry,
-    tuning: cfg.tuning, bars: 4000, macro: cfg.macro, confirmation: cfg.confirm });
+    tuning: cfg.tuning, bars: 4000, macro: cfg.macro, confirmation: cfg.confirm, realistic });
 
   const apply = async () => {
     setBusy(true); setCmp(null);
@@ -120,6 +121,8 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
       {/* row 3: actions */}
       <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button className="btn btn-primary" disabled={busy} onClick={apply}><Icon name="play" size={14} /> {busy ? "Running…" : "Apply & Simulate"}</button>
+        <button className={`chip-btn ${realistic ? "active" : ""}`} onClick={() => setRealistic((x) => !x)}
+          title="Charge spread + slippage + latency (same fill model as the paper engine)">Realistic fills</button>
         <button className="btn btn-soft" onClick={() => setShowTune((x) => !x)}><Icon name="settings" size={14} /> Brain Tuning</button>
         <button className="btn btn-soft" disabled={busy} onClick={autoTune} title="Search the brain-tuning space on real data (train/test split) and apply the best, validated config">
           <Icon name="bot" size={14} /> Auto-Tune

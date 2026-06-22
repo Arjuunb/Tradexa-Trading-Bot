@@ -120,9 +120,13 @@ def resolve(strategy: str, symbol: str, timeframe: str, tuning: dict,
 
 
 def _run_on(strategy: str, symbol: str, timeframe: str, tuning: dict, custom_spec: dict,
-            rows, macro: str = None, confirmation: str = None) -> dict:
+            rows, macro: str = None, confirmation: str = None, fill_cost: float = 0.0) -> dict:
     """Run a resolved configuration over a given bar list (no fetch). Returns the
-    raw results dict (with diagnosis, _mtf_gate, _spec) or {'error': ...}."""
+    raw results dict (with diagnosis, _mtf_gate, _spec) or {'error': ...}.
+
+    ``fill_cost`` (per-side, as a fraction of price) adds the realistic-fill
+    spread+slippage+latency on top of the base cost — the same execution model
+    the paper engine uses, so backtests stop assuming perfect fills."""
     from strategies.custom import simulate, simulate_strategy
     from strategies.brain import TradeBrain
     from strategies.diagnosis import diagnose
@@ -138,18 +142,19 @@ def _run_on(strategy: str, symbol: str, timeframe: str, tuning: dict, custom_spe
         mtf_lookup = make_trend_lookup(rows, timeframe, requested)
         mtf_tfs = mtf_lookup.timeframes
 
+    slippage = 0.0002 + max(0.0, float(fill_cost))
     min_score = int((tuning or {}).get("min_score", DEFAULT_TUNING["min_score"]))
     brain = TradeBrain()
     if desc["kind"] == "builtin":
         from webhook_api import _build_builtin
         strat = _build_builtin(desc["key"], symbol)
-        results = simulate_strategy(strat, rows, brain=brain, min_score=min_score,
+        results = simulate_strategy(strat, rows, brain=brain, min_score=min_score, slippage=slippage,
                                     mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs,
                                     **_risk_kwargs(tuning))
     else:
         spec = desc["spec"]
         use_brain = spec.get("quality_filter", True)
-        results = simulate(spec, rows, brain=brain if use_brain else None,
+        results = simulate(spec, rows, brain=brain if use_brain else None, slippage=slippage,
                            min_score=min_score if use_brain else 0,
                            mtf_lookup=mtf_lookup, mtf_tfs=mtf_tfs)
     results["diagnosis"] = diagnose(results, results.get("blocked"))
@@ -189,11 +194,13 @@ def make_replay_strategy(strategy: str, symbol: str, timeframe: str, custom_spec
 
 def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict = None,
                    custom_spec: dict = None, bars: int = 4000,
-                   macro: str = None, confirmation: str = None) -> dict:
+                   macro: str = None, confirmation: str = None, realistic: bool = False) -> dict:
     """Run a REAL simulation for the chosen control-bar configuration.
 
     ``macro`` / ``confirmation`` are the higher timeframes the multi-timeframe
     gate checks (chosen in the control bar); a trade against either is blocked.
+    ``realistic`` charges the paper engine's fill friction (spread + slippage +
+    latency) so the backtest matches realistic execution, not perfect fills.
     """
     from data.market_data import get_bars
     rows, source = get_bars(symbol, n=max(600, min(int(bars), 10000)), timeframe=timeframe,
@@ -201,7 +208,9 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
     if not rows:
         return {"error": "Historical data not available. Please load Binance data first "
                          "(run /data/sync).", "data_source": source, "available": False}
-    results = _run_on(strategy, symbol, timeframe, tuning or {}, custom_spec, rows, macro, confirmation)
+    fill_cost = _realistic_fill_cost() if realistic else 0.0
+    results = _run_on(strategy, symbol, timeframe, tuning or {}, custom_spec, rows, macro, confirmation,
+                      fill_cost=fill_cost)
     if "error" in results:
         return results
     gate = results.pop("_mtf_gate", [])
@@ -209,8 +218,15 @@ def run_simulation(strategy: str, symbol: str, timeframe: str, *, tuning: dict =
     return {
         "strategy": strategy, "symbol": symbol, "timeframe": timeframe, "mtf_gate": gate,
         "data_source": source, "available": True, "results": results,
-        "warning": underperforming(results), "spec": spec,
+        "warning": underperforming(results), "spec": spec, "fills": "realistic" if realistic else "ideal",
     }
+
+
+def _realistic_fill_cost() -> float:
+    """Per-side fill friction shared with the live paper engine (spread/2 +
+    slippage + latency), so backtests and the engine use one execution model."""
+    from services.fill_model import RealisticFill
+    return RealisticFill().cost_pct
 
 
 def auto_tune(strategy: str, symbol: str, timeframe: str, *, macro: str = None,

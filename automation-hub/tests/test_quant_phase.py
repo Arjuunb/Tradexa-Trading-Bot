@@ -106,3 +106,24 @@ def test_phase_endpoints(client):
     card = client.get("/health/scorecard", params={"strategy": "EMA 8/30", "symbol": "BTCUSDT",
                                                    "timeframe": "15m", "limit": 600}).json()
     assert "classification" in card and "drawdown_score" in card
+
+
+# ───────────────────── realistic fills shared with the simulators ─────────────────────
+def test_realistic_backtest_costs_vs_ideal():
+    from services.strategy_presets import run_simulation
+    ideal = run_simulation("EMA 8/30", "BTCUSDT", "15m", bars=2800, realistic=False)
+    real = run_simulation("EMA 8/30", "BTCUSDT", "15m", bars=2800, realistic=True)
+    assert ideal["available"] and real["available"]
+    assert real["fills"] == "realistic" and ideal["fills"] == "ideal"
+    # same trades, but realistic friction can only lower (or equal) net R
+    assert real["results"]["net_r"] <= ideal["results"]["net_r"]
+
+
+def test_realistic_replay_lowers_net():
+    from services.replay import build_replay
+    ideal = build_replay("BTCUSDT", "15m", 800, strategy="EMA 8/30")
+    real = build_replay("BTCUSDT", "15m", 800, strategy="EMA 8/30", fill_cost_pct=0.0005)
+    # same entries (filter doesn't change which trades are taken)
+    assert len(real["trades"]) == len(ideal["trades"])
+    if ideal["stats"]["trades"] > 0:
+        assert real["stats"]["net_r"] <= ideal["stats"]["net_r"]
