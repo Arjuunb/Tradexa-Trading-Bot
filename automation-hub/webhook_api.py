@@ -27,7 +27,8 @@ from services.signal_pipeline import SignalPipeline
 _BOOT = time.time()
 ledger = get_ledger(settings.ledger_path)
 controls = TradingControl()
-paper = PaperExecutionEngine(ledger, settings.starting_cash)
+from services.fill_model import from_env as _fill_from_env  # noqa: E402
+paper = PaperExecutionEngine(ledger, settings.starting_cash, fill_model=_fill_from_env())
 quality = MarketQualityGate(MarketQualityConfig(
     min_stop_distance_pct=settings.quality_min_stop_pct,
     max_stop_distance_pct=settings.quality_max_stop_pct,
@@ -930,6 +931,34 @@ def memory_snapshot(strategy: str = "Decision Brain", timeframe: str = "15m",
 def memory_snapshots():
     """Stored memory snapshots + cross-strategy recommendations (#1)."""
     return {"snapshots": memory_store.list(), "recommendations": memory_store.recommendations()}
+
+
+@router.get("/execution/fill-model")
+def execution_fill_model():
+    """The live paper engine's fill model (perfect vs realistic friction)."""
+    return paper.fill_model.status()
+
+
+class FillModelBody(BaseModel):
+    model: str = "perfect"          # perfect | realistic
+    spread_pct: float = 0.0004
+    slippage_pct: float = 0.0003
+    partial_fill_prob: float = 0.0
+    reject_prob: float = 0.0
+
+
+@router.post("/execution/fill-model")
+def set_execution_fill_model(body: FillModelBody, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Switch the live paper engine between ideal and realistic fills (#9)."""
+    _check_secret(x_webhook_secret)
+    from services.fill_model import PerfectFill, RealisticFill
+    if body.model == "realistic":
+        paper.fill_model = RealisticFill(spread_pct=body.spread_pct, slippage_pct=body.slippage_pct,
+                                         partial_fill_prob=body.partial_fill_prob, reject_prob=body.reject_prob)
+    else:
+        paper.fill_model = PerfectFill()
+    ledger.log(level="info", stage="execution", message=f"Fill model set to {paper.fill_model.name}")
+    return paper.fill_model.status()
 
 
 @router.get("/execution/realism")

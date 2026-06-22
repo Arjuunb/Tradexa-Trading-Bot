@@ -30,9 +30,13 @@ def _dir(side: str) -> str:
 
 
 class PaperExecutionEngine:
-    def __init__(self, ledger: Ledger, starting_balance: float = 10_000.0):
+    def __init__(self, ledger: Ledger, starting_balance: float = 10_000.0, fill_model=None):
         self.ledger = ledger
         self.starting_balance = starting_balance
+        if fill_model is None:
+            from services.fill_model import PerfectFill
+            fill_model = PerfectFill()
+        self.fill_model = fill_model
 
     # --------------------------------------------------------------- queries
     def open_position(self, symbol: str) -> Optional[dict]:
@@ -69,6 +73,11 @@ class PaperExecutionEngine:
     def open(self, *, symbol: str, side: str, size: float, entry: float,
              stop: Optional[float], alert_id: str = "") -> FillResult:
         direction = _dir(side)
+        # route the entry through the fill model (price/size/rejection)
+        f = self.fill_model.apply("buy" if direction == "long" else "sell", entry, size)
+        if f["rejected"] or f["size"] <= 0:
+            return FillResult("rejected", symbol, direction, 0.0, entry)
+        entry, size = f["price"], f["size"]
         pid = self.ledger.open_position(symbol=symbol, side=direction, size=size,
                                         entry=entry, stop=stop)
         tid = self.ledger.record_paper_trade({
@@ -81,6 +90,10 @@ class PaperExecutionEngine:
         pos = self.open_position(symbol)
         if pos is None:
             return FillResult("noop", symbol, "", 0.0, exit_price)
+        # exits cross the spread the other way; never reject/partial an exit
+        f = self.fill_model.apply("sell" if pos["side"] == "long" else "buy", exit_price, pos["size"],
+                                  allow_reject=False, allow_partial=False)
+        exit_price = f["price"]
         pnl = self._pnl(pos["side"], pos["size"], pos["entry"], exit_price)
         rr = self._rr(pos, exit_price)
         self.ledger.close_position(pos["id"], exit_price=exit_price, pnl=pnl)

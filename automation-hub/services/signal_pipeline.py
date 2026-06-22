@@ -255,8 +255,11 @@ class SignalPipeline:
         if size <= 0:
             return reject("exposure", "Exposure limit leaves zero size")
 
-        # 6. paper execution
+        # 6. paper execution (routed through the fill model)
         fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop, alert_id=alert_id)
+        if fill.action == "rejected":
+            return reject("execution", "Order rejected at fill (execution model)")
+        entry, size = fill.price, fill.size          # actual filled price / size
         self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
                                           entry=entry, stop=stop, payload=payload, status="accepted")
         open_msg = f"{symbol} {side} opened {size:.6f} @ {entry}"

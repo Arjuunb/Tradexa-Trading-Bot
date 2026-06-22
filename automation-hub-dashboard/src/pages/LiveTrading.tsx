@@ -2,8 +2,9 @@ import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { PageHeader } from "../components/common/ui";
-import { useLive, type BotSettings, type PaperTradeRow, type SystemStatus, type BrokerList } from "../lib/api";
+import { apiPostJson, useLive, type BotSettings, type PaperTradeRow, type SystemStatus, type BrokerList, type FillModelStatus } from "../lib/api";
 import { Badge } from "../components/common/ui";
+import { useApp } from "../app-context";
 import { getProgress } from "../lib/progress";
 
 function riskValid(s: BotSettings | null): boolean {
@@ -75,7 +76,10 @@ export default function LiveTradingPage() {
         )}
       </Card>
 
-      <BrokerConnections />
+      <div className="grid-2-eq">
+        <BrokerConnections />
+        <FillModelControl />
+      </div>
     </>
   );
 }
@@ -99,6 +103,35 @@ function BrokerConnections() {
           <p className="dim" style={{ fontSize: 12, marginTop: 8 }}><Icon name="lock" size={12} /> {b.note}</p>
         </>
       )}
+    </Card>
+  );
+}
+
+function FillModelControl() {
+  const app = useApp();
+  const fm = useLive<FillModelStatus>("/execution/fill-model", 8000);
+  const d = fm.data;
+  const set = async (model: string) => {
+    try { const r = await apiPostJson<any>("/execution/fill-model", { model, spread_pct: 0.0004, slippage_pct: 0.0003, reject_prob: model === "realistic" ? 0.01 : 0 });
+      if (r?.error || r?.detail) app.toast(r.error || r.detail, "error"); else { app.toast(`Fill model: ${model}`, "success"); fm.refetch(); } }
+    catch { app.toast("Switching the fill model needs the webhook secret", "error"); }
+  };
+  return (
+    <Card title="Execution Fill Model" subtitle="how realistically the paper engine fills orders"
+      right={d && <Badge text={d.model} tone={d.model === "realistic" ? "amber" : "green"} />}>
+      <p className="dim" style={{ fontSize: 13 }}>{d?.note ?? "—"}</p>
+      {d?.model === "realistic" && (
+        <div className="risk-list" style={{ marginTop: 6 }}>
+          <div className="risk-item"><span className="dim">Round-trip cost</span> <b>{d.round_trip_cost_pct}%</b></div>
+          <div className="risk-item"><span className="dim">Spread / slippage</span> <b>{(d.spread_pct ?? 0) * 100}% / {(d.slippage_pct ?? 0) * 100}%</b></div>
+          <div className="risk-item"><span className="dim">Reject probability</span> <b>{(d.reject_prob ?? 0) * 100}%</b></div>
+        </div>
+      )}
+      <div className="row-actions" style={{ gap: 6, marginTop: 10 }}>
+        <button className={`chip-btn ${d?.model === "perfect" ? "active" : ""}`} onClick={() => set("perfect")}>Perfect</button>
+        <button className={`chip-btn ${d?.model === "realistic" ? "active" : ""}`} onClick={() => set("realistic")}>Realistic</button>
+      </div>
+      <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>Realistic fills move the price against you (spread + slippage), and a small fraction of orders reject — paper P&L stops assuming perfect fills.</p>
     </Card>
   );
 }

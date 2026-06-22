@@ -244,6 +244,7 @@ export interface EconProtection { mode: string; risk_multiplier: number; stop_mu
 export interface JournalEntry { id: string; symbol: string; strategy: string; side: string; result: string; rr: number | null; notes: string; emotions: string; mistakes: string[]; lessons: string[]; tags: string[]; created_at: string; snapshot: { symbol: string; timeframe: string; entry_idx: number | null; exit_idx: number | null }; }
 export interface BrokerStatus { name: string; kind: string; connected: boolean; mode: string; live_enabled: boolean; note: string; }
 export interface BrokerList { active: string; live_locked: boolean; brokers: BrokerStatus[]; note: string; }
+export interface FillModelStatus { model: string; note: string; round_trip_cost_pct?: number; spread_pct?: number; slippage_pct?: number; reject_prob?: number; }
 export interface ResearchSummary { id: string; name: string; created_at: string; verdict: string; test_gain_r: number; symbol: string; timeframe: string; }
 export interface EquityPoint { t: string | null; equity: number; }
 export interface EquityCurveData { starting_balance: number; points: EquityPoint[]; }
