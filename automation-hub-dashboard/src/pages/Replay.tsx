@@ -44,6 +44,7 @@ export default function ReplayPage() {
   const [toggles, setToggles] = useState<ChartToggles>(DEFAULT_TOGGLES);
   const [fullscreen, setFullscreen] = useState(false);
   const [memoryFilter, setMemoryFilter] = useState(false);
+  const [realistic, setRealistic] = useState(false);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function ReplayPage() {
       let q = `/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${limit}&strategy=${encodeURIComponent(strategy)}&source=${src}`;
       q += `&macro=${macro}&confirmation=${confirmation}`;
       if (memoryFilter) q += `&memory_filter=true`;
+      if (realistic) q += `&realistic=true`;
       if (startDate) q += `&start=${startDate}`;
       if (endDate) q += `&end=${endDate}`;
       const r = await apiGet<ReplayData>(q);
@@ -166,6 +168,8 @@ export default function ReplayPage() {
             <select value={confirmation} onChange={(e) => setConfirmation(e.target.value)}>{CONF_TFS.map((t) => <option key={t}>{t}</option>)}</select></label>
           <button className={`chip-btn ${memoryFilter ? "active" : ""}`} onClick={() => setMemoryFilter((m) => !m)}
             title="Skip this strategy's historically-weak regimes (from its saved memory snapshot)">Memory filter</button>
+          <button className={`chip-btn ${realistic ? "active" : ""}`} onClick={() => setRealistic((m) => !m)}
+            title="Charge spread + slippage + latency on each trade (same fill model as the paper engine)">Realistic fills</button>
           <button className="btn btn-primary" disabled={loading} onClick={load}><Icon name="history" size={14} /> {loading ? "Loading…" : "Load"}</button>
           {src === "binance" && (
             <button className="btn btn-soft" disabled={syncing} onClick={syncBinance}

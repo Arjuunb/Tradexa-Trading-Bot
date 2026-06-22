@@ -298,10 +298,11 @@ def _label_source(source: str) -> dict:
 def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                  start=None, end=None, strategy: str = "Supply/Demand",
                  source: str = "binance", custom_spec: dict = None,
-                 macro=None, confirmation=None, avoid_regimes=None) -> dict:
+                 macro=None, confirmation=None, avoid_regimes=None, fill_cost_pct: float = 0.0) -> dict:
     from data.market_data import get_bars
     from bot.data.synthetic import generate_bars
     avoid_set = set(avoid_regimes or [])   # DNA memory filter — regimes to skip
+    fill_cost_pct = max(0.0, float(fill_cost_pct))
     if exec_tf not in TF_FACTORS:
         exec_tf = "15m"
     n = max(300, min(int(limit or 800), 1500))
@@ -589,6 +590,18 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             "score": score, "breakdown": breakdown, "blocked": blocked, "reason": block_reason,
             "vol_ratio": round(vol_ratio, 2),
         })
+
+    # realistic fills — charge spread+slippage+latency on each closed trade so
+    # replay results match the paper engine's execution model (not perfect fills)
+    if fill_cost_pct > 0:
+        for t in trades:
+            if t.get("rr") is None:
+                continue
+            risk = abs(t["entry"] - t["sl"])
+            if risk > 0:
+                cost_r = fill_cost_pct * t["entry"] * 2 / risk
+                t["rr"] = round(t["rr"] - cost_r, 2)
+                t["result"] = "Winner" if t["rr"] > 0 else "Break Even" if t["rr"] == 0 else "Loser"
 
     # keep the most recent supply/demand zones + current swing S/R levels
     zones = zones[-8:] + (_zones_from_strategy(strat, offset, len(view)) if is_smc else [])

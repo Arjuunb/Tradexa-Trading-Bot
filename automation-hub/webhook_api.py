@@ -1308,6 +1308,7 @@ class ControlSimRequest(BaseModel):
     bars: int = 4000
     macro: Optional[str] = None
     confirmation: Optional[str] = None
+    realistic: bool = False
 
 
 @router.post("/control/simulate")
@@ -1317,7 +1318,7 @@ def control_simulate(body: ControlSimRequest):
     from services.strategy_presets import run_simulation
     return run_simulation(body.strategy, body.symbol, body.timeframe,
                           tuning=body.tuning, custom_spec=body.custom_spec, bars=body.bars,
-                          macro=body.macro, confirmation=body.confirmation)
+                          macro=body.macro, confirmation=body.confirmation, realistic=body.realistic)
 
 
 @router.post("/control/auto-tune")
@@ -1410,7 +1411,7 @@ def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800
                start: Optional[str] = None, end: Optional[str] = None,
                strategy: str = "Supply/Demand", source: str = "binance",
                macro: Optional[str] = None, confirmation: Optional[str] = None,
-               memory_filter: bool = False):
+               memory_filter: bool = False, realistic: bool = False):
     """Precompute a no-lookahead decision timeline for TradingView-style replay
     using the SELECTED strategy. ``source`` = binance | demo. ``start``/``end``
     (YYYY-MM-DD) jump to a specific historical window. ``macro``/``confirmation``
@@ -1424,11 +1425,17 @@ def replay_run(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int = 800
         snap = memory_store.get(strategy)
         if snap and snap.get("combinations"):
             avoid = avoid_regimes_from_combinations(snap["combinations"])
+    fill_cost = 0.0
+    if realistic:
+        from services.fill_model import RealisticFill
+        fill_cost = RealisticFill().cost_pct
     rep = build_replay(symbol, timeframe, limit, start=start, end=end,
                        strategy=strategy, source=source,
-                       macro=macro, confirmation=confirmation, avoid_regimes=avoid)
+                       macro=macro, confirmation=confirmation, avoid_regimes=avoid,
+                       fill_cost_pct=fill_cost)
     if rep.get("meta", {}).get("debug") is not None:
         rep["meta"]["debug"]["memory_filter"] = avoid or []
+        rep["meta"]["debug"]["fills"] = "realistic" if realistic else "ideal"
     return rep
 
 
