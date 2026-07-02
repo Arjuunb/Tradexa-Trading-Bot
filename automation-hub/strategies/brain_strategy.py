@@ -25,11 +25,15 @@ from services.regime import RegimeDetector
 from strategies.base_strategy import HubStrategy
 
 # Regime -> conviction multiplier (capital protection: stand aside in chaos).
+# Out-of-sample testing across trend/range/chop regimes showed the brain earns
+# in clean trends but bleeds in ranging / high-volatility noise, so those
+# regimes are damped hard — the engine would rather skip a trade than take a
+# coin-flip in chop.
 _REGIME_FACTOR = {
     "Trending": 1.0,
-    "Low Volatility": 0.9,
-    "Ranging": 0.8,
-    "High Volatility": 0.6,
+    "Low Volatility": 0.85,
+    "Ranging": 0.45,
+    "High Volatility": 0.35,
     "Extreme Volatility": 0.0,   # do not trade
 }
 
@@ -48,7 +52,7 @@ class DecisionBrain(HubStrategy):
 
     def __init__(self, symbol: str, *, fast: int = 12, slow: int = 26,
                  trend: int = 50, rsi_period: int = 14,
-                 conviction_threshold: float = 0.5, max_history: int = 600, **params):
+                 conviction_threshold: float = 0.56, max_history: int = 600, **params):
         params.setdefault("rr_target", 2.5)  # validated reward:risk (walk-forward)
         super().__init__(symbol, fast=fast, slow=slow, trend=trend,
                          rsi_period=rsi_period, conviction_threshold=conviction_threshold,
@@ -90,11 +94,22 @@ class DecisionBrain(HubStrategy):
         score = (self.W_TREND * v_trend + self.W_FILTER * v_filter
                  + self.W_SLOPE * v_slope + self.W_RSI * v_rsi)
 
-        factor = _REGIME_FACTOR.get(regime.name, 0.8)
+        factor = _REGIME_FACTOR.get(regime.name, 0.45)
         conviction = abs(score) * factor
 
         if factor == 0.0 or conviction < p["conviction_threshold"]:
             return None  # the brain decides NOT to trade
+
+        # Alignment gate: the medium-term trend (fast vs slow EMA) and the
+        # long-trend filter (price vs long EMA) must AGREE with the trade
+        # direction, and momentum must not be pushing the other way. Testing
+        # showed most losers came from counter-trend entries where a hot RSI
+        # vote outshouted a disagreeing trend — this removes that failure mode.
+        side = 1.0 if score > 0 else -1.0
+        if v_trend * side <= 0 or v_filter * side <= 0:
+            return None  # never trade against the trend reads
+        if v_slope * side < -0.25:
+            return None  # momentum actively disagrees — wait
 
         direction = SignalType.LONG if score > 0 else SignalType.SHORT
         reason = self._explain(direction, ef, es, et, price, r, regime, conviction)
