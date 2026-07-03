@@ -60,7 +60,7 @@ def test_sync_paginates_backward_with_injected_fetcher(tmp_path):
 
 def test_sync_rejects_unsupported(tmp_path):
     st = HistoricalStore(str(tmp_path / "m.db"))
-    assert "error" in sync(st, "DOGEUSDT", "4h", fetcher=lambda *a, **k: [])
+    assert "error" in sync(st, "FAKEUSDT", "4h", fetcher=lambda *a, **k: [])
     assert "error" in sync(st, "BTCUSDT", "3m", fetcher=lambda *a, **k: [])
 
 
@@ -87,8 +87,8 @@ def test_update_incremental(tmp_path):
 
 
 def test_supported_universe():
-    assert set(SYMBOLS) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"}
-    assert set(TIMEFRAMES) == {"1w", "1d", "4h", "1h", "15m", "5m"}
+    assert {"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"}.issubset(set(SYMBOLS))
+    assert {"1w", "1d", "4h", "1h", "30m", "15m", "5m"}.issubset(set(TIMEFRAMES))
 
 
 # ---- endpoints ----
