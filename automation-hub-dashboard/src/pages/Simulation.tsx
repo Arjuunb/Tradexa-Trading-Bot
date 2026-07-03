@@ -13,13 +13,29 @@ const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString
 const scoreTone = (s?: number) => (s == null ? "default" : s >= 80 ? "green" : s >= 60 ? "amber" : "red");
 
 const BUILTINS = [
-  { key: "smc", label: "SMC (Smart Money)" },
-  { key: "brain", label: "Decision Brain" },
-  { key: "supertrend", label: "Supertrend" },
-  { key: "donchian", label: "Donchian Breakout" },
-  { key: "ensemble", label: "Confirmation Ensemble" },
-  { key: "ema", label: "EMA Crossover" },
+  { key: "smc", label: "SMC (Smart Money)",
+    desc: "trades liquidity sweeps + CHoCH/BOS + fair-value gaps in line with the higher-timeframe bias." },
+  { key: "brain", label: "Decision Brain",
+    desc: "the live engine's multi-signal brain — trend + filter + momentum + RSI votes, regime-aware, 3R targets." },
+  { key: "supertrend", label: "Supertrend",
+    desc: "ATR trend-following — rides trends, exits on the supertrend flip." },
+  { key: "donchian", label: "Donchian Breakout",
+    desc: "classic channel breakout — buys N-bar highs, sells N-bar lows." },
+  { key: "ensemble", label: "Confirmation Ensemble",
+    desc: "only trades when multiple independent strategies agree on direction." },
+  { key: "ema", label: "EMA Crossover",
+    desc: "fast EMA over slow EMA — the simplest trend baseline to compare against." },
 ];
+
+// Crypto pairs have real data (live/backfilled); stocks are for simulation —
+// AAPL ships with a real daily sample, the rest run on labeled synthetic data.
+const SYMBOL_GROUPS: [string, string[]][] = [
+  ["Crypto", ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT",
+              "ADAUSDT", "LINKUSDT", "AVAXUSDT", "DOTUSDT", "LTCUSDT", "MATICUSDT"]],
+  ["Stocks (simulation)", ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL", "META", "SPY"]],
+];
+const SIM_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d"];
+const BAR_CHOICES = [500, 1000, 2000, 3000, 5000, 8000, 10000];
 
 export default function SimulationPage() {
   const app = useApp();
@@ -106,20 +122,33 @@ export default function SimulationPage() {
             <select value={biKey} onChange={(e) => { setBiKey(e.target.value); setSim(null); }} style={{ minWidth: 220 }}>
               {BUILTINS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
             </select>
-            <input value={biSymbol} onChange={(e) => setBiSymbol(e.target.value.toUpperCase())} style={{ width: 120 }} />
+            <select value={SYMBOL_GROUPS.some(([, syms]) => syms.includes(biSymbol)) ? biSymbol : "__custom"}
+              onChange={(e) => { if (e.target.value !== "__custom") setBiSymbol(e.target.value); }}
+              style={{ minWidth: 150 }}>
+              {SYMBOL_GROUPS.map(([group, syms]) => (
+                <optgroup key={group} label={group}>
+                  {syms.map((sym) => <option key={sym} value={sym}>{sym}</option>)}
+                </optgroup>
+              ))}
+              <option value="__custom">Custom…</option>
+            </select>
+            <input value={biSymbol} onChange={(e) => setBiSymbol(e.target.value.toUpperCase())}
+              placeholder="or type any symbol" style={{ width: 130 }} />
             <select value={biTf} onChange={(e) => setBiTf(e.target.value)}>
-              {["1h", "4h", "1d"].map((t) => <option key={t} value={t}>{t}</option>)}
+              {SIM_TIMEFRAMES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
             <select value={bars} onChange={(e) => setBars(Number(e.target.value))}>
-              {[1000, 2000, 3000, 5000].map((b) => <option key={b} value={b}>{b} bars</option>)}
+              {BAR_CHOICES.map((b) => <option key={b} value={b}>{b.toLocaleString()} bars</option>)}
             </select>
             <button className="btn btn-primary" disabled={running} onClick={runBuiltin}>
               <Icon name="play" size={14} /> {running ? "Simulating…" : "Run Simulation"}
             </button>
           </div>
           <p className="dim" style={{ marginTop: 10 }}>
-            <Icon name="info" size={13} /> <b>SMC (Smart Money)</b> trades liquidity sweeps + CHoCH/BOS + fair-value
-            gaps in line with the higher-timeframe bias. Simulated data only — never shown as live performance.
+            <Icon name="info" size={13} /> <b>{BUILTINS.find((b) => b.key === biKey)?.label}</b>{" "}
+            {BUILTINS.find((b) => b.key === biKey)?.desc} Crypto pairs use real cached/live candles when
+            available; stocks run on the bundled sample (AAPL, real daily) or labeled synthetic data.
+            Never shown as live performance.
           </p>
         </Card>
       )}
@@ -135,7 +164,7 @@ export default function SimulationPage() {
                 {specs.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.symbol} {s.timeframe}</option>)}
               </select>
               <select value={bars} onChange={(e) => setBars(Number(e.target.value))}>
-                {[1000, 2000, 3000, 5000].map((b) => <option key={b} value={b}>{b} bars</option>)}
+                {BAR_CHOICES.map((b) => <option key={b} value={b}>{b.toLocaleString()} bars</option>)}
               </select>
               <button className="btn btn-primary" disabled={running} onClick={run}>
                 <Icon name="play" size={14} /> {running ? "Simulating…" : "Run Simulation"}

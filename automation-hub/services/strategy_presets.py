@@ -55,8 +55,12 @@ REGISTRY = [
      "timeframes": [], "description": "User-built rule strategy"},
 ]
 _NAME_TO_ID = {r["name"]: r["id"] for r in REGISTRY}
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
-TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d", "1w"]
+# Crypto pairs have REAL data (live ccxt + backfill); they power the live
+# engine and the control bar. Stocks appear only in the simulation pickers,
+# clearly labeled — the AAPL sample is real daily data, the rest simulate.
+SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT",
+           "BNBUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT"]
+TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "1d", "1w"]
 MODES = ["Simulation", "Paper Trading", "Live Trading (locked)"]
 
 # default brain-tuning panel
