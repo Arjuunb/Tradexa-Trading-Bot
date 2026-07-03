@@ -29,6 +29,9 @@ ledger = get_ledger(settings.ledger_path)
 controls = TradingControl()
 from services.fill_model import from_env as _fill_from_env  # noqa: E402
 paper = PaperExecutionEngine(ledger, settings.starting_cash, fill_model=_fill_from_env())
+from services.execution_quality import ExecutionQuality  # noqa: E402
+exec_quality = ExecutionQuality()
+paper.quality = exec_quality
 quality = MarketQualityGate(MarketQualityConfig(
     min_stop_distance_pct=settings.quality_min_stop_pct,
     max_stop_distance_pct=settings.quality_max_stop_pct,
@@ -1012,6 +1015,13 @@ def market_funding(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"):
     from services.funding import funding_rates
     syms = [s.strip() for s in symbols.split(",") if s.strip()]
     return funding_rates(syms)
+
+
+@router.get("/execution/quality")
+def execution_quality_report():
+    """Fill-by-fill execution grade: measured slippage (maker vs taker, per
+    symbol) and whether the fill model's assumptions match reality."""
+    return exec_quality.report(paper.fill_model)
 
 
 @router.get("/execution/readiness")

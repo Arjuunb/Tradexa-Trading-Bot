@@ -32,7 +32,8 @@ def _engine():
     paper = PaperExecutionEngine(led, 10_000)
     pipe = SignalPipeline(led, paper, TradingControl(), equity=10_000,
                           risk_per_trade_pct=0.01, exposure_limit_pct=0.5)
-    eng = AutoStrategyEngine(pipe, paper, led, symbols=["BTCUSDT"], live=True)
+    eng = AutoStrategyEngine(pipe, paper, led, symbols=["BTCUSDT"], live=True,
+                             entry_mode="market")  # these tests target ingest/exit logic
     return eng, paper
 
 

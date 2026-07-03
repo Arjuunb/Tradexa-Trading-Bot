@@ -58,6 +58,8 @@ class AutoStrategyEngine:
         live_poll_s: float = 60.0,
         fetcher: Optional[Callable[[str, str, int], tuple]] = None,
         trade_manager=None,
+        entry_mode: Optional[str] = None,
+        limit_ttl_bars: int = 3,
     ):
         self.pipeline = pipeline
         self.paper = paper
@@ -94,6 +96,15 @@ class AutoStrategyEngine:
         from services.trade_manager import TradeManager
         self.trade_manager = trade_manager or TradeManager()
         self._managed: dict[str, object] = {}   # symbol -> ManagedTrade
+        # Maker entries (measured better on all validation suites): a signal
+        # parks a resting limit at its price; it fills only when price trades
+        # through it (no spread/slippage) and expires unfilled after
+        # ``limit_ttl_bars`` bars. HUB_ENTRY_MODE=market restores taker entries.
+        import os as _os
+        self.entry_mode = (entry_mode or _os.environ.get("HUB_ENTRY_MODE", "limit")).lower()
+        self.limit_ttl_bars = max(1, int(limit_ttl_bars))
+        self._pending: dict[str, dict] = {}     # symbol -> resting limit order
+        self.stats_missed_entries = 0
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -138,6 +149,7 @@ class AutoStrategyEngine:
         self.strategy_label = label
         self._targets.clear()
         self._managed.clear()
+        self._pending.clear()
         self.stats = {"bars": 0, "signals": 0, "trades": 0, "rejections": 0}
         self.start()
         return self.status()
@@ -154,6 +166,9 @@ class AutoStrategyEngine:
             "last_bar_ts": self.last_bar_ts,
             "last_activity": self.last_activity,
             "data_source": self.last_source,
+            "entry_mode": self.entry_mode,
+            "pending_orders": len(self._pending),
+            "missed_entries": self.stats_missed_entries,
             **self.stats,
         }
 
@@ -272,12 +287,57 @@ class AutoStrategyEngine:
         except Exception:  # noqa: BLE001
             self.last_bar_ts = str(getattr(bar, "timestamp", ""))
         self.last_activity = datetime.now(timezone.utc).isoformat()
-        # 1. stop-loss / take-profit exits against this bar's range.
+        # 1. resting limit entry: fill if this bar traded through it.
+        self._check_pending(sym, bar)
+        # 2. stop-loss / take-profit exits against this bar's range.
         self._check_exit(sym, bar)
-        # 2. strategy decision on the new bar.
+        # 3. strategy decision on the new bar.
         signal: Optional[Signal] = strategy.on_bar(bar)
         if signal is not None:
             self._on_signal(sym, signal)
+
+    def _check_pending(self, sym: str, bar) -> None:
+        po = self._pending.get(sym)
+        if po is None:
+            return
+        if self.paper.open_position(sym) is not None:
+            self._pending.pop(sym, None)
+            return
+        long = po["side"] == "BUY"
+        fill = None
+        if long and bar.open <= po["price"]:
+            fill = bar.open                       # gapped through: better fill
+        elif long and bar.low <= po["price"]:
+            fill = po["price"]
+        elif not long and bar.open >= po["price"]:
+            fill = bar.open
+        elif not long and bar.high >= po["price"]:
+            fill = po["price"]
+        if fill is None:
+            po["ttl"] -= 1
+            if po["ttl"] <= 0:
+                self._pending.pop(sym, None)
+                self.stats_missed_entries += 1
+                self.ledger.log(level="info", stage="engine", symbol=sym,
+                                message=f"{sym}: limit entry expired unfilled @ {po['price']}")
+            return
+        self._pending.pop(sym, None)
+        res = self._route({**po["payload"], "entry": fill, "maker": True,
+                           "timestamp": bar.timestamp.isoformat()})
+        if res is None:
+            return
+        f = res.fill or {}
+        if res.accepted and f.get("action") == "opened":
+            self.stats["trades"] += 1
+            self._targets[sym] = po["target"]
+            entry, stop = f.get("price") or fill, po["payload"].get("stop")
+            if stop and entry and stop != entry:
+                from services.trade_manager import ManagedTrade
+                self._managed[sym] = ManagedTrade(
+                    side="long" if long else "short", entry=entry, stop=stop,
+                    target=po["target"], risk=abs(entry - stop))
+        elif not res.accepted:
+            self.stats["rejections"] += 1
 
     def _check_exit(self, sym: str, bar) -> None:
         pos = self.paper.open_position(sym)
@@ -351,14 +411,23 @@ class AutoStrategyEngine:
             return
         self.stats["signals"] += 1
         side = "BUY" if signal.type == SignalType.LONG else "SELL"
-        res = self._route({
+        payload = {
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
             "confidence": getattr(signal, "confidence", 1.0),
             "regime": getattr(signal, "regime", ""),
             "reason": getattr(signal, "reason", ""),
             "timestamp": signal.timestamp.isoformat(),
-        })
+        }
+        # Maker entry: when FLAT, park a resting limit instead of paying the
+        # spread. Flips/closes (opposite side of an open position) stay
+        # immediate — exits are never left resting.
+        if self.entry_mode == "limit" and pos is None and signal.stop_loss:
+            self._pending[sym] = {"side": side, "price": signal.entry,
+                                  "target": signal.take_profit,
+                                  "ttl": self.limit_ttl_bars, "payload": payload}
+            return
+        res = self._route(payload)
         if res is None:
             return
         fill = res.fill or {}

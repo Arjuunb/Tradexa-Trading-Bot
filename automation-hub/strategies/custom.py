@@ -452,7 +452,8 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                       starting_balance: float = 10_000.0, risk_pct: float = 0.01,
                       brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None,
                       max_trades_per_day: int = 0, cooldown_after_loss: int = 0,
-                      max_consecutive_losses: int = 0, manage: bool = True) -> dict:
+                      max_consecutive_losses: int = 0, manage: bool = True,
+                      entry_mode: str = "market", limit_ttl_bars: int = 3) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
 
@@ -463,18 +464,57 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
     ``blocked`` — so the same quality filter applies to built-in strategies.
     ``manage`` applies the shared TradeManager (break-even / scale-out /
     trailing) — the same mid-trade behavior the live engine uses.
+    ``entry_mode='limit'`` simulates maker entries: a limit order rests at the
+    signal price for up to ``limit_ttl_bars`` bars; it fills only if price
+    trades back through it (at the open when the next bar gaps through), pays
+    no slippage on the entry side, and is cancelled unfilled when it expires —
+    the honest cost of maker entries is the winners that run away unfilled.
     """
     from bot.types import SignalType
     from services.trade_manager import ManagedTrade, TradeManager
     cost = fee + slippage
     mgr = TradeManager() if manage else None
     pos = None
+    pending = None                      # resting limit entry (entry_mode='limit')
+    missed = 0                          # limit entries that expired unfilled
     trades: list[dict] = []
     blocked: list[dict] = []
     gate = _RiskGate(max_trades_per_day, cooldown_after_loss, max_consecutive_losses)
 
+    def _open(side, entry, stop, target, reason, bar, i, entry_cost):
+        return {"side": side, "entry": entry, "risk": abs(entry - stop),
+                "reason": reason, "time": bar.timestamp, "idx": i, "partial": None,
+                "entry_cost": entry_cost,
+                "mt": ManagedTrade(side=side, entry=entry, stop=stop,
+                                   target=target, risk=abs(entry - stop))}
+
     for i, bar in enumerate(bars):
-        if pos is not None:
+        if pending is not None and pos is None:
+            # resting maker order: fills only if price trades through it
+            fill = None
+            if pending["side"] == "long":
+                if bar.open <= pending["price"]:
+                    fill = bar.open                    # gapped through: better fill
+                elif bar.low <= pending["price"]:
+                    fill = pending["price"]
+            else:
+                if bar.open >= pending["price"]:
+                    fill = bar.open
+                elif bar.high >= pending["price"]:
+                    fill = pending["price"]
+            if fill is not None:
+                sl, tp = pending["stop"], pending["target"]
+                if abs(fill - sl) > 0:
+                    pos = _open(pending["side"], fill, sl, tp, pending["reason"],
+                                bar, i, entry_cost=fee)   # maker: fee only
+                    gate.on_entry(bar.timestamp)
+                pending = None
+            else:
+                pending["ttl"] -= 1
+                if pending["ttl"] <= 0:
+                    pending = None
+                    missed += 1
+        if pos is not None and pos["idx"] != i:   # never exit on the entry bar
             exit_px = exit_reason = None
             mt = pos["mt"]
             if mgr is not None:
@@ -494,7 +534,8 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                 elif bar.low <= mt.target:
                     exit_px, exit_reason = mt.target, "target"
             if exit_px is not None:
-                cost_r = cost * pos["entry"] * 2 / pos["risk"]
+                # per-side costs: maker entries pay fee only; exits cross the spread
+                cost_r = (pos.get("entry_cost", cost) + cost) * pos["entry"] / pos["risk"]
                 if mgr is not None:
                     r = mgr.r_multiple(mt, exit_px, pos.get("partial"), cost_r=cost_r)
                 else:
@@ -537,14 +578,21 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                         blocked.append({"time": bar.timestamp.isoformat(), "side": side, "score": 0,
                                         "regime": "—", "htf_bias": mtf["reason"], "reason": mtf["reason"]})
                         continue
-                pos = {"side": side, "entry": entry, "risk": risk,
-                       "reason": getattr(sig, "reason", "") or f"{side} entry",
-                       "time": bar.timestamp, "idx": i, "partial": None,
-                       "mt": ManagedTrade(side=side, entry=entry, stop=stop,
-                                          target=sig.take_profit, risk=risk)}
-                gate.on_entry(bar.timestamp)
+                reason = getattr(sig, "reason", "") or f"{side} entry"
+                if entry_mode == "limit":
+                    pending = {"side": side, "price": entry, "stop": stop,
+                               "target": sig.take_profit, "reason": reason,
+                               "ttl": max(1, int(limit_ttl_bars))}
+                else:
+                    pos = _open(side, entry, stop, sig.take_profit, reason,
+                                bar, i, entry_cost=cost)   # taker: fee + slippage
+                    gate.on_entry(bar.timestamp)
 
-    return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
+    out = _results(trades, starting_balance, risk_pct, bars, blocked=blocked)
+    if entry_mode == "limit":
+        out["entry_mode"] = "limit"
+        out["missed_entries"] = missed
+    return out
 
 
 def _results(trades: list, start: float, risk_pct: float, bars, blocked: list | None = None) -> dict:

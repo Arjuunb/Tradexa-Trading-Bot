@@ -44,9 +44,12 @@ class RealisticFill:
         return self.spread_pct / 2 + self.slippage_pct + self.latency_pct
 
     def apply(self, action: str, price: float, size: float, *,
-              allow_reject: bool = True, allow_partial: bool = True) -> dict:
-        """``action`` ∈ {buy, sell}. Buys fill higher, sells fill lower."""
-        cost = self.cost_pct
+              allow_reject: bool = True, allow_partial: bool = True,
+              maker: bool = False) -> dict:
+        """``action`` ∈ {buy, sell}. Buys fill higher, sells fill lower.
+        ``maker`` fills (resting limit orders) execute AT the limit price —
+        no spread crossing, no slippage; that is the point of maker entries."""
+        cost = 0.0 if maker else self.cost_pct
         if allow_reject and self.reject_prob and self._rnd.random() < self.reject_prob:
             return {"price": price, "size": 0.0, "rejected": True,
                     "filled_fraction": 0.0, "cost_pct": cost}

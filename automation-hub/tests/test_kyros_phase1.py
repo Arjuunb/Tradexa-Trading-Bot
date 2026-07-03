@@ -327,6 +327,7 @@ def _bar(close, high=None, low=None):
 def _engine(ledger, paper, **kw):
     pipe = SignalPipeline(ledger, paper, TradingControl(), equity=10_000,
                           risk_per_trade_pct=0.01, exposure_limit_pct=0.05)
+    kw.setdefault("entry_mode", "market")  # these tests target exit logic
     return AutoStrategyEngine(pipe, paper, ledger, symbols=["BTCUSDT"], **kw)
 
 
