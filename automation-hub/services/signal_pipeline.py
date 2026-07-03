@@ -344,7 +344,8 @@ class SignalPipeline:
                                   f"total within {self.max_total_exposure_pct*100:.0f}%"))
 
         # 6. paper execution (routed through the fill model)
-        fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop, alert_id=alert_id)
+        fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop,
+                               alert_id=alert_id, maker=bool(payload.get("maker")))
         if fill.action == "rejected":
             return reject("execution", "Order rejected at fill (execution model)")
         entry, size = fill.price, fill.size          # actual filled price / size
