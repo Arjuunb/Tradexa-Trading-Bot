@@ -11,7 +11,9 @@ def _pipe(*, max_drawdown_pct=0.20, max_open_positions=3):
     pipe = SignalPipeline(led, paper, TradingControl(), equity=10_000,
                           risk_per_trade_pct=0.01, exposure_limit_pct=0.5,
                           max_drawdown_pct=max_drawdown_pct,
-                          max_open_positions=max_open_positions)
+                          max_open_positions=max_open_positions,
+                          # roomy portfolio cap: these tests target other guards
+                          max_total_exposure_pct=1.0)
     return pipe, paper, led
 
 
