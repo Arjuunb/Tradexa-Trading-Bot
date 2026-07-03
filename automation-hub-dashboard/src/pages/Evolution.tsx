@@ -6,6 +6,7 @@ import { useApp } from "../app-context";
 import { apiGet, apiPost, apiPostJson, useLive,
   type EvoDashboard, type Lesson, type Upgrade, type Experiment, type VersionCompare, type StrategyMemory } from "../lib/api";
 import MarketContextPanel from "../components/evolution/MarketContext";
+import SelfLearningPanel from "../components/evolution/SelfLearning";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
 const statusTone = (s: string) => ({ Approved: "green", Rejected: "red", "Paper tested": "blue",
@@ -87,6 +88,8 @@ export default function EvolutionPage() {
       </Card>
 
       <MarketContextPanel />
+
+      <SelfLearningPanel />
 
       <StrategyDNA />
 
