@@ -131,7 +131,7 @@ def fetch_klines(symbol: str, interval: str, *, limit: int = 1000,
 
 
 def sync(store: HistoricalStore, symbol: str, timeframe: str, *, target_candles: int = 3000,
-         fetcher: Callable = fetch_klines) -> dict:
+         fetcher: Callable = fetch_klines, progress: Callable = None) -> dict:
     """Fetch up to ``target_candles`` recent REAL candles and cache them.
 
     Pages backward from the latest candle in 1000-row batches. Idempotent (the
@@ -148,6 +148,11 @@ def sync(store: HistoricalStore, symbol: str, timeframe: str, *, target_candles:
             if not batch:
                 break
             collected = batch + collected
+            if progress is not None:
+                try:
+                    progress(len(collected), target_candles)
+                except Exception:  # noqa: BLE001 — progress display must never stop a sync
+                    pass
             end = int(batch[0][0]) - 1     # one ms before the earliest open time
             if len(batch) < 1000:
                 break

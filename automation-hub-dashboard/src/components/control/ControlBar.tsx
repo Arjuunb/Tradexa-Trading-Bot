@@ -63,11 +63,12 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   const loadData = async () => {
     setLoadingData(true); setLoadProgress("starting…");
     try {
-      await apiPost("/data/backfill?years=0.5&timeframes=5m,15m,30m,1h,4h,1d");
+      await apiPost("/data/backfill?candles=6000&timeframes=5m,15m,30m,1h,4h,1d");
       const poll = window.setInterval(async () => {
         try {
           const st = await apiGet<any>("/data/backfill/status");
-          setLoadProgress(`${st.done}/${st.total}${st.current ? ` — ${st.current}` : ""}`);
+          setLoadProgress(`${st.done}/${st.total}${st.current ? ` — ${st.current}` : ""}`
+            + (st.current_candles ? ` (${st.current_candles})` : ""));
           if (!st.running) {
             window.clearInterval(poll);
             setLoadingData(false);
@@ -205,7 +206,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
                 <Icon name="play" size={13} /> {loadingData ? `Loading real data… ${loadProgress}` : "Load real Binance data now"}
               </button>
               {!loadingData && <span className="dim" style={{ fontSize: 12 }}>
-                fetches ~6 months of real candles for every symbol × timeframe (runs in the background, ~2–4 min)
+                fetches 6,000 real candles per symbol × timeframe — enough for every simulation (background, a few minutes)
               </span>}
             </div>
           )}
