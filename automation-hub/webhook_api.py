@@ -158,6 +158,28 @@ from services.watchdog import Watchdog  # noqa: E402
 watchdog = Watchdog(engine, ledger, notifier.dispatch, ws_feed=ws_feed)
 watchdog.start()
 
+# Daily report + nightly backup: one honest digest to Telegram per UTC day
+# (HUB_DAILY_REPORT_HOUR, default 08:00 UTC; -1 disables) and a pruned
+# snapshot of every db/json store under DATA_DIR/backups.
+from services.backup import backup_now as _backup_now  # noqa: E402
+from services.daily_report import DailyTasks, build_report  # noqa: E402
+import config as _config  # noqa: E402
+
+
+def _daily_report_data() -> dict:
+    return build_report(history=paper.history(), positions=paper.positions(),
+                        balance=paper.balance(), starting_balance=paper.starting_balance,
+                        learning_report=learning_book.report(),
+                        watchdog_status=watchdog.status(), engine_status=engine.status())
+
+
+daily_tasks = DailyTasks(
+    notifier.send_async, _daily_report_data,
+    hour=int(_os.environ.get("HUB_DAILY_REPORT_HOUR", "8")),
+    extra=[lambda: ledger.log(level="info", stage="ops",
+                              message=f"Nightly backup: {_backup_now(str(_config.DATA_DIR))['snapshot']}")])
+daily_tasks.start()
+
 # Apply persisted runtime overrides on top of env defaults.
 from services.runtime_settings import load_overrides, save_overrides  # noqa: E402
 
@@ -1062,6 +1084,61 @@ def learning_run(x_webhook_secret: str = Header(default="")):
     """Force a re-learn from the full trade history right now."""
     _check_secret(x_webhook_secret)
     return learning_book.update(paper.history(), pipeline._alert_info)
+
+
+@router.get("/report/daily")
+def report_daily_preview():
+    """The daily digest, on demand (same content Telegram receives)."""
+    from services.daily_report import format_report
+    data = _daily_report_data()
+    return {"report": data, "text": format_report(data),
+            "telegram_configured": notifier.configured,
+            "scheduled_hour_utc": daily_tasks.hour,
+            "last_sent_day": daily_tasks.last_sent_day}
+
+
+@router.post("/report/daily/send")
+def report_daily_send(x_webhook_secret: str = Header(default="")):
+    """Send the daily report to Telegram right now (also runs the backup)."""
+    _check_secret(x_webhook_secret)
+    return {"sent": notifier.configured, "report": daily_tasks.run_once()}
+
+
+@router.post("/ops/backup")
+def ops_backup(x_webhook_secret: str = Header(default="")):
+    """Snapshot every database and JSON store now (consistent sqlite copies)."""
+    _check_secret(x_webhook_secret)
+    import config as _cfg
+    from services.backup import backup_now
+    res = backup_now(str(_cfg.DATA_DIR))
+    ledger.log(level="info", stage="ops",
+               message=f"Manual backup: {res.get('snapshot', res.get('error'))}")
+    return res
+
+
+@router.get("/ops/backups")
+def ops_backups():
+    import config as _cfg
+    from services.backup import list_backups
+    return list_backups(str(_cfg.DATA_DIR))
+
+
+@router.post("/ops/drill")
+def ops_drill(x_webhook_secret: str = Header(default="")):
+    """Run the failure drills (crash-mid-position, backup-restore,
+    reconciliation, kill-switch) against temporary state. A failing drill is
+    a red alert — it means a recovery path is broken."""
+    _check_secret(x_webhook_secret)
+    from services.drill import run_drills
+    res = run_drills()
+    level = "info" if res["ok"] else "error"
+    ledger.log(level=level, stage="ops",
+               message=f"Failure drills: {res['passed']}/{res['total']} passed")
+    if not res["ok"]:
+        ledger.add_alert(severity="critical", category="ops",
+                         title="Failure drill FAILED",
+                         detail="; ".join(r["drill"] for r in res["results"] if not r["ok"]))
+    return res
 
 
 @router.get("/ops/watchdog")
