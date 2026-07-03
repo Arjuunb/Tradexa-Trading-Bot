@@ -139,37 +139,98 @@ class ProviderSettings:
 
 # ---- individual real fetchers (fail closed) ----
 def fetch_funding_rate(symbol: str = "BTCUSDT"):
+    """Perp funding rate — Binance, then Bybit, then OKX (all keyless).
+    Binance futures blocks many cloud IPs; the fallbacks cover that."""
     for host in _BINANCE_FAPI:
         d = _get_json(f"{host}/fapi/v1/premiumIndex?symbol={symbol}")
         try:
-            return {"available": True, "value": round(float(d["lastFundingRate"]) * 100, 4), "symbol": symbol}
+            return {"available": True, "value": round(float(d["lastFundingRate"]) * 100, 4),
+                    "symbol": symbol, "source": "binance"}
         except Exception:  # noqa: BLE001
             continue
+    d = _get_json(f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}")
+    try:
+        row = d["result"]["list"][0]
+        return {"available": True, "value": round(float(row["fundingRate"]) * 100, 4),
+                "symbol": symbol, "source": "bybit"}
+    except Exception:  # noqa: BLE001
+        pass
+    base = symbol.replace("USDT", "")
+    d = _get_json(f"https://www.okx.com/api/v5/public/funding-rate?instId={base}-USDT-SWAP")
+    try:
+        return {"available": True, "value": round(float(d["data"][0]["fundingRate"]) * 100, 4),
+                "symbol": symbol, "source": "okx"}
+    except Exception:  # noqa: BLE001
+        pass
     return {"available": False, "value": None, "symbol": symbol,
-            "note": "Binance futures API unavailable (often blocked on cloud IPs)."}
+            "note": "No perp venue reachable (Binance/Bybit/OKX all failed)."}
 
 
 def fetch_open_interest(symbol: str = "BTCUSDT"):
+    """Perp open interest — Binance, then Bybit, then OKX (all keyless)."""
     for host in _BINANCE_FAPI:
         d = _get_json(f"{host}/fapi/v1/openInterest?symbol={symbol}")
         try:
-            return {"available": True, "value": round(float(d["openInterest"]), 1), "symbol": symbol}
+            return {"available": True, "value": round(float(d["openInterest"]), 1),
+                    "symbol": symbol, "source": "binance"}
         except Exception:  # noqa: BLE001
             continue
+    d = _get_json(f"https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}")
+    try:
+        row = d["result"]["list"][0]
+        return {"available": True, "value": round(float(row["openInterest"]), 1),
+                "symbol": symbol, "source": "bybit"}
+    except Exception:  # noqa: BLE001
+        pass
+    base = symbol.replace("USDT", "")
+    d = _get_json(f"https://www.okx.com/api/v5/public/open-interest?instId={base}-USDT-SWAP")
+    try:
+        return {"available": True, "value": round(float(d["data"][0]["oiCcy"]), 1),
+                "symbol": symbol, "source": "okx"}
+    except Exception:  # noqa: BLE001
+        pass
     return {"available": False, "value": None, "symbol": symbol,
-            "note": "Binance futures API unavailable."}
+            "note": "No perp venue reachable (Binance/Bybit/OKX all failed)."}
+
+
+def _eth_btc_from_local_candles():
+    """ETH/BTC 30d from OUR OWN cached real candles (zero network) — the most
+    reliable source once /data/backfill has run."""
+    from config import settings as _settings
+    from data.historical import HistoricalStore
+    store = HistoricalStore(_settings.market_db)
+    eth = store.get_bars("ETHUSDT", "1d", n=31)
+    btc = store.get_bars("BTCUSDT", "1d", n=31)
+    if len(eth) < 20 or len(btc) < 20:
+        return None
+    n = min(len(eth), len(btc))
+    first = eth[-n].close / btc[-n].close
+    last = eth[-1].close / btc[-1].close
+    chg = (last - first) / first * 100 if first else 0.0
+    trend = "Bullish" if chg > 1 else "Bearish" if chg < -1 else "Neutral"
+    return {"available": True, "ratio": round(last, 6), "change_30d_pct": round(chg, 2),
+            "trend": trend, "source": "local candles (real)"}
 
 
 def fetch_eth_btc():
+    """ETH/BTC 30d ratio — local cached candles first, CoinGecko as fallback."""
+    try:
+        local = _eth_btc_from_local_candles()
+        if local:
+            return local
+    except Exception:  # noqa: BLE001 — empty/missing store -> network fallback
+        pass
     d = _get_json("https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=btc&days=30")
     try:
         prices = [p[1] for p in d["prices"]]
         first, last = prices[0], prices[-1]
         chg = (last - first) / first * 100 if first else 0.0
         trend = "Bullish" if chg > 1 else "Bearish" if chg < -1 else "Neutral"
-        return {"available": True, "ratio": round(last, 6), "change_30d_pct": round(chg, 2), "trend": trend}
+        return {"available": True, "ratio": round(last, 6), "change_30d_pct": round(chg, 2),
+                "trend": trend, "source": "coingecko"}
     except Exception:  # noqa: BLE001
-        return {"available": False, "trend": None, "note": "CoinGecko unavailable."}
+        return {"available": False, "trend": None,
+                "note": "No source — load real data (backfill) or wait for CoinGecko."}
 
 
 def fetch_news(token: str | None, limit: int = 6):

@@ -1859,6 +1859,11 @@ def evolution_learn(symbol: str = "BTCUSDT", timeframe: str = "15m", limit: int 
     from services.lessons import lessons_from_results, mtf_disagreement_lessons
     from services.evolution import suggest_improvements
     rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        return {"studied_trades": 0, "lessons": [], "upgrades": [],
+                "error": ("No real candles cached for this symbol/timeframe — press "
+                          "'Load real Binance data' in the Bot Control Center first, "
+                          "then Study & Learn.")}
     bundle = {"trades": rep["trades"], "stats": rep["stats"], "diagnosis": _replay_diag(rep)}
     # timeframe-disagreement detector (evidence-based, from the per-bar trends)
     dis = mtf_disagreement_lessons(rep, symbol=symbol, strategy=strategy)

@@ -41,12 +41,31 @@ def fetch_fear_greed() -> Optional[dict]:
 
 
 def fetch_global() -> Optional[dict]:
-    """BTC dominance + total market cap from CoinGecko. None if unavailable."""
+    """BTC dominance + total market cap. Tries CoinGecko, then CoinPaprika,
+    then Coinlore — all free and keyless. The chain matters because each one
+    rate-limits or blocks cloud-host IPs at different times; one of the three
+    is almost always reachable. None only when ALL are down (never fake)."""
     data = _get_json("https://api.coingecko.com/api/v3/global")
     try:
         d = data["data"]
         return {"btc_dominance": round(d["market_cap_percentage"]["btc"], 1),
-                "total_mcap_usd": round(d["total_market_cap"]["usd"], 0)}
+                "total_mcap_usd": round(d["total_market_cap"]["usd"], 0),
+                "source": "coingecko"}
+    except Exception:  # noqa: BLE001
+        pass
+    data = _get_json("https://api.coinpaprika.com/v1/global")
+    try:
+        return {"btc_dominance": round(float(data["bitcoin_dominance_percentage"]), 1),
+                "total_mcap_usd": round(float(data["market_cap_usd"]), 0),
+                "source": "coinpaprika"}
+    except Exception:  # noqa: BLE001
+        pass
+    data = _get_json("https://api.coinlore.net/api/global/")
+    try:
+        g = data[0]
+        return {"btc_dominance": round(float(g["btc_d"]), 1),
+                "total_mcap_usd": round(float(g["total_mcap"]), 0),
+                "source": "coinlore"}
     except Exception:  # noqa: BLE001
         return None
 

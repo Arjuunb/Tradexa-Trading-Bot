@@ -27,6 +27,7 @@ export default function EvolutionPage() {
     setBusy(true);
     try {
       const r = await apiPost<any>(`/evolution/learn?symbol=${learnSym}&limit=1200`);
+      if (r.error) { app.toast(r.error, "error"); return; }
       app.toast(`Studied ${r.studied_trades} trades — ${r.lessons?.length ?? 0} lessons, ${r.upgrades?.length ?? 0} suggestions`, "success");
       lessons.refetch(); upgrades.refetch(); dash.refetch();
     } catch { app.toast("Learn failed — backend reachable?", "error"); }
