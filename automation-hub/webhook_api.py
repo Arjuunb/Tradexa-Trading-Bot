@@ -227,6 +227,8 @@ def _apply_setting(key: str, value) -> None:
         engine.entry_mode = "market" if str(value) == "market" else "limit"
     elif key == "daily_report_hour":
         daily_tasks.hour = int(value)
+    elif key == "min_quality_score":
+        engine.min_quality_score = int(value)
     elif key in ("max_open_positions", "session_start", "session_end",
                  "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
                  "trading_days_mask"):
@@ -255,6 +257,7 @@ def _settings_snapshot() -> dict:
         "auto_strategy": settings.auto_strategy,
         "entry_mode": engine.entry_mode,
         "daily_report_hour": daily_tasks.hour,
+        "min_quality_score": engine.min_quality_score,
     }
 
 
@@ -280,6 +283,7 @@ class SettingsUpdate(BaseModel):
     trading_days_mask: Optional[int] = None
     entry_mode: Optional[str] = None
     daily_report_hour: Optional[int] = None
+    min_quality_score: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -1226,8 +1230,11 @@ def strategy_league(symbols: str = "BTCUSDT,ETHUSDT", timeframe: str = "1h",
     (win rate shown but not trusted alone), with the pairwise correlation of
     their daily return streams — which pairs diversify vs duplicate."""
     from services.strategy_league import league
+    from services.ttl_cache import cached
     syms = tuple(t.strip() for t in symbols.split(",") if t.strip())
-    return league(symbols=syms, timeframe=timeframe, bars=max(600, min(bars, 6000)))
+    n = max(600, min(bars, 6000))
+    return cached(f"league:{','.join(syms)}:{timeframe}:{n}", 300,
+                  lambda: league(symbols=syms, timeframe=timeframe, bars=n))
 
 
 @router.get("/news/world")
@@ -1298,15 +1305,21 @@ def marketplace_rank(symbol: str = "BTCUSDT", timeframe: str = "15m",
     """Performance ranking — net R per strategy on real data (which strategy
     performs best for this symbol/timeframe)."""
     from services.replay import build_replay
+    from services.ttl_cache import cached
     strats = [s.strip() for s in strategies.split(",") if s.strip()][:6]
-    rows = []
-    for st in strats:
-        rep = build_replay(symbol, timeframe, limit, strategy=st)
-        s = rep["stats"]
-        rows.append({"strategy": st, "trades": s["trades"], "win_rate": s["win_rate"],
-                     "profit_factor": s["profit_factor"], "net_r": s["net_r"]})
-    rows.sort(key=lambda r: r["net_r"], reverse=True)
-    return {"symbol": symbol, "timeframe": timeframe, "ranking": rows, "best": rows[0] if rows else None}
+
+    def _rank() -> dict:
+        rows = []
+        for st in strats:
+            rep = build_replay(symbol, timeframe, limit, strategy=st)
+            stt = rep["stats"]
+            rows.append({"strategy": st, "trades": stt["trades"], "win_rate": stt["win_rate"],
+                         "profit_factor": stt["profit_factor"], "net_r": stt["net_r"]})
+        rows.sort(key=lambda r: r["net_r"], reverse=True)
+        return {"symbol": symbol, "timeframe": timeframe, "ranking": rows,
+                "best": rows[0] if rows else None}
+
+    return cached(f"rank:{symbol}:{timeframe}:{limit}:{','.join(strats)}", 300, _rank)
 
 
 @router.get("/markets/watchlist")
@@ -1368,6 +1381,7 @@ def get_settings():
             "trading_days_mask": pipeline.trading_days_mask,
             "entry_mode": engine.entry_mode,
             "daily_report_hour": daily_tasks.hour,
+            "min_quality_score": engine.min_quality_score,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -1456,6 +1470,11 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
             raise HTTPException(400, "daily_report_hour must be -1 (off) .. 23 (UTC)")
         daily_tasks.hour = int(body.daily_report_hour)
         changed["daily_report_hour"] = int(body.daily_report_hour)
+    if body.min_quality_score is not None:
+        if not (0 <= body.min_quality_score <= 100):
+            raise HTTPException(400, "min_quality_score must be in [0, 100] (0 disables)")
+        engine.min_quality_score = int(body.min_quality_score)
+        changed["min_quality_score"] = int(body.min_quality_score)
 
     snap = _settings_snapshot()
     save_overrides(settings.settings_path, snap)

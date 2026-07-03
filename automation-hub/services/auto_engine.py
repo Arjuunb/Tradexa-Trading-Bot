@@ -103,6 +103,13 @@ class AutoStrategyEngine:
         import os as _os
         self.entry_mode = (entry_mode or _os.environ.get("HUB_ENTRY_MODE", "limit")).lower()
         self.limit_ttl_bars = max(1, int(limit_ttl_bars))
+        # PARITY: every backtest/simulation filters entries through the
+        # TradeBrain quality scorer (min score 60) — the live engine must
+        # apply the IDENTICAL gate or live results run worse than the promise.
+        # 0 disables; the gate stands down below 60 bars of history (warmup).
+        self.min_quality_score = int(_os.environ.get("HUB_MIN_SCORE", "60"))
+        from strategies.brain import TradeBrain
+        self._quality_brain = TradeBrain()
         self._pending: dict[str, dict] = {}     # symbol -> resting limit order
         self.stats_missed_entries = 0
         # Shadow A/B: an optional services.shadow.ShadowRun fed the SAME bars
@@ -312,7 +319,7 @@ class AutoStrategyEngine:
         # 3. strategy decision on the new bar.
         signal: Optional[Signal] = strategy.on_bar(bar)
         if signal is not None:
-            self._on_signal(sym, signal)
+            self._on_signal(sym, signal, strategy)
 
     def _check_pending(self, sym: str, bar) -> None:
         po = self._pending.get(sym)
@@ -430,7 +437,7 @@ class AutoStrategyEngine:
         self._managed[sym] = mt
         return mt
 
-    def _on_signal(self, sym: str, signal: Signal) -> None:
+    def _on_signal(self, sym: str, signal: Signal, strategy=None) -> None:
         # The brain re-asserts its view every bar; only act when it CHANGES the
         # position (open from flat, or flip/close an opposite). Holding the same
         # direction is a no-op, so the decision log stays signal — not spam.
@@ -440,6 +447,34 @@ class AutoStrategyEngine:
             return
         self.stats["signals"] += 1
         side = "BUY" if signal.type == SignalType.LONG else "SELL"
+        # quality gate (parity with every backtest): score the setup with the
+        # same TradeBrain and threshold the simulators use. Vetoes are logged
+        # AND tracked counterfactually, so this gate is graded like the rest.
+        bars = list(getattr(strategy, "bars", []) or [])
+        if (self.min_quality_score > 0 and signal.stop_loss and pos is None
+                and len(bars) >= 60):
+            v = self._quality_brain.evaluate(
+                bars, len(bars) - 1,
+                side="long" if signal.type == SignalType.LONG else "short",
+                entry=signal.entry, stop=signal.stop_loss,
+                target=signal.take_profit)
+            if not v.allowed or v.score < self.min_quality_score:
+                self.stats["rejections"] += 1
+                why = (v.blocks[0] if v.blocks
+                       else f"quality score {v.score} < {self.min_quality_score}")
+                self.ledger.log(level="info", stage="brain", symbol=sym,
+                                message=f"{sym} {side} blocked by quality gate: {why}")
+                if self.counterfactual is not None:
+                    try:
+                        self.counterfactual.record_veto(
+                            symbol=sym,
+                            side="long" if signal.type == SignalType.LONG else "short",
+                            entry=signal.entry, stop=signal.stop_loss,
+                            target=signal.take_profit, rule="quality-score",
+                            detail=why, time=signal.timestamp.isoformat())
+                    except Exception:  # noqa: BLE001
+                        pass
+                return
         payload = {
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
