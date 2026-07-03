@@ -1219,6 +1219,15 @@ def ops_watchdog():
     return watchdog.status()
 
 
+@router.get("/news/world")
+def news_world():
+    """World & market news from public RSS (no keys): crypto + stocks + macro
+    outlets, each headline tagged with the markets it touches, plus a REAL
+    daily-move snapshot (BTC / S&P 500 / Nasdaq / Gold) for impact context."""
+    from services.news import cached_world_news
+    return cached_world_news()
+
+
 @router.get("/market/funding")
 def market_funding(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"):
     """Live perp funding rates with interpretation (crowded side / squeeze

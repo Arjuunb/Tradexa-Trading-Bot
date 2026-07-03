@@ -64,7 +64,9 @@ export default function MarketContextPanel() {
 
       {/* news */}
       <div style={{ marginTop: 10 }}>
-        <div className="card-subtitle" style={{ marginBottom: 6 }}>Crypto News {c?.news.connected ? "" : "(not connected)"}</div>
+        <WorldNews />
+
+        <div className="card-subtitle" style={{ marginBottom: 6, marginTop: 12 }}>Crypto News — CryptoPanic {c?.news.connected ? "" : "(optional, not connected)"}</div>
         {c?.news.available && c.news.headlines.length ? (
           <div className="alert-stack">
             {c.news.headlines.map((h, i) => (
@@ -125,5 +127,79 @@ export default function MarketContextPanel() {
         </div>
       )}
     </Card>
+  );
+}
+
+
+type WorldNewsData = {
+  available: boolean; note?: string; updated?: string;
+  headlines: { title: string; url: string; source: string; published: string; markets: string[] }[];
+  sources_ok?: string[]; sources_down?: string[];
+  snapshot?: Record<string, { available: boolean; last?: number; change_pct?: number; note?: string }>;
+};
+
+const MARKET_TONES: Record<string, string> = { crypto: "var(--purple-2)", stocks: "#38bdf8", macro: "#f59e0b" };
+
+function WorldNews() {
+  const [filter, setFilter] = useState<string>("all");
+  const news = useLive<WorldNewsData>("/news/world", 300000);
+  const d = news.data;
+  const rows = (d?.headlines ?? []).filter((h) => filter === "all" || h.markets.includes(filter));
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="card-subtitle" style={{ marginBottom: 6 }}>
+        World &amp; Market News <span className="dim">(free RSS · crypto + stocks + macro)</span>
+      </div>
+
+      {/* real daily moves — the "impact" context, with numbers not narratives */}
+      {d?.snapshot && (
+        <div className="row-actions" style={{ justifyContent: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          {Object.entries(d.snapshot).map(([label, q]) => (
+            <span key={label} className="ui-badge" style={{ background: "var(--card-2)" }}>
+              {label}:{" "}
+              {q.available ? (
+                <b className={(q.change_pct ?? 0) >= 0 ? "green" : "red"}>
+                  {(q.change_pct ?? 0) >= 0 ? "+" : ""}{q.change_pct}%
+                </b>
+              ) : <span className="dim">n/a</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, marginBottom: 8 }}>
+        {["all", "crypto", "stocks", "macro"].map((m) => (
+          <button key={m} className={`chip-btn ${filter === m ? "active" : ""}`} onClick={() => setFilter(m)}>
+            {m}
+          </button>
+        ))}
+      </div>
+
+      {rows.length ? (
+        <div className="alert-stack">
+          {rows.slice(0, 12).map((h, i) => (
+            <div key={i} className="exec-line">
+              <span className="exec-time">{(h.published || "").slice(5, 16).replace("T", " ")}</span>{" "}
+              {h.url ? <a href={h.url} target="_blank" rel="noreferrer" style={{ color: "#cfd6e4" }}>{h.title}</a> : h.title}
+              {" "}
+              {h.markets.map((m) => (
+                <span key={m} className="ui-badge" style={{ fontSize: 10, marginLeft: 4, color: MARKET_TONES[m] ?? "inherit", border: `1px solid ${MARKET_TONES[m] ?? "#444"}` }}>{m}</span>
+              ))}
+              <span className="dim" style={{ fontSize: 11, marginLeft: 6 }}>{h.source}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="dim" style={{ fontSize: 13 }}>
+          {d ? (d.note ?? "No headlines match this filter.") : "Loading news feeds…"}
+        </div>
+      )}
+      {d?.sources_down && d.sources_down.length > 0 && (
+        <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>
+          Feeds unreachable right now: {d.sources_down.join(", ")} — shown feeds: {d.sources_ok?.join(", ")}.
+        </p>
+      )}
+    </div>
   );
 }
