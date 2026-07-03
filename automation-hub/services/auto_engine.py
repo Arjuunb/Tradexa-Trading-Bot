@@ -57,6 +57,7 @@ class AutoStrategyEngine:
         live: bool = False,
         live_poll_s: float = 60.0,
         fetcher: Optional[Callable[[str, str, int], tuple]] = None,
+        trade_manager=None,
     ):
         self.pipeline = pipeline
         self.paper = paper
@@ -86,6 +87,13 @@ class AutoStrategyEngine:
         self.started_at: Optional[str] = None
         self.stats = {"bars": 0, "signals": 0, "trades": 0, "rejections": 0}
         self._targets: dict[str, float] = {}
+        # Mid-trade management (break-even / scale-out / trailing). The default
+        # TradeManager has everything DISABLED — see services/trade_manager.py
+        # for the out-of-sample evidence — so behavior is identical to plain
+        # stop/target exits until a config is explicitly enabled.
+        from services.trade_manager import TradeManager
+        self.trade_manager = trade_manager or TradeManager()
+        self._managed: dict[str, object] = {}   # symbol -> ManagedTrade
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -129,6 +137,7 @@ class AutoStrategyEngine:
         self.strategy_factory = strategy_factory
         self.strategy_label = label
         self._targets.clear()
+        self._managed.clear()
         self.stats = {"bars": 0, "signals": 0, "trades": 0, "rejections": 0}
         self.start()
         return self.status()
@@ -273,20 +282,38 @@ class AutoStrategyEngine:
     def _check_exit(self, sym: str, bar) -> None:
         pos = self.paper.open_position(sym)
         if pos is None:
+            self._managed.pop(sym, None)
             return
-        stop = pos.get("stop")
-        target = self._targets.get(sym)
+        mt = self._managed.get(sym)
+        if mt is None:
+            mt = self._adopt(sym, pos)
         exit_price = why = None
-        if pos["side"] == "long":
-            if stop and bar.low <= stop:
-                exit_price, why = stop, "stop-loss"
-            elif target and bar.high >= target:
-                exit_price, why = target, "take-profit"
-        else:  # short
-            if stop and bar.high >= stop:
-                exit_price, why = stop, "stop-loss"
-            elif target and bar.low <= target:
-                exit_price, why = target, "take-profit"
+        if mt is not None:
+            # shared TradeManager: stop/target exits + break-even / scale-out /
+            # trailing when enabled (identical to the plain checks when not).
+            act = self.trade_manager.on_bar(mt, bar.high, bar.low)
+            if act.partial_price is not None:
+                fill = self.paper.reduce(symbol=sym, exit_price=act.partial_price,
+                                         fraction=self.trade_manager.scale_frac)
+                if fill.action == "reduced":
+                    self.ledger.log(level="info", stage="execution", symbol=sym,
+                                    message=f"{sym} scale-out {fill.size:.6f} @ {fill.price}"
+                                            f" (PnL {fill.pnl:+.2f})")
+            if act.exit_price is not None:
+                exit_price = act.exit_price
+                why = "stop-loss" if act.exit_reason == "stop" else "take-profit"
+        else:  # no stop on record (e.g. external webhook trade) — legacy checks
+            stop, target = pos.get("stop"), self._targets.get(sym)
+            if pos["side"] == "long":
+                if stop and bar.low <= stop:
+                    exit_price, why = stop, "stop-loss"
+                elif target and bar.high >= target:
+                    exit_price, why = target, "take-profit"
+            else:
+                if stop and bar.high >= stop:
+                    exit_price, why = stop, "stop-loss"
+                elif target and bar.low <= target:
+                    exit_price, why = target, "take-profit"
         if exit_price is not None:
             res = self._route({
                 "alert_id": f"auto-{sym}-x{next(self._seq)}", "symbol": sym,
@@ -296,6 +323,23 @@ class AutoStrategyEngine:
             if res is not None and res.accepted:
                 self.stats["trades"] += 1
                 self._targets.pop(sym, None)
+                self._managed.pop(sym, None)
+
+    def _adopt(self, sym: str, pos: dict):
+        """Rebuild management state for a position opened before a restart (or
+        by a webhook). Needs a stop to define R; returns None without one."""
+        from services.trade_manager import ManagedTrade
+        stop = pos.get("stop")
+        entry = pos.get("entry")
+        if not stop or not entry or stop == entry:
+            return None
+        risk = abs(entry - stop)
+        sign = 1.0 if pos["side"] == "long" else -1.0
+        target = self._targets.get(sym) or entry + sign * 3.0 * risk
+        mt = ManagedTrade(side=pos["side"], entry=entry, stop=stop,
+                          target=target, risk=risk)
+        self._managed[sym] = mt
+        return mt
 
     def _on_signal(self, sym: str, signal: Signal) -> None:
         # The brain re-asserts its view every bar; only act when it CHANGES the
@@ -320,9 +364,17 @@ class AutoStrategyEngine:
         if res.accepted and fill.get("action") == "opened":
             self.stats["trades"] += 1
             self._targets[sym] = signal.take_profit
+            entry, stop = fill.get("price") or signal.entry, signal.stop_loss
+            if stop and entry and stop != entry:
+                from services.trade_manager import ManagedTrade
+                self._managed[sym] = ManagedTrade(
+                    side="long" if signal.type == SignalType.LONG else "short",
+                    entry=entry, stop=stop, target=signal.take_profit,
+                    risk=abs(entry - stop))
         elif res.accepted and fill.get("action") == "closed":
             self.stats["trades"] += 1
             self._targets.pop(sym, None)
+            self._managed.pop(sym, None)
         elif not res.accepted:
             self.stats["rejections"] += 1
 
