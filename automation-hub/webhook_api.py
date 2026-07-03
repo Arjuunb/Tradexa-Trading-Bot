@@ -1694,16 +1694,19 @@ def data_coverage():
 
 
 @router.post("/data/backfill")
-def data_backfill(years: float = 3.0, timeframes: str = "1h,4h,1d",
+def data_backfill(years: float = 3.0, timeframes: str = "1h,4h,1d", candles: int = 0,
                   x_webhook_secret: Optional[str] = Header(default=None)):
-    """Deep-backfill YEARS of real Binance candles for every symbol on a
-    background thread. Watch progress at GET /data/backfill/status."""
+    """Backfill real Binance candles for every symbol on a background thread.
+    ``candles`` (flat per-timeframe count) is the QUICK mode the dashboard
+    uses; ``years`` is the deep mode for validation. Progress (including a
+    live candle counter) at GET /data/backfill/status."""
     _check_secret(x_webhook_secret)
     tfs = tuple(t.strip() for t in timeframes.split(",") if t.strip())
-    res = backfill_job.start(years=years, timeframes=tfs)
+    res = backfill_job.start(years=years, candles=candles, timeframes=tfs)
+    scope = f"{candles} candles" if candles else f"{years}y"
     ledger.log(level="info", stage="data",
-               message=f"Deep backfill {'started' if res.get('started') else 'skipped'} "
-                       f"({years}y × {','.join(tfs)})")
+               message=f"Backfill {'started' if res.get('started') else 'skipped'} "
+                       f"({scope} × {','.join(tfs)})")
     return res
 
 
