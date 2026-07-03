@@ -961,6 +961,24 @@ def set_execution_fill_model(body: FillModelBody, x_webhook_secret: Optional[str
     return paper.fill_model.status()
 
 
+@router.get("/execution/readiness")
+def execution_readiness(symbols: str = "BTCUSDT,ETHUSDT"):
+    """Live-exchange readiness checklist (keys, ccxt, testnet mode, connectivity,
+    symbol filters) + startup reconciliation of ledger vs exchange positions.
+    Anything missing reports as not ready — no pretending."""
+    from execution.live_readiness import live_readiness, make_live_broker, reconcile_startup
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    report = live_readiness(symbols=syms)
+    if report["ready"]:
+        try:
+            broker = make_live_broker()
+            report["reconciliation"] = reconcile_startup(
+                ledger.get_positions("open"), broker.get_account().positions)
+        except Exception as e:  # noqa: BLE001
+            report["reconciliation"] = {"error": str(e)}
+    return report
+
+
 @router.get("/execution/realism")
 def execution_realism(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
                       timeframe: str = "15m", limit: int = 800,

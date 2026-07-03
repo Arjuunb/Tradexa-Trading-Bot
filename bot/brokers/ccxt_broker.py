@@ -50,6 +50,22 @@ class CCXTBroker(Broker):
         self._quote = quote_currency
         # entry_id -> {"sl_id": ..., "tp_id": ..., "symbol": ...}
         self._brackets: dict[str, dict] = {}
+        self._rules: dict[str, object] = {}       # symbol -> SymbolRules cache
+        self._submitted_client_ids: set[str] = set()  # idempotency guard
+
+    # ------------------------------------------------------------ symbol rules
+    def rules_for(self, symbol: str):
+        """Exchange filters for a symbol (lot/tick/min-notional), cached.
+        Falls back to unconstrained rules if the market can't be loaded."""
+        from bot.brokers.symbol_rules import SymbolRules, from_ccxt
+        if symbol not in self._rules:
+            try:
+                self._x.load_markets()
+                self._rules[symbol] = from_ccxt(self._x.market(symbol))
+            except Exception as e:
+                log.warning("Could not load market rules for %s: %s", symbol, e)
+                return SymbolRules(symbol=symbol)
+        return self._rules[symbol]
 
     @property
     def name(self) -> str:
@@ -119,6 +135,14 @@ class CCXTBroker(Broker):
                 return p
         return None
 
+    def _last_price(self, symbol: str) -> float:
+        try:
+            t = self._x.fetch_ticker(symbol)
+            return float(t.get("last") or t.get("close") or 0.0)
+        except Exception as e:
+            log.warning("No reference price for %s: %s", symbol, e)
+            return 0.0
+
     # ----------------------------------------------------------------- orders
     def submit_order(self, order: Order) -> str:
         """Submit entry; attach SL/TP as linked siblings.
@@ -129,13 +153,37 @@ class CCXTBroker(Broker):
         """
         side = order.side.value
         type_ = order.order_type.value
+
+        # Idempotency: a retried submit with the same client id must not
+        # double-buy. Guard locally and pass the id to the exchange, which
+        # enforces uniqueness server-side too.
+        if order.client_id:
+            if order.client_id in self._submitted_client_ids:
+                log.warning("Duplicate client order id %s — skipping resubmit", order.client_id)
+                return f"duplicate:{order.client_id}"
+            self._submitted_client_ids.add(order.client_id)
+
+        # Exchange symbol filters: floor qty to lot size, prices to tick size,
+        # and refuse orders below the minimum notional BEFORE the API rejects
+        # them (the #1 first-live-order failure).
+        rules = self.rules_for(order.symbol)
+        ref_price = order.limit_price or self._last_price(order.symbol)
+        qty, why = rules.clamp(order.qty, ref_price or 0.0)
+        if qty <= 0:
+            raise ValueError(f"Order violates exchange filters: {why}")
+        limit_price = rules.round_price(order.limit_price)
+        sl_price = rules.round_price(order.stop_loss)
+        tp_price = rules.round_price(order.take_profit)
+
+        params = {"clientOrderId": order.client_id} if order.client_id else {}
         try:
             result = self._x.create_order(
                 symbol=order.symbol, type=type_, side=side,
-                amount=order.qty, price=order.limit_price,
+                amount=qty, price=limit_price, params=params,
             )
         except Exception:
             log.exception("Entry order failed on %s", order.symbol)
+            self._submitted_client_ids.discard(order.client_id or "")
             raise
 
         entry_id = str(result.get("id") or "")
@@ -143,16 +191,16 @@ class CCXTBroker(Broker):
         exit_side = "sell" if order.side == Side.BUY else "buy"
 
         try:
-            if order.stop_loss:
+            if sl_price:
                 sl_res = self._x.create_order(
                     order.symbol, "stop_market", exit_side,
-                    order.qty, None, {"stopPrice": order.stop_loss},
+                    qty, None, {"stopPrice": sl_price},
                 )
                 sl_id = str(sl_res.get("id") or "")
-            if order.take_profit:
+            if tp_price:
                 tp_res = self._x.create_order(
                     order.symbol, "take_profit_market", exit_side,
-                    order.qty, None, {"stopPrice": order.take_profit},
+                    qty, None, {"stopPrice": tp_price},
                 )
                 tp_id = str(tp_res.get("id") or "")
         except Exception:
