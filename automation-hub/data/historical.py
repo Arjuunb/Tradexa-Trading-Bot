@@ -24,8 +24,9 @@ from bot.types import Bar
 
 # Symbols + timeframes the engine officially supports (real Binance markets).
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
-TIMEFRAMES = ("1w", "1d", "4h", "15m", "5m")
-_TF_MS = {"5m": 300_000, "15m": 900_000, "4h": 14_400_000, "1d": 86_400_000, "1w": 604_800_000}
+TIMEFRAMES = ("1w", "1d", "4h", "1h", "15m", "5m")
+_TF_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000,
+          "1d": 86_400_000, "1w": 604_800_000}
 
 # Binance REST hosts (the data-api mirror is friendlier to cloud IPs).
 _HOSTS = ("https://data-api.binance.vision", "https://api.binance.com")

@@ -1257,6 +1257,8 @@ version_store = StrategyVersionStore(settings.versions_path)
 # ------------------------------------------------- historical data engine
 from data.historical import HistoricalStore  # noqa: E402
 market_store = HistoricalStore(settings.market_db)
+from data.backfill import BackfillJob  # noqa: E402
+backfill_job = BackfillJob(market_store)
 
 # ------------------------------------------------- market-context providers
 from services.market_context import ProviderSettings  # noqa: E402
@@ -1447,6 +1449,86 @@ def data_coverage():
     from data.historical import SYMBOLS, TIMEFRAMES
     return {"symbols": list(SYMBOLS), "timeframes": list(TIMEFRAMES),
             "coverage": market_store.all_coverage()}
+
+
+@router.post("/data/backfill")
+def data_backfill(years: float = 3.0, timeframes: str = "1h,4h,1d",
+                  x_webhook_secret: Optional[str] = Header(default=None)):
+    """Deep-backfill YEARS of real Binance candles for every symbol on a
+    background thread. Watch progress at GET /data/backfill/status."""
+    _check_secret(x_webhook_secret)
+    tfs = tuple(t.strip() for t in timeframes.split(",") if t.strip())
+    res = backfill_job.start(years=years, timeframes=tfs)
+    ledger.log(level="info", stage="data",
+               message=f"Deep backfill {'started' if res.get('started') else 'skipped'} "
+                       f"({years}y × {','.join(tfs)})")
+    return res
+
+
+@router.get("/data/backfill/status")
+def data_backfill_status():
+    return backfill_job.status()
+
+
+@router.get("/data/integrity")
+def data_integrity(timeframes: str = "1h,4h,1d"):
+    """Verify every cached candle series: gaps, duplicates, corrupt candles.
+    A backtest on bad data silently overstates the edge."""
+    from data.historical import SYMBOLS
+    from data.integrity import verify_store
+    tfs = tuple(t.strip() for t in timeframes.split(",") if t.strip())
+    return verify_store(market_store, SYMBOLS, tfs)
+
+
+@router.post("/research/validate-real")
+def research_validate_real(strategy: str = "Decision Brain", timeframe: str = "4h",
+                           bars: int = 4000,
+                           x_webhook_secret: Optional[str] = Header(default=None)):
+    """The honest gauntlet: integrity + walk-forward out-of-sample + realistic
+    fills, per symbol, on REAL cached candles. Says plainly if the edge holds."""
+    _check_secret(x_webhook_secret)
+    from services.validation import validate_real
+    rep = validate_real(strategy, timeframe=timeframe, bars=bars)
+    ledger.log(level="info", stage="research",
+               message=f"Real-data validation: {strategy} {timeframe} -> {rep['overall']}")
+    return rep
+
+
+@router.get("/performance/track-record")
+def performance_track_record(strategy: str = "Decision Brain", symbol: str = "BTCUSDT",
+                             timeframe: str = "4h"):
+    """Live paper record vs the backtest promise for the same config — the
+    bridge between backtest and real money."""
+    from services.track_record import track_record
+    return track_record(paper.history(), strategy=strategy, symbol=symbol,
+                        timeframe=timeframe)
+
+
+@router.get("/ops/storage")
+def ops_storage():
+    """Where the bot's state lives, and whether it survives a redeploy. On
+    cloud hosts without a persistent disk everything here is EPHEMERAL."""
+    import config as _cfg
+    paths = {"ledger": settings.ledger_path, "market_data": settings.market_db,
+             "learning": learning_book.path, "runtime_settings": settings.settings_path,
+             "providers": settings.providers_path}
+    files = {}
+    for name, p in paths.items():
+        try:
+            files[name] = {"path": p, "exists": _os.path.exists(p),
+                           "bytes": _os.path.getsize(p) if _os.path.exists(p) else 0}
+        except OSError:
+            files[name] = {"path": p, "exists": False, "bytes": 0}
+    data_dir_set = bool(_os.environ.get("HUB_DATA_DIR"))
+    on_cloud = bool(_os.environ.get("RENDER") or _os.environ.get("DYNO"))
+    warning = None
+    if on_cloud and not data_dir_set:
+        warning = ("Storage is EPHEMERAL: every redeploy wipes trade history, cached "
+                   "candles and learned lessons. Attach a persistent disk and set "
+                   "HUB_DATA_DIR to its mount path.")
+    return {"data_dir": str(_cfg.DATA_DIR), "hub_data_dir_set": data_dir_set,
+            "persistent": data_dir_set or not on_cloud, "warning": warning,
+            "files": files}
 
 
 @router.post("/data/sync")
