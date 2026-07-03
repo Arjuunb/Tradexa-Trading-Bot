@@ -35,6 +35,7 @@ class Ledger(Protocol):
                              entry: Optional[float], stop: Optional[float],
                              payload: dict, status: str, reason: str = "") -> str: ...
     def webhook_seen(self, alert_id: str, since_iso: str) -> bool: ...
+    def get_webhook_events(self, limit: int = 500) -> list[dict]: ...
     # positions / trades
     def open_position(self, *, symbol: str, side: str, size: float, entry: float,
                       stop: Optional[float]) -> str: ...
@@ -83,6 +84,21 @@ class SqliteLedger:
                 "SELECT 1 FROM webhook_events WHERE alert_id=? AND received_at>=? AND status!='rejected' LIMIT 1",
                 (alert_id, since_iso)).fetchone()
         return r is not None
+
+    def get_webhook_events(self, limit: int = 500) -> list[dict]:
+        with self._lock:
+            rows = self._c.execute(
+                "SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT ?",
+                (int(limit),)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = json.loads(d.pop("payload_json") or "{}")
+            except (TypeError, ValueError):
+                d["payload"] = {}
+            out.append(d)
+        return out
 
     # ----------------------------------------------------------- positions
     def open_position(self, *, symbol, side, size, entry, stop):
@@ -189,6 +205,16 @@ class SupabaseLedger:
         res = self._t("webhook_events").select("id").eq("alert_id", alert_id)\
             .gte("received_at", since_iso).neq("status", "rejected").limit(1).execute()
         return bool(res.data)
+
+    def get_webhook_events(self, limit=500):  # pragma: no cover
+        rows = self._t("webhook_events").select("*").order("received_at", desc=True)\
+            .limit(int(limit)).execute().data
+        for d in rows:
+            try:
+                d["payload"] = json.loads(d.pop("payload_json") or "{}")
+            except (TypeError, ValueError):
+                d["payload"] = {}
+        return rows
 
     def open_position(self, *, symbol, side, size, entry, stop):  # pragma: no cover
         pid = _id()
