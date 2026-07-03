@@ -3,7 +3,7 @@ import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
 import { useApp } from "../../app-context";
-import { apiGet, apiPostJson,
+import { apiGet, apiPost, apiPostJson,
   type ControlOptions, type ControlTuning, type ControlSimResult, type ControlCompare,
   type ControlAutoTune } from "../../lib/api";
 
@@ -33,6 +33,8 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   const [tune, setTune2] = useState<ControlAutoTune | null>(null);
   const [cmpStrat, setCmpStrat] = useState("Supply/Demand");
   const [cmpTf, setCmpTf] = useState("15m");
+  const [loadingData, setLoadingData] = useState(false);
+  const [loadProgress, setLoadProgress] = useState("");
 
   useEffect(() => {
     apiGet<ControlOptions>("/control/options").then((o) => {
@@ -53,6 +55,35 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
       else app.toast("Simulation updated", "success");
     } catch { app.toast("Simulation failed — backend reachable?", "error"); }
     finally { setBusy(false); }
+  };
+
+  // one-click fix for "Historical data not available": kick the background
+  // backfill (real Binance candles, every sim timeframe), show progress, and
+  // rerun the simulation automatically when the data lands.
+  const loadData = async () => {
+    setLoadingData(true); setLoadProgress("starting…");
+    try {
+      await apiPost("/data/backfill?years=0.5&timeframes=5m,15m,30m,1h,4h,1d");
+      const poll = window.setInterval(async () => {
+        try {
+          const st = await apiGet<any>("/data/backfill/status");
+          setLoadProgress(`${st.done}/${st.total}${st.current ? ` — ${st.current}` : ""}`);
+          if (!st.running) {
+            window.clearInterval(poll);
+            setLoadingData(false);
+            if (st.failed > 0 && st.succeeded === 0) {
+              app.toast("Data load failed — is the exchange reachable from the server?", "error");
+            } else {
+              app.toast(`Real data loaded (${st.succeeded} series) — rerunning simulation`, "success");
+              apply();
+            }
+          }
+        } catch { /* keep polling */ }
+      }, 3000);
+    } catch {
+      setLoadingData(false);
+      app.toast("Could not start the data load — backend reachable?", "error");
+    }
   };
 
   const compare = async () => {
@@ -168,6 +199,16 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
       {last && !last.available && (
         <div className="card" style={{ marginTop: 10, borderColor: "#ef4444" }}>
           <Icon name="warning" size={14} className="neg" /> {last.error}
+          {String(last.error ?? "").toLowerCase().includes("data") && (
+            <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, marginTop: 8 }}>
+              <button className="btn btn-primary" disabled={loadingData} onClick={loadData}>
+                <Icon name="play" size={13} /> {loadingData ? `Loading real data… ${loadProgress}` : "Load real Binance data now"}
+              </button>
+              {!loadingData && <span className="dim" style={{ fontSize: 12 }}>
+                fetches ~6 months of real candles for every symbol × timeframe (runs in the background, ~2–4 min)
+              </span>}
+            </div>
+          )}
         </div>
       )}
       {last?.available && (
