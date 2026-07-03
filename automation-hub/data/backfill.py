@@ -16,7 +16,7 @@ from typing import Callable, Optional
 from data.historical import SYMBOLS, HistoricalStore, fetch_klines, sync
 
 # closed candles per year, per timeframe
-_BARS_PER_YEAR = {"5m": 105_120, "15m": 35_040, "1h": 8_760,
+_BARS_PER_YEAR = {"5m": 105_120, "15m": 35_040, "30m": 17_520, "1h": 8_760,
                   "4h": 2_190, "1d": 365, "1w": 52}
 DEFAULT_TIMEFRAMES = ("1h", "4h", "1d")
 
