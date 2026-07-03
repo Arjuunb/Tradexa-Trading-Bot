@@ -1,7 +1,31 @@
-import Icon, { NAV_ICON } from "../common/Icon";
 import Logo from "../common/Logo";
+import {
+  LayoutDashboard, CandlestickChart, Layers, FlaskConical, RefreshCw, PlayCircle,
+  NotebookPen, Rocket, Wallet, BarChart3, Bot, ShieldAlert, Brain, ScrollText,
+  Settings, Lock, type LucideIcon,
+} from "lucide-react";
 import { NAV_LABELS } from "../../app-context";
 import { useLive, type RiskSummary } from "../../lib/api";
+
+// Real icons (lucide), one per page — gold when active, sky on hover.
+const NAV_LUCIDE: Record<string, LucideIcon> = {
+  Overview: LayoutDashboard,
+  Markets: CandlestickChart,
+  Strategies: Layers,
+  Backtesting: FlaskConical,
+  Simulation: RefreshCw,
+  Replay: PlayCircle,
+  "Paper Trading": NotebookPen,
+  "Live Trading": Rocket,
+  Portfolio: Wallet,
+  Analytics: BarChart3,
+  "AI Assistant": Bot,
+  "Risk Manager": ShieldAlert,
+  Evolution: Brain,
+  Logs: ScrollText,
+  Settings: Settings,
+  "Safety Center": Lock,
+};
 
 interface SidebarProps {
   active: string;
@@ -22,17 +46,20 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
       </div>
 
       <nav className="nav">
-        {NAV_LABELS.map((item) => (
-          <button
-            key={item}
-            className={`nav-item ${active === item ? "active" : ""}`}
-            onClick={() => onSelect(item)}
-            type="button"
-          >
-            <Icon name={NAV_ICON[item] ?? "grid"} size={18} />
-            <span>{item}</span>
-          </button>
-        ))}
+        {NAV_LABELS.map((item) => {
+          const NavIcon = NAV_LUCIDE[item] ?? LayoutDashboard;
+          return (
+            <button
+              key={item}
+              className={`nav-item ${active === item ? "active" : ""}`}
+              onClick={() => onSelect(item)}
+              type="button"
+            >
+              <NavIcon size={18} strokeWidth={1.9} className="nav-ico" aria-hidden />
+              <span>{item}</span>
+            </button>
+          );
+        })}
       </nav>
 
       <div className="account-card">
