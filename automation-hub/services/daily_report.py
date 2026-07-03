@@ -24,6 +24,7 @@ def build_report(*, history: list[dict], positions: list[dict], balance: float,
                  starting_balance: float, learning_report: Optional[dict] = None,
                  watchdog_status: Optional[dict] = None,
                  engine_status: Optional[dict] = None,
+                 counterfactual_report: Optional[dict] = None,
                  now: Optional[datetime] = None) -> dict:
     """Pure digest from the bot's records (history is newest-first)."""
     now = now or datetime.now(timezone.utc)
@@ -72,6 +73,10 @@ def build_report(*, history: list[dict], positions: list[dict], balance: float,
         "active_learned_rules": len(adjustments),
         "lessons_today": lessons_today,
         "watchdog_findings": findings,
+        "gates": ({"saved_r": counterfactual_report.get("total_saved_r"),
+                   "costing": [k for k, s in (counterfactual_report.get("rules") or {}).items()
+                               if s.get("verdict") == "costing"]}
+                  if counterfactual_report else None),
     }
 
 
@@ -104,6 +109,12 @@ def format_report(r: dict) -> str:
         lines.append(f"🐕 {f.get('title')}")
     if not r["watchdog_findings"]:
         lines.append("Watchdog: all clear")
+    gates = r.get("gates")
+    if gates and gates.get("saved_r") is not None:
+        line = f"Gates saved {gates['saved_r']:+.1f}R"
+        if gates.get("costing"):
+            line += f" — under review: {', '.join(gates['costing'][:2])}"
+        lines.append(line)
     return "\n".join(lines)
 
 

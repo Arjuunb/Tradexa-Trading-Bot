@@ -108,6 +108,9 @@ class AutoStrategyEngine:
         # Shadow A/B: an optional services.shadow.ShadowRun fed the SAME bars
         # the live strategy trades — a candidate audition with zero capital.
         self.shadow = None
+        # Counterfactual tracker (shared with the pipeline): resolves vetoed
+        # and missed entries against the same bars the engine trades.
+        self.counterfactual = None
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -296,6 +299,12 @@ class AutoStrategyEngine:
                 self.shadow.on_bar(sym, bar)
             except Exception:  # noqa: BLE001 — the shadow must never affect live
                 pass
+        # 0b. resolve counterfactual (vetoed/missed) virtual trades.
+        if self.counterfactual is not None:
+            try:
+                self.counterfactual.on_bar(sym, bar)
+            except Exception:  # noqa: BLE001 — grading must never affect live
+                pass
         # 1. resting limit entry: fill if this bar traded through it.
         self._check_pending(sym, bar)
         # 2. stop-loss / take-profit exits against this bar's range.
@@ -329,6 +338,17 @@ class AutoStrategyEngine:
                 self.stats_missed_entries += 1
                 self.ledger.log(level="info", stage="engine", symbol=sym,
                                 message=f"{sym}: limit entry expired unfilled @ {po['price']}")
+                # grade the miss: did the trade we refused to chase work out?
+                if self.counterfactual is not None:
+                    try:
+                        self.counterfactual.record_veto(
+                            symbol=sym, side="long" if long else "short",
+                            entry=po["price"], stop=po["payload"].get("stop"),
+                            target=po.get("target"), rule="limit-ttl",
+                            detail="limit entry expired unfilled",
+                            time=bar.timestamp.isoformat())
+                    except Exception:  # noqa: BLE001
+                        pass
             return
         self._pending.pop(sym, None)
         res = self._route({**po["payload"], "entry": fill, "maker": True,
@@ -423,6 +443,7 @@ class AutoStrategyEngine:
         payload = {
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
+            "target": signal.take_profit,
             "confidence": getattr(signal, "confidence", 1.0),
             "regime": getattr(signal, "regime", ""),
             "reason": getattr(signal, "reason", ""),

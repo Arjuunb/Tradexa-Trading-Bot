@@ -132,6 +132,9 @@ class SignalPipeline:
         # Allocator tilt: callable(symbol) -> size multiplier from the live
         # per-symbol record (evidence-only, capped — see services/allocator.py).
         self.allocator = None
+        # Counterfactual tracker: every meaningful veto is followed as a
+        # virtual trade so each rule gets graded by what it actually blocked.
+        self.counterfactual = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -152,6 +155,12 @@ class SignalPipeline:
         brain_reason = str(payload.get("reason", "") or "")
         steps: list[Step] = []
 
+        # Vetoes from these stages are judgment calls worth grading — the
+        # counterfactual tracker follows what the blocked trade would have done.
+        _GRADED_STAGES = ("learning", "event_risk", "correlation", "risk_guard",
+                          "daily_loss", "weekly_loss", "session", "trading_day",
+                          "cooldown", "max_trades", "portfolio_exposure")
+
         def reject(stage: str, reason: str, status: str = "rejected") -> PipelineResult:
             steps.append(Step(stage, False, reason))
             self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
@@ -160,6 +169,18 @@ class SignalPipeline:
             self.ledger.log(level="warning", stage=stage, message=f"{symbol} {side} rejected: {reason}", symbol=symbol)
             self.ledger.add_alert(severity="warning", category="trade",
                                   title=f"Trade rejected — {symbol}", detail=reason)
+            if (self.counterfactual is not None and stage in _GRADED_STAGES
+                    and stop and entry and side not in _CLOSE_SIDES):
+                rule = stage
+                if stage == "learning" and getattr(self.learning, "last_gate_key", None):
+                    rule = f"learning:{self.learning.last_gate_key}"
+                try:
+                    self.counterfactual.record_veto(
+                        symbol=symbol, side=_dir(side), entry=entry, stop=stop,
+                        target=payload.get("target"), rule=rule, detail=reason,
+                        time=payload.get("timestamp") or "")
+                except Exception:  # noqa: BLE001 — grading must never block trading
+                    pass
             return PipelineResult(False, stage, reason, steps)
 
         # 1. emergency controls
@@ -202,10 +223,14 @@ class SignalPipeline:
                 dd = self._drawdown_trip()
                 if dd is not None:
                     self._engage_halt(dd)
-            # every closed trade is a datapoint: re-learn from the full record
+            # every closed trade is a datapoint: re-learn from the full record,
+            # with counterfactual evidence falsifying rules that block winners
             if self.learning is not None:
                 try:
-                    self.learning.update(self.paper.history(), self._alert_info)
+                    costing = (self.counterfactual.costing_rules()
+                               if self.counterfactual is not None else None)
+                    self.learning.update(self.paper.history(), self._alert_info,
+                                         costing_rules=costing)
                 except Exception:  # noqa: BLE001 — learning must never block trading
                     pass
             return PipelineResult(True, "execution", "position closed", steps, fill.__dict__)
