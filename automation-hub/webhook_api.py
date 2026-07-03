@@ -1219,6 +1219,17 @@ def ops_watchdog():
     return watchdog.status()
 
 
+@router.get("/strategy/league")
+def strategy_league(symbols: str = "BTCUSDT,ETHUSDT", timeframe: str = "1h",
+                    bars: int = 2500):
+    """Every built-in strategy on the SAME real candles: ranked by expectancy
+    (win rate shown but not trusted alone), with the pairwise correlation of
+    their daily return streams — which pairs diversify vs duplicate."""
+    from services.strategy_league import league
+    syms = tuple(t.strip() for t in symbols.split(",") if t.strip())
+    return league(symbols=syms, timeframe=timeframe, bars=max(600, min(bars, 6000)))
+
+
 @router.get("/news/world")
 def news_world():
     """World & market news from public RSS (no keys): crypto + stocks + macro

@@ -85,6 +85,8 @@ export default function StrategiesPage() {
   return (
     <>
       <PageHeader title="Strategies" subtitle="choose a built-in strategy, browse the marketplace, or build your own · paper mode" />
+
+      <StrategyLeague />
       <div className="tabs standalone">
         {(["Pre-built", "Marketplace", "Custom Builder"] as const).map((t) => (
           <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{t}</button>
@@ -173,5 +175,82 @@ function Marketplace() {
         </div>
       </Card>
     </>
+  );
+}
+
+
+type LeagueData = {
+  available: boolean; detail?: string; data_source?: string; symbols?: string[];
+  table?: { strategy: string; trades: number; win_rate: number | null; expectancy_r: number | null;
+    net_r: number; profit_factor: number | null; max_drawdown_pct: number; verdict: string }[];
+  correlations?: { a: string; b: string; correlation: number; relation: string }[];
+  best_combo?: { a: string; b: string; correlation: number } | null;
+  guidance?: string[];
+};
+
+const vTone = (v: string) => v === "earning" ? "green" : v === "losing" ? "red" : v === "breakeven" ? "amber" : "default";
+const rTone = (r: string) => r === "diversifying" ? "green" : r === "redundant" ? "red" : "amber";
+
+function StrategyLeague() {
+  const lg = useLive<LeagueData>("/strategy/league?symbols=BTCUSDT,ETHUSDT&timeframe=1h&bars=2500", 120000);
+  const d = lg.data;
+  return (
+    <Card title="Strategy League" subtitle="every strategy on the SAME real candles — ranked by what pays, with correlations"
+      right={d?.available ? <Badge text={`real data · ${d.symbols?.join(" + ")}`} tone="green" /> : undefined}>
+      {!d ? (
+        <div className="dim" style={{ padding: 12 }}>Running the league on real candles…</div>
+      ) : !d.available ? (
+        <div className="dim" style={{ padding: 12 }}>{d.detail}</div>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+              <thead><tr className="dim" style={{ textAlign: "left" }}>
+                <th style={{ padding: "4px 10px 4px 0" }}>#</th><th>Strategy</th><th>Verdict</th>
+                <th>Expectancy</th><th>Win rate</th><th>Trades</th><th>Net R</th><th>PF</th><th>Max DD</th>
+              </tr></thead>
+              <tbody>
+                {d.table?.map((r, i) => (
+                  <tr key={r.strategy} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <td className="dim" style={{ padding: "5px 10px 5px 0" }}>{i + 1}</td>
+                    <td><b>{r.strategy}</b></td>
+                    <td><Badge text={r.verdict} tone={vTone(r.verdict) as any} /></td>
+                    <td className={(r.expectancy_r ?? 0) >= 0 ? "green" : "red"}>
+                      {r.expectancy_r != null ? `${r.expectancy_r >= 0 ? "+" : ""}${r.expectancy_r}R` : "—"}</td>
+                    <td>{r.win_rate != null ? `${r.win_rate}%` : "—"}</td>
+                    <td className="dim">{r.trades}</td>
+                    <td className={r.net_r >= 0 ? "green" : "red"}>{r.net_r >= 0 ? "+" : ""}{r.net_r}</td>
+                    <td>{r.profit_factor ?? "—"}</td>
+                    <td className="dim">{r.max_drawdown_pct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {(d.correlations?.length ?? 0) > 0 && (
+            <>
+              <div className="card-subtitle" style={{ marginTop: 12, marginBottom: 6 }}>
+                How they move together <span className="dim">(daily return correlation)</span>
+              </div>
+              <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap" }}>
+                {d.correlations!.map((c, i) => (
+                  <span key={i} className="ui-badge" style={{ background: "var(--card-2)" }}>
+                    {c.a} × {c.b}: <b style={{ margin: "0 4px" }}>{c.correlation}</b>
+                    <Badge text={c.relation} tone={rTone(c.relation) as any} />
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
+          {d.guidance?.map((g, i) => (
+            <p key={i} className="dim" style={{ marginTop: i === 0 ? 10 : 4, fontSize: 12 }}>
+              <Icon name="info" size={12} /> {g}
+            </p>
+          ))}
+        </>
+      )}
+    </Card>
   );
 }
