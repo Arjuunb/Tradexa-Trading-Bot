@@ -223,6 +223,10 @@ def _apply_setting(key: str, value) -> None:
         setattr(notifier, key, bool(int(value)))
     elif key == "dedup_window_s":
         pipeline.dedup.window_seconds = int(value)
+    elif key == "entry_mode":
+        engine.entry_mode = "market" if str(value) == "market" else "limit"
+    elif key == "daily_report_hour":
+        daily_tasks.hour = int(value)
     elif key in ("max_open_positions", "session_start", "session_end",
                  "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
                  "trading_days_mask"):
@@ -249,6 +253,8 @@ def _settings_snapshot() -> dict:
         "notify_trades": 1 if notifier.notify_trades else 0,
         "notify_risk": 1 if notifier.notify_risk else 0,
         "auto_strategy": settings.auto_strategy,
+        "entry_mode": engine.entry_mode,
+        "daily_report_hour": daily_tasks.hour,
     }
 
 
@@ -272,6 +278,8 @@ class SettingsUpdate(BaseModel):
     max_consecutive_losses: Optional[int] = None
     cooldown_after_loss_min: Optional[int] = None
     trading_days_mask: Optional[int] = None
+    entry_mode: Optional[str] = None
+    daily_report_hour: Optional[int] = None
 
 
 class WebhookPayload(BaseModel):
@@ -1338,6 +1346,8 @@ def get_settings():
             "max_consecutive_losses": pipeline.max_consecutive_losses,
             "cooldown_after_loss_min": pipeline.cooldown_after_loss_min,
             "trading_days_mask": pipeline.trading_days_mask,
+            "entry_mode": engine.entry_mode,
+            "daily_report_hour": daily_tasks.hour,
         },
         "readonly": {
             "strategy": engine.strategy_label,
@@ -1416,6 +1426,16 @@ def update_settings(body: SettingsUpdate, x_webhook_secret: Optional[str] = Head
             raise HTTPException(400, "trading_days_mask must be in [0, 127]")
         pipeline.trading_days_mask = int(body.trading_days_mask)
         changed["trading_days_mask"] = int(body.trading_days_mask)
+    if body.entry_mode is not None:
+        if body.entry_mode not in ("limit", "market"):
+            raise HTTPException(400, "entry_mode must be 'limit' or 'market'")
+        engine.entry_mode = body.entry_mode
+        changed["entry_mode"] = body.entry_mode
+    if body.daily_report_hour is not None:
+        if not (-1 <= body.daily_report_hour <= 23):
+            raise HTTPException(400, "daily_report_hour must be -1 (off) .. 23 (UTC)")
+        daily_tasks.hour = int(body.daily_report_hour)
+        changed["daily_report_hour"] = int(body.daily_report_hour)
 
     snap = _settings_snapshot()
     save_overrides(settings.settings_path, snap)

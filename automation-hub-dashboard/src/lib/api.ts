@@ -14,7 +14,9 @@ export const API_BASE = (_cfg.apiBase ?? (import.meta.env.VITE_API_BASE as strin
 const SECRET = (_cfg.secret ?? (import.meta.env.VITE_WEBHOOK_SECRET as string | undefined)) ?? "dev-webhook-secret";
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  // session cookie authenticates same-origin; the secret header keeps
+  // cross-origin dev (Vite -> localhost API) working behind the auth wall
+  const res = await fetch(`${API_BASE}${path}`, { headers: { "X-Webhook-Secret": SECRET } });
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -52,6 +54,7 @@ export interface BotSettings {
     max_weekly_loss_pct: number; max_trades_per_day: number;
     max_consecutive_losses: number; cooldown_after_loss_min: number;
     trading_days_mask: number;
+    entry_mode: string; daily_report_hour: number;
   };
   readonly: {
     strategy: string; strategy_key: string; timeframe: string; symbols: string[];
