@@ -2,8 +2,8 @@
 export const COLORS = {
   bg: "#080b14",
   card: "#101a2e",
-  purple: "#8b5cf6",
-  purpleSoft: "rgba(139, 92, 246, 0.18)",
+  purple: "#eab54f",
+  purpleSoft: "rgba(234, 181, 79, 0.18)",
   green: "#22c55e",
   greenSoft: "rgba(34, 197, 94, 0.16)",
   red: "#ef4444",

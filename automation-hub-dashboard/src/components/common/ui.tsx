@@ -6,7 +6,7 @@ type Tone = "green" | "red" | "amber" | "blue" | "purple" | "default";
 
 const TONE_COLOR: Record<string, string> = {
   green: "#22c55e", red: "#ef4444", amber: "#f59e0b",
-  blue: "#3b82f6", purple: "#8b5cf6", default: "#8a93a6",
+  blue: "#3b82f6", purple: "#eab54f", default: "#8a93a6",
 };
 
 export function PageHeader({ title, subtitle, actions }: {

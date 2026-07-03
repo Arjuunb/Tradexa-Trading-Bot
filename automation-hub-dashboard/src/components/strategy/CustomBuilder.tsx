@@ -205,7 +205,7 @@ export default function CustomBuilder() {
                 <div className="perf-item" key={l}><span className="perf-label">{l}</span><div className="perf-value-row"><span className={`perf-value ${tone}`}>{v}</span></div></div>
               ))}
             </div>
-            {curve.length > 1 && <div className="chart-md" style={{ marginTop: 12 }}><AreaLine labels={curve.map((_, i) => String(i))} series={[{ name: "Equity", data: curve, color: "#8b5cf6" }]} valueFormatter={(x) => `$${x.toLocaleString()}`} /></div>}
+            {curve.length > 1 && <div className="chart-md" style={{ marginTop: 12 }}><AreaLine labels={curve.map((_, i) => String(i))} series={[{ name: "Equity", data: curve, color: "#eab54f" }]} valueFormatter={(x) => `$${x.toLocaleString()}`} /></div>}
           </Card>
 
           {sim!.sizing && (

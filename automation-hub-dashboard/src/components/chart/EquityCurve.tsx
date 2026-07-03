@@ -34,8 +34,8 @@ export default function EquityCurve() {
     series: [
       {
         name: "Equity", type: "line", data: series, smooth: true,
-        showSymbol: false, lineStyle: { color: "#8b5cf6", width: 2.5 },
-        itemStyle: { color: "#8b5cf6" },
+        showSymbol: false, lineStyle: { color: "#eab54f", width: 2.5 },
+        itemStyle: { color: "#eab54f" },
         markLine: {
           silent: true, symbol: "none",
           lineStyle: { color: "#5b6478", type: "dashed", width: 1.4 },

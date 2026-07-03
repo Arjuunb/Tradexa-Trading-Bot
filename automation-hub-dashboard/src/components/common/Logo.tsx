@@ -5,7 +5,7 @@ export default function Logo({ size = 30 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Automation Hub">
       <defs>
         <linearGradient id="ah-bg" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#8b5cf6" />
+          <stop stopColor="#eab54f" />
           <stop offset="1" stopColor="#3b82f6" />
         </linearGradient>
         <linearGradient id="ah-line" x1="10" y1="32" x2="38" y2="13" gradientUnits="userSpaceOnUse">

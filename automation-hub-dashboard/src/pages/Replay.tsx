@@ -310,7 +310,7 @@ export default function ReplayPage() {
 
 function EventDot({ kind }: { kind: string }) {
   const c = kind === "entry" ? "#22c55e" : kind === "exit" ? "#3b82f6" : kind === "blocked" ? "#ef4444"
-    : kind === "sweep" || kind === "structure" || kind === "fvg" ? "#8b5cf6" : "#7c8798";
+    : kind === "sweep" || kind === "structure" || kind === "fvg" ? "#eab54f" : "#7c8798";
   return <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: c, marginRight: 4 }} />;
 }
 
@@ -395,7 +395,7 @@ function BrainPanel({ frame, active, liveRR, status, decision }: {
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <span className="dim" style={{ width: 130, fontSize: 11 }}>{k}</span>
             <div style={{ flex: 1, height: 6, background: "#161d30", borderRadius: 3 }}>
-              <div style={{ width: `${Math.min(100, (v / 25) * 100)}%`, height: 6, background: "#8b5cf6", borderRadius: 3 }} />
+              <div style={{ width: `${Math.min(100, (v / 25) * 100)}%`, height: 6, background: "#eab54f", borderRadius: 3 }} />
             </div>
             <b style={{ width: 24, textAlign: "right", fontSize: 11 }}>+{v}</b>
           </div>

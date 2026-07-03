@@ -7,7 +7,7 @@ const TONE: Record<string, string> = {
   green: "#22c55e",
   amber: "#f59e0b",
   red: "#ef4444",
-  purple: "#8b5cf6",
+  purple: "#eab54f",
   blue: "#3b82f6",
 };
 
