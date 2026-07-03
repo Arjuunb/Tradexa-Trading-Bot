@@ -91,6 +91,14 @@ from services.learning import LearningBook  # noqa: E402
 learning_book = LearningBook(_os.path.join(_os.path.dirname(settings.providers_path), "learning.json"))
 pipeline.learning = learning_book
 
+# Counterfactual tracker: every veto is followed as a virtual trade so each
+# rule is graded by what it actually blocked; rules that block winners get
+# falsified instead of surviving on their expiry timer.
+from services.counterfactual import CounterfactualTracker  # noqa: E402
+counterfactual = CounterfactualTracker(
+    _os.path.join(_os.path.dirname(settings.providers_path), "counterfactual.json"))
+pipeline.counterfactual = counterfactual
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -151,6 +159,7 @@ engine = AutoStrategyEngine(
     live_poll_s=settings.live_poll_s,
     fetcher=ws_feed.make_fetcher(_default_fetcher) if settings.use_live_data else None,
 )
+engine.counterfactual = counterfactual   # resolve vetoed trades on live bars
 
 # Watchdog: alerts (ledger + Telegram) when the feed stalls, the engine thread
 # dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
@@ -170,7 +179,8 @@ def _daily_report_data() -> dict:
     return build_report(history=paper.history(), positions=paper.positions(),
                         balance=paper.balance(), starting_balance=paper.starting_balance,
                         learning_report=learning_book.report(),
-                        watchdog_status=watchdog.status(), engine_status=engine.status())
+                        watchdog_status=watchdog.status(), engine_status=engine.status(),
+                        counterfactual_report=counterfactual.report())
 
 
 daily_tasks = DailyTasks(
@@ -1069,6 +1079,14 @@ def shadow_report():
                 "note": "No shadow running. POST /shadow/start to audition a candidate."}
     live = live_stats_from_history(paper.history(), since_iso=engine.shadow.started_at)
     return {"active": True, **engine.shadow.report(live)}
+
+
+@router.get("/counterfactual/report")
+def counterfactual_report():
+    """Every gate graded by what it actually blocked: saved_r per rule
+    (positive = the rule blocks losers), the vetoed trades still resolving,
+    and which rules the evidence has falsified."""
+    return counterfactual.report()
 
 
 @router.get("/learning/report")

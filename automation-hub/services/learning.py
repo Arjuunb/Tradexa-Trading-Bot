@@ -156,6 +156,7 @@ class LearningBook:
         self.adjustments: dict = {}            # active corrections with evidence+expiry
         self.history: list[dict] = []          # evolution timeline (applied/relaxed)
         self.updated_at: Optional[str] = None
+        self.last_gate_key: Optional[str] = None   # which rule fired last (attribution)
         self._load()
 
     # ------------------------------------------------------------ persistence
@@ -185,18 +186,26 @@ class LearningBook:
 
     # ---------------------------------------------------------------- update
     def update(self, trades: list[dict], events: Optional[dict] = None,
-               now: Optional[datetime] = None) -> dict:
+               now: Optional[datetime] = None,
+               costing_rules: Optional[list[str]] = None) -> dict:
         """Re-learn from the (newest-first) trade history. Applies new bounded
-        corrections, refreshes re-confirmed ones, relaxes expired ones."""
+        corrections, refreshes re-confirmed ones, relaxes expired ones.
+        ``costing_rules`` (from the counterfactual tracker, e.g.
+        'learning:regime:Ranging') FALSIFIES a rule immediately — evidence
+        that a block keeps vetoing winners beats waiting out the expiry."""
         now = now or datetime.now(timezone.utc)
         chronological = list(reversed(trades))
         findings = classify(chronological, events)
+        falsified = {r.split("learning:", 1)[1] for r in (costing_rules or [])
+                     if r.startswith("learning:")}
         with self._lock:
             self.lessons = findings
             expiry = (now + timedelta(days=EXPIRY_DAYS)).isoformat()
             confirmed: set[str] = set()
 
             def apply(key: str, adj: dict, lesson: str) -> None:
+                if key in falsified:
+                    return    # counterfactual evidence overrides the pattern
                 confirmed.add(key)
                 fresh = key not in self.adjustments
                 self.adjustments[key] = {**adj, "lesson": lesson, "expires_at": expiry,
@@ -224,6 +233,15 @@ class LearningBook:
                           {"type": "cooldown_min", "minutes": 30, "evidence": ev}, f["lesson"])
                 # session-leak / slipped-stops stay report-only recommendations
 
+            # falsify: the counterfactual tracker measured this rule blocking
+            # winners — remove it NOW, whatever its expiry says
+            for key in list(self.adjustments):
+                if key in falsified:
+                    self.history.append({"ts": now.isoformat(), "action": "falsified", "key": key,
+                                         "lesson": ("Counterfactual evidence: the blocked trades kept "
+                                                    f"winning — removed: {self.adjustments[key].get('lesson', key)}")})
+                    del self.adjustments[key]
+
             # relax: not re-confirmed AND past expiry -> the bot un-learns it
             for key in list(self.adjustments):
                 adj = self.adjustments[key]
@@ -244,17 +262,23 @@ class LearningBook:
 
     def gate(self, *, symbol: str, regime: str = "", confidence: float = 1.0,
              minutes_since_loss: Optional[float] = None) -> Optional[str]:
-        """Return a human-readable block reason, or None to allow."""
+        """Return a human-readable block reason, or None to allow. The key of
+        the rule that fired is left in ``last_gate_key`` so the counterfactual
+        tracker can attribute the veto to the exact rule being graded."""
+        self.last_gate_key = None
         if regime and f"regime:{regime}" in self.adjustments:
             ev = self.adjustments[f"regime:{regime}"]["evidence"]
+            self.last_gate_key = f"regime:{regime}"
             return (f"Learned block: '{regime}' lost {ev['net_pnl']:+.2f} over "
                     f"{ev['trades']} trades ({ev['win_rate']}% win)")
         floor = self.adjustments.get("confidence-floor")
         if floor and confidence < float(floor["floor"]):
+            self.last_gate_key = "confidence-floor"
             return (f"Learned confidence floor {floor['floor']:.2f} — "
                     f"entry confidence {confidence:.2f} is below it")
         cd = self.adjustments.get("cooldown")
         if cd and minutes_since_loss is not None and minutes_since_loss < float(cd["minutes"]):
+            self.last_gate_key = "cooldown"
             return (f"Learned cooldown: {cd['minutes']}m after a loss "
                     f"(only {minutes_since_loss:.0f}m elapsed)")
         return None
