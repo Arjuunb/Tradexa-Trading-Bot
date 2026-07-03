@@ -70,6 +70,7 @@ class SignalPipeline:
         max_consecutive_losses: int = 0,
         cooldown_after_loss_min: int = 0,
         trading_days_mask: int = 127,
+        adaptive_risk: bool = True,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -93,6 +94,8 @@ class SignalPipeline:
         self.max_consecutive_losses = max_consecutive_losses
         self.cooldown_after_loss_min = cooldown_after_loss_min
         self.trading_days_mask = trading_days_mask
+        # Kelly-capped adaptive sizing: risk less when the recent record is weak.
+        self.adaptive_risk = adaptive_risk
         # Optional notification hook: callable(kind, title, detail). Best-effort.
         self.notifier = None
         self._halted = False
@@ -235,15 +238,19 @@ class SignalPipeline:
             return reject("max_trades", f"Max {self.max_trades_per_day} trades/day reached")
 
         # 4. risk: position sizing from stop distance, scaled by conviction
-        #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%).
+        #    (confidence 1.0 -> full risk; 0.5 -> 75% risk; floors at 50%),
+        #    then by the Kelly guard (risk less while the recent record is weak).
         if stop is None or stop == entry:
             return reject("risk", "Invalid stop (missing or equal to entry)")
         eff_risk = self.risk_per_trade_pct * (0.5 + 0.5 * confidence)
+        kf = self._kelly_factor() if self.adaptive_risk else 1.0
+        eff_risk *= kf
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
+        kelly_note = f" × kelly {kf:.2f}" if kf < 1.0 else ""
         steps.append(Step("risk", True,
-                          f"conf {confidence:.2f} → risk {eff_risk*100:.2f}% sized {size:.6f}"))
+                          f"conf {confidence:.2f}{kelly_note} → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
         max_size = (self.exposure_limit_pct * self.equity) / entry if entry > 0 else 0.0
@@ -376,6 +383,35 @@ class SignalPipeline:
             return (f"Max drawdown breached "
                     f"({max_drawdown(eq) * 100:.1f}% > {self.max_drawdown_pct * 100:.0f}%)")
         return None
+
+    def _kelly_factor(self, min_trades: int = 20, lookback: int = 40) -> float:
+        """Kelly-capped risk multiplier from the bot's own recent closed trades.
+
+        Professional sizing: the per-trade risk should never exceed a fraction
+        of the Kelly optimum implied by the recent win rate and payoff ratio.
+        With a healthy record the factor is 1.0 (no change). As the recent edge
+        deteriorates it scales risk down smoothly, floored at 0.25 — the bot
+        digs shallower holes when it is trading badly, exactly when equity
+        needs protecting. With fewer than ``min_trades`` closed trades there is
+        no evidence either way, so sizing is untouched.
+        """
+        closed = [t for t in self.paper.history() if t.get("rr") is not None]
+        recent = [float(t["rr"]) for t in closed[-lookback:]]
+        if len(recent) < min_trades:
+            return 1.0
+        wins = [r for r in recent if r > 0]
+        losses = [-r for r in recent if r < 0]
+        if not losses:
+            return 1.0
+        if not wins:
+            return 0.25
+        w = len(wins) / len(recent)
+        payoff = (sum(wins) / len(wins)) / (sum(losses) / len(losses))
+        kelly = w - (1.0 - w) / payoff if payoff > 0 else 0.0
+        if kelly <= 0:          # negative edge lately — trade at quarter risk
+            return 0.25
+        # quarter-Kelly cap: full risk only when 0.25*kelly covers the base risk
+        return max(0.25, min(1.0, 0.25 * kelly / self.risk_per_trade_pct))
 
     def _notify(self, kind: str, title: str, detail: str = "") -> None:
         if self.notifier:

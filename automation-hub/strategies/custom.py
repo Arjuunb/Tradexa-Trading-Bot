@@ -452,7 +452,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                       starting_balance: float = 10_000.0, risk_pct: float = 0.01,
                       brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None,
                       max_trades_per_day: int = 0, cooldown_after_loss: int = 0,
-                      max_consecutive_losses: int = 0) -> dict:
+                      max_consecutive_losses: int = 0, manage: bool = True) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
 
@@ -461,9 +461,13 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
     signal — no same-bar fill, no lookahead. When a ``brain`` is supplied, weak
     signals (blocked or below ``min_score``) are skipped and recorded in
     ``blocked`` — so the same quality filter applies to built-in strategies.
+    ``manage`` applies the shared TradeManager (break-even / scale-out /
+    trailing) — the same mid-trade behavior the live engine uses.
     """
     from bot.types import SignalType
+    from services.trade_manager import ManagedTrade, TradeManager
     cost = fee + slippage
+    mgr = TradeManager() if manage else None
     pos = None
     trades: list[dict] = []
     blocked: list[dict] = []
@@ -472,24 +476,35 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
     for i, bar in enumerate(bars):
         if pos is not None:
             exit_px = exit_reason = None
-            if pos["side"] == "long":
-                if bar.low <= pos["stop"]:
-                    exit_px, exit_reason = pos["stop"], "stop"
-                elif bar.high >= pos["target"]:
-                    exit_px, exit_reason = pos["target"], "target"
+            mt = pos["mt"]
+            if mgr is not None:
+                act = mgr.on_bar(mt, bar.high, bar.low)
+                if act.partial_price is not None:
+                    pos["partial"] = act.partial_price
+                if act.exit_price is not None:
+                    exit_px, exit_reason = act.exit_price, act.exit_reason
+            elif pos["side"] == "long":
+                if bar.low <= mt.stop:
+                    exit_px, exit_reason = mt.stop, "stop"
+                elif bar.high >= mt.target:
+                    exit_px, exit_reason = mt.target, "target"
             else:
-                if bar.high >= pos["stop"]:
-                    exit_px, exit_reason = pos["stop"], "stop"
-                elif bar.low <= pos["target"]:
-                    exit_px, exit_reason = pos["target"], "target"
+                if bar.high >= mt.stop:
+                    exit_px, exit_reason = mt.stop, "stop"
+                elif bar.low <= mt.target:
+                    exit_px, exit_reason = mt.target, "target"
             if exit_px is not None:
-                move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
-                r = move / pos["risk"] - cost * pos["entry"] * 2 / pos["risk"]
+                cost_r = cost * pos["entry"] * 2 / pos["risk"]
+                if mgr is not None:
+                    r = mgr.r_multiple(mt, exit_px, pos.get("partial"), cost_r=cost_r)
+                else:
+                    move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
+                    r = move / pos["risk"] - cost_r
                 trades.append({
                     "side": pos["side"], "entry": round(pos["entry"], 6), "exit": round(exit_px, 6),
-                    "stop": round(pos["stop"], 6), "target": round(pos["target"], 6),
+                    "stop": round(mt.stop, 6), "target": round(mt.target, 6),
                     "r": round(r, 3), "result": "win" if r > 0 else "loss",
-                    "reason": pos["reason"], "exit_reason": exit_reason,
+                    "reason": pos["reason"], "exit_reason": exit_reason, "scaled": mt.scaled,
                     "entry_time": pos["time"].isoformat(), "exit_time": bar.timestamp.isoformat(),
                     "bars_held": i - pos["idx"],
                 })
@@ -522,9 +537,11 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                         blocked.append({"time": bar.timestamp.isoformat(), "side": side, "score": 0,
                                         "regime": "—", "htf_bias": mtf["reason"], "reason": mtf["reason"]})
                         continue
-                pos = {"side": side, "entry": entry, "stop": stop, "target": sig.take_profit,
-                       "risk": risk, "reason": getattr(sig, "reason", "") or f"{side} entry",
-                       "time": bar.timestamp, "idx": i, "be": False}
+                pos = {"side": side, "entry": entry, "risk": risk,
+                       "reason": getattr(sig, "reason", "") or f"{side} entry",
+                       "time": bar.timestamp, "idx": i, "partial": None,
+                       "mt": ManagedTrade(side=side, entry=entry, stop=stop,
+                                          target=sig.take_profit, risk=risk)}
                 gate.on_entry(bar.timestamp)
 
     return _results(trades, starting_balance, risk_pct, bars, blocked=blocked)

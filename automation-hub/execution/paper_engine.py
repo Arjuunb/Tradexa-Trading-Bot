@@ -86,6 +86,34 @@ class PaperExecutionEngine:
         })
         return FillResult("opened", symbol, direction, size, entry, 0.0, pid, tid)
 
+    def reduce(self, *, symbol: str, exit_price: float, fraction: float) -> FillResult:
+        """Partial close (scale-out): realize P&L on ``fraction`` of the position
+        and keep the remainder open at the same entry/stop. Implemented as
+        close-then-reopen so every Ledger backend works unchanged."""
+        pos = self.open_position(symbol)
+        if pos is None or not (0.0 < fraction < 1.0):
+            return FillResult("noop", symbol, "", 0.0, exit_price)
+        closed_size = pos["size"] * fraction
+        f = self.fill_model.apply("sell" if pos["side"] == "long" else "buy",
+                                  exit_price, closed_size,
+                                  allow_reject=False, allow_partial=False)
+        exit_price = f["price"]
+        pnl = self._pnl(pos["side"], closed_size, pos["entry"], exit_price)
+        rr = self._rr(pos, exit_price)
+        remainder = pos["size"] - closed_size
+        self.ledger.close_position(pos["id"], exit_price=exit_price, pnl=pnl)
+        self.ledger.open_position(symbol=symbol, side=pos["side"], size=remainder,
+                                  entry=pos["entry"], stop=pos.get("stop"))
+        for t in self.ledger.get_paper_trades():
+            if t["symbol"] == symbol and t["status"] == "open":
+                self.ledger.close_paper_trade(t["id"], exit_price=exit_price, pnl=pnl, rr=rr)
+                break
+        self.ledger.record_paper_trade({
+            "alert_id": "", "symbol": symbol, "side": pos["side"],
+            "size": remainder, "entry": pos["entry"], "stop": pos.get("stop"),
+        })
+        return FillResult("reduced", symbol, pos["side"], closed_size, exit_price, pnl, pos["id"])
+
     def close(self, *, symbol: str, exit_price: float) -> FillResult:
         pos = self.open_position(symbol)
         if pos is None:
