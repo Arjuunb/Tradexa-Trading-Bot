@@ -415,7 +415,8 @@ def test_brain_holds_on_flat_market():
 
 def test_brain_confidence_scales_size(ledger, paper):
     pipe = SignalPipeline(ledger, paper, TradingControl(), equity=10_000,
-                          risk_per_trade_pct=0.02, exposure_limit_pct=0.5)
+                          risk_per_trade_pct=0.02, exposure_limit_pct=0.5,
+                          max_total_exposure_pct=1.0)
     hi = pipe.process({"alert_id": "hi", "symbol": "BTCUSDT", "side": "BUY",
                        "entry": 100, "stop": 90, "confidence": 1.0})
     lo = pipe.process({"alert_id": "lo", "symbol": "ETHUSDT", "side": "BUY",

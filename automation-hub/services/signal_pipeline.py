@@ -47,6 +47,19 @@ class PipelineResult:
 
 _CLOSE_SIDES = {"CLOSE", "EXIT", "FLAT"}
 
+# Correlation clusters: assets that move together. Crypto majors are treated as
+# ONE cluster — three simultaneous longs on BTC/ETH/SOL are not diversification,
+# they are one 3x-sized bet on the same market. Extend the map as new asset
+# classes are added.
+_CRYPTO_QUOTES = ("USDT", "USDC", "BUSD", "USD", "BTC", "ETH")
+
+
+def _cluster(symbol: str) -> str:
+    s = (symbol or "").upper().replace("/", "").replace("-", "")
+    if s.endswith(_CRYPTO_QUOTES):
+        return "crypto"
+    return "other"
+
 
 class SignalPipeline:
     def __init__(
@@ -71,6 +84,9 @@ class SignalPipeline:
         cooldown_after_loss_min: int = 0,
         trading_days_mask: int = 127,
         adaptive_risk: bool = True,
+        max_correlated_positions: int = 2,
+        max_total_exposure_pct: float = 0.10,
+        equity_throttle: bool = True,
     ):
         self.ledger = ledger
         self.paper = paper
@@ -96,6 +112,13 @@ class SignalPipeline:
         self.trading_days_mask = trading_days_mask
         # Kelly-capped adaptive sizing: risk less when the recent record is weak.
         self.adaptive_risk = adaptive_risk
+        # Portfolio-level risk: correlated same-direction positions look like
+        # diversification but are one oversized bet; total notional is capped
+        # across ALL open positions; the equity-curve throttle halves risk while
+        # the bot trades below its own recent equity average.
+        self.max_correlated_positions = max_correlated_positions
+        self.max_total_exposure_pct = max_total_exposure_pct
+        self.equity_throttle = equity_throttle
         # Optional notification hook: callable(kind, title, detail). Best-effort.
         self.notifier = None
         self._halted = False
@@ -178,6 +201,19 @@ class SignalPipeline:
         if len(self.paper.positions()) >= self.max_open_positions:
             return reject("risk_guard", f"Max open positions ({self.max_open_positions}) reached")
 
+        # 3c2. correlation guard — same-direction positions in the same asset
+        # cluster compound into one oversized bet (crypto majors move together)
+        if self.max_correlated_positions > 0:
+            cluster, direction = _cluster(symbol), _dir(side)
+            same = sum(1 for p in self.paper.positions()
+                       if p["side"] == direction and _cluster(p["symbol"]) == cluster)
+            if same >= self.max_correlated_positions:
+                return reject("correlation",
+                              f"{same} open {direction} positions in the {cluster} cluster "
+                              f"(max {self.max_correlated_positions}) — correlated exposure")
+            steps.append(Step("correlation", True,
+                              f"{same}/{self.max_correlated_positions} {direction} in {cluster}"))
+
         # 3d. drawdown circuit breaker — auto-halt NEW ENTRIES until manual resume
         #     (exits are never blocked, so open positions can always stop out).
         if not self._halted:
@@ -244,13 +280,16 @@ class SignalPipeline:
             return reject("risk", "Invalid stop (missing or equal to entry)")
         eff_risk = self.risk_per_trade_pct * (0.5 + 0.5 * confidence)
         kf = self._kelly_factor() if self.adaptive_risk else 1.0
-        eff_risk *= kf
+        ef = self._equity_curve_factor() if self.equity_throttle else 1.0
+        eff_risk *= kf * ef
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
         kelly_note = f" × kelly {kf:.2f}" if kf < 1.0 else ""
+        curve_note = f" × curve {ef:.2f}" if ef < 1.0 else ""
         steps.append(Step("risk", True,
-                          f"conf {confidence:.2f}{kelly_note} → risk {eff_risk*100:.2f}% sized {size:.6f}"))
+                          f"conf {confidence:.2f}{kelly_note}{curve_note}"
+                          f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
         max_size = (self.exposure_limit_pct * self.equity) / entry if entry > 0 else 0.0
@@ -261,6 +300,24 @@ class SignalPipeline:
             steps.append(Step("exposure", True, f"within {self.exposure_limit_pct*100:.0f}% exposure"))
         if size <= 0:
             return reject("exposure", "Exposure limit leaves zero size")
+
+        # 5b. portfolio exposure cap — TOTAL open notional across all positions.
+        # Per-trade limits alone still allow the book to stack up; this is the
+        # portfolio-level ceiling every production bot enforces.
+        if self.max_total_exposure_pct > 0:
+            open_notional = sum(p["size"] * p["entry"] for p in self.paper.positions())
+            budget = self.max_total_exposure_pct * self.equity - open_notional
+            if budget <= 0:
+                return reject("portfolio_exposure",
+                              f"Portfolio exposure {open_notional:.0f} already at the "
+                              f"{self.max_total_exposure_pct*100:.0f}% cap")
+            if size * entry > budget:
+                size = budget / entry
+                steps.append(Step("portfolio_exposure", True,
+                                  f"capped to remaining {budget:.0f} notional budget"))
+            else:
+                steps.append(Step("portfolio_exposure", True,
+                                  f"total within {self.max_total_exposure_pct*100:.0f}%"))
 
         # 6. paper execution (routed through the fill model)
         fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop, alert_id=alert_id)
@@ -395,8 +452,9 @@ class SignalPipeline:
         needs protecting. With fewer than ``min_trades`` closed trades there is
         no evidence either way, so sizing is untouched.
         """
+        # history() is newest-first — the first `lookback` entries are the recent ones
         closed = [t for t in self.paper.history() if t.get("rr") is not None]
-        recent = [float(t["rr"]) for t in closed[-lookback:]]
+        recent = [float(t["rr"]) for t in closed[:lookback]]
         if len(recent) < min_trades:
             return 1.0
         wins = [r for r in recent if r > 0]
@@ -412,6 +470,23 @@ class SignalPipeline:
             return 0.25
         # quarter-Kelly cap: full risk only when 0.25*kelly covers the base risk
         return max(0.25, min(1.0, 0.25 * kelly / self.risk_per_trade_pct))
+
+    def _equity_curve_factor(self, lookback: int = 10) -> float:
+        """Equity-curve throttle: trade half size while the bot's own equity
+        curve is below its recent average (prop-desk practice — the system's
+        equity curve is itself a signal about whether the edge is working in
+        current conditions). Full size resumes as soon as the curve recovers.
+        """
+        closed = self.paper.history()   # newest-first
+        if len(closed) < lookback:
+            return 1.0
+        balance = self.paper.starting_balance
+        curve = []
+        for t in reversed(closed):      # chronological equity curve
+            balance += t.get("pnl") or 0.0
+            curve.append(balance)
+        sma = sum(curve[-lookback:]) / lookback
+        return 0.5 if curve[-1] < sma else 1.0
 
     def _notify(self, kind: str, title: str, detail: str = "") -> None:
         if self.notifier:
