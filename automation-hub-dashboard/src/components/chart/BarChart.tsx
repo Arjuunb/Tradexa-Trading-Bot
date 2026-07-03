@@ -11,7 +11,7 @@ interface BarChartProps {
   max?: number;
 }
 
-export default function BarChart({ labels, data, color = "#8b5cf6", height = "100%", horizontal, diverging, max }: BarChartProps) {
+export default function BarChart({ labels, data, color = "#eab54f", height = "100%", horizontal, diverging, max }: BarChartProps) {
   const colored = data.map((v) =>
     diverging ? (v >= 0 ? "#22c55e" : "#ef4444") : color,
   );

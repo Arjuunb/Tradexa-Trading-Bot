@@ -163,7 +163,7 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
     if (toggles.ema50) line("ema50", "EMA50", "#f59e0b");
     if (toggles.sma20) line("sma20", "SMA20", "#60a5fa", { smooth: false, lineStyle: { width: 1.1, type: "dashed" } });
     if (toggles.sma50) line("sma50", "SMA50", "#fbbf24", { smooth: false, lineStyle: { width: 1.1, type: "dashed" } });
-    if (toggles.vwap) line("vwap", "VWAP", "#8b5cf6", { smooth: false, lineStyle: { width: 1.1, type: "dashed" } });
+    if (toggles.vwap) line("vwap", "VWAP", "#eab54f", { smooth: false, lineStyle: { width: 1.1, type: "dashed" } });
     if (toggles.bb) {
       line("bb_upper", "BB", "#5b6478", { lineStyle: { width: 1, opacity: 0.8 } });
       series.push({ type: "line", data: num(ov.bb_mid, end), xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: true, lineStyle: { color: "#5b6478", width: 0.8, type: "dotted", opacity: 0.7 }, name: "BBmid" });
@@ -175,7 +175,7 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
     // ---- oscillator pane ----
     if (toggles.osc === "rsi") {
       series.push({ type: "line", data: num(ov.rsi, end), xAxisIndex: oscGrid, yAxisIndex: oscGrid, showSymbol: false, smooth: true,
-        lineStyle: { color: "#8b5cf6", width: 1.2 }, name: "RSI",
+        lineStyle: { color: "#eab54f", width: 1.2 }, name: "RSI",
         markLine: { symbol: "none", silent: true, data: [
           { yAxis: 70, lineStyle: { color: "#f23645", type: "dashed", opacity: 0.5 }, label: { formatter: "70", color: "#8a93a6", fontSize: 9 } },
           { yAxis: 30, lineStyle: { color: "#089981", type: "dashed", opacity: 0.5 }, label: { formatter: "30", color: "#8a93a6", fontSize: 9 } },
@@ -208,7 +208,7 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
         { type: "inside", xAxisIndex: allX, startValue: startV, endValue: end - 1, zoomOnMouseWheel: true, moveOnMouseMove: true, minValueSpan: 20 },
         { type: "slider", xAxisIndex: allX, startValue: startV, endValue: end - 1, height: 18, bottom: 6,
           backgroundColor: "rgba(30,36,56,0.4)", fillerColor: "rgba(139,92,246,0.15)", borderColor: "#2a3350",
-          handleStyle: { color: "#8b5cf6" }, textStyle: { color: "#8a93a6", fontSize: 9 }, dataBackground: { lineStyle: { color: "#2a3350" }, areaStyle: { color: "#161d30" } } },
+          handleStyle: { color: "#eab54f" }, textStyle: { color: "#8a93a6", fontSize: 9 }, dataBackground: { lineStyle: { color: "#2a3350" }, areaStyle: { color: "#161d30" } } },
       ],
       tooltip: {
         trigger: "axis", axisPointer: { type: "cross", crossStyle: { color: "#5b6478" } },

@@ -47,7 +47,7 @@ export default function BacktestingPage() {
 
       <Card title="Equity Curve" subtitle="realized P&L of executed paper trades">
         <div className="chart-md">
-          <AreaLine labels={labels} series={[{ name: "Equity", data: equity, color: "#8b5cf6" }]}
+          <AreaLine labels={labels} series={[{ name: "Equity", data: equity, color: "#eab54f" }]}
                     valueFormatter={(v) => `$${v.toLocaleString()}`} />
         </div>
       </Card>

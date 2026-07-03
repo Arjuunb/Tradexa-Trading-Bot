@@ -58,7 +58,7 @@ export default function AnalyticsPage() {
       <div className="grid-2-1">
         <Card title="Equity Curve" subtitle="realized P&L of executed paper trades" className="span-2">
           <div className="chart-md">
-            <AreaLine labels={labels} series={[{ name: "Equity", data: equity, color: "#8b5cf6" }]}
+            <AreaLine labels={labels} series={[{ name: "Equity", data: equity, color: "#eab54f" }]}
                       valueFormatter={(v) => `$${v.toLocaleString()}`} />
           </div>
         </Card>

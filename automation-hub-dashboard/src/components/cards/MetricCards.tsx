@@ -15,7 +15,7 @@ export default function MetricCards() {
   const cards = [
     { key: "engine", label: "Engine", value: e?.running ? "Running" : "Stopped", sub: e ? `${e.symbols.length} symbols · ${e.timeframe}` : "—", color: e?.running ? "#22c55e" : "#ef4444", icon: "bot", tone: e?.running ? "green" : "" },
     { key: "open", label: "Open Positions", value: String(a?.open_positions ?? 0), sub: "live", color: "#3b82f6", icon: "layers", tone: "" },
-    { key: "signals", label: "Signals", value: String(e?.signals ?? 0), sub: `${e?.trades ?? 0} fills`, color: "#8b5cf6", icon: "target", tone: "" },
+    { key: "signals", label: "Signals", value: String(e?.signals ?? 0), sub: `${e?.trades ?? 0} fills`, color: "#eab54f", icon: "target", tone: "" },
     { key: "rejections", label: "Rejections", value: String(e?.rejections ?? 0), sub: "risk-blocked", color: "#eab54f", icon: "shield", tone: "" },
   ];
 

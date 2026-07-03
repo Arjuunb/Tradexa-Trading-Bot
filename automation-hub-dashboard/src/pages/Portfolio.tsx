@@ -5,7 +5,7 @@ import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, type LedgerPosition, type PaperAccount, type RiskSummary, type PortfolioRisk } from "../lib/api";
 
 const money = (n: number | undefined) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-const COLORS = ["#8b5cf6", "#22c55e", "#3b82f6", "#eab54f", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
+const COLORS = ["#eab54f", "#22c55e", "#3b82f6", "#eab54f", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
 
 export default function PortfolioPage() {
   const { data: acct } = useLive<PaperAccount>("/paper/account", 2500);

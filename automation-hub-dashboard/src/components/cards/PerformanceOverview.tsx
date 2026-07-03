@@ -30,7 +30,7 @@ export default function PerformanceOverview() {
             <div className="perf-value-row">
               <span className={`perf-value ${p.tone === "green" ? "pos" : p.tone === "red" ? "neg" : ""}`}>{p.value}</span>
               {p.spark && p.spark.length > 1 && (
-                <div className="perf-spark"><Sparkline data={p.spark} color="#8b5cf6" height={24} /></div>
+                <div className="perf-spark"><Sparkline data={p.spark} color="#eab54f" height={24} /></div>
               )}
             </div>
           </div>
