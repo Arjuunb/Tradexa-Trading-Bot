@@ -226,7 +226,7 @@ class AutoStrategyEngine:
                     self.last_source = src
                     # Live mode but the feed isn't actually live -> it will never
                     # deliver a NEW candle, so warn loudly instead of going quiet.
-                    if self.live and src != "live (ccxt)":
+                    if self.live and not (src or "").startswith("live"):
                         self.ledger.log(level="warning", stage="engine", symbol=sym,
                                         message=(f"{sym}: live feed unavailable — using '{src}'. "
                                                  f"No new {self.timeframe} candles will arrive; "

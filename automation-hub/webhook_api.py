@@ -113,6 +113,15 @@ def _make_strategy(symbol: str):
     return DecisionBrain(symbol)
 
 
+# WebSocket feed (live mode): push candles with REST fallback. Starts only if
+# ccxt.pro is available; otherwise the fetcher is a pure REST pass-through and
+# the watchdog/status endpoints report the degraded mode honestly.
+from data.ws_feed import WebSocketFeed  # noqa: E402
+from services.auto_engine import _default_fetcher  # noqa: E402
+ws_feed = WebSocketFeed(list(settings.auto_symbols), timeframe=settings.auto_timeframe)
+if settings.use_live_data:
+    ws_feed.start()
+
 engine = AutoStrategyEngine(
     pipeline, paper, ledger,
     symbols=list(settings.auto_symbols),
@@ -121,7 +130,14 @@ engine = AutoStrategyEngine(
     strategy_factory=_make_strategy,
     live=settings.use_live_data,
     live_poll_s=settings.live_poll_s,
+    fetcher=ws_feed.make_fetcher(_default_fetcher) if settings.use_live_data else None,
 )
+
+# Watchdog: alerts (ledger + Telegram) when the feed stalls, the engine thread
+# dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
+from services.watchdog import Watchdog  # noqa: E402
+watchdog = Watchdog(engine, ledger, notifier.dispatch, ws_feed=ws_feed)
+watchdog.start()
 
 # Apply persisted runtime overrides on top of env defaults.
 from services.runtime_settings import load_overrides, save_overrides  # noqa: E402
@@ -959,6 +975,22 @@ def set_execution_fill_model(body: FillModelBody, x_webhook_secret: Optional[str
         paper.fill_model = PerfectFill()
     ledger.log(level="info", stage="execution", message=f"Fill model set to {paper.fill_model.name}")
     return paper.fill_model.status()
+
+
+@router.get("/ops/watchdog")
+def ops_watchdog():
+    """Watchdog heartbeat + current findings (stalled feed, dead engine thread,
+    degraded websocket) and the live feed's stream status."""
+    return watchdog.status()
+
+
+@router.get("/market/funding")
+def market_funding(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT"):
+    """Live perp funding rates with interpretation (crowded side / squeeze
+    risk). Spot-only or offline -> available: false, never fabricated."""
+    from services.funding import funding_rates
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    return funding_rates(syms)
 
 
 @router.get("/execution/readiness")
