@@ -20,10 +20,12 @@ def _rows(n, start_min=0, tf_min=60, price=100.0):
 # ─────────────────────────── websocket feed ───────────────────────────
 def test_ws_feed_ingests_and_updates_in_progress_candle():
     feed = WebSocketFeed(["BTCUSDT"], timeframe="1h")
-    feed.ingest_rows("BTCUSDT", _rows(3, start_min=180))
+    rows = _rows(3, start_min=180)
+    feed.ingest_rows("BTCUSDT", rows)
     assert len(feed.get_bars("BTCUSDT")) == 3
     # same-timestamp row REPLACES the in-progress candle instead of appending
-    again = _rows(3, start_min=180)
+    # (reuse the SAME rows — rebuilding from now() would shift timestamps)
+    again = [list(r) for r in rows]
     again[-1][4] = 123.45
     feed.ingest_rows("BTCUSDT", again)
     bars = feed.get_bars("BTCUSDT")
