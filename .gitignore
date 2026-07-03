@@ -28,6 +28,8 @@ trading_bot/**/__pycache__/
 
 # real market-data cache (populated at runtime)
 automation-hub/logs/market_data.db
+# runtime backup snapshots (services/backup.py)
+automation-hub/logs/backups/
 automation-hub/**/market_data.db
 
 logs/providers.json
