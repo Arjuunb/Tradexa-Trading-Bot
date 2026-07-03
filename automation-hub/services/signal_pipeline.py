@@ -126,6 +126,7 @@ class SignalPipeline:
         # triggers a re-learn from the bot's own record.
         self.learning = None
         self._alert_info: dict[str, dict] = {}   # alert_id -> confidence/regime
+        self._alert_info_hydrated = False        # rebuilt from the ledger once
         # Event-risk gate: callable returning upcoming econ events. Blackout
         # halts new entries; caution halves size (exits are never blocked).
         self.econ_events = None
@@ -229,7 +230,7 @@ class SignalPipeline:
                 try:
                     costing = (self.counterfactual.costing_rules()
                                if self.counterfactual is not None else None)
-                    self.learning.update(self.paper.history(), self._alert_info,
+                    self.learning.update(self.paper.history(), self.alert_context(),
                                          costing_rules=costing)
                 except Exception:  # noqa: BLE001 — learning must never block trading
                     pass
@@ -522,6 +523,28 @@ class SignalPipeline:
             return (f"Max drawdown breached "
                     f"({max_drawdown(eq) * 100:.1f}% > {self.max_drawdown_pct * 100:.0f}%)")
         return None
+
+    def alert_context(self) -> dict:
+        """alert_id -> {confidence, regime} for the learning loop. Restarts
+        used to wipe this (it was memory-only), starving the regime and
+        conviction lessons; it now rehydrates once from the ledger's webhook
+        events, where every accepted entry's payload is already persisted."""
+        if not self._alert_info_hydrated:
+            self._alert_info_hydrated = True
+            try:
+                for ev in self.ledger.get_webhook_events(limit=500):
+                    if ev.get("status") != "accepted":
+                        continue
+                    p = ev.get("payload") or {}
+                    aid = ev.get("alert_id") or ""
+                    if aid and aid not in self._alert_info and (
+                            "confidence" in p or "regime" in p):
+                        self._alert_info[aid] = {
+                            "confidence": float(p.get("confidence", 1.0) or 1.0),
+                            "regime": p.get("regime", "")}
+            except Exception:  # noqa: BLE001 — hydration is best-effort
+                pass
+        return self._alert_info
 
     def _kelly_factor(self, min_trades: int = 20, lookback: int = 40) -> float:
         """Kelly-capped risk multiplier from the bot's own recent closed trades.

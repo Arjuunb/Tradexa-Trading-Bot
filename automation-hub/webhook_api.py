@@ -183,11 +183,33 @@ def _daily_report_data() -> dict:
                         counterfactual_report=counterfactual.report())
 
 
+_last_retune: dict = {}
+
+
+def _auto_retune_check() -> None:
+    """Nightly: if the live record has diverged from the backtest promise and
+    nothing is auditioning yet, search for a retuned brain and shadow it."""
+    global _last_retune
+    if engine.shadow is not None:
+        return
+    from services.retune import retune
+    from services.track_record import track_record
+    tr = track_record(paper.history(), strategy="Decision Brain",
+                      symbol=engine.symbols[0], timeframe=engine.timeframe)
+    res = retune(engine, notifier.dispatch, timeframe=engine.timeframe,
+                 track_verdict=tr.get("verdict"))
+    if res.get("ran"):
+        _last_retune = res
+        ledger.log(level="info", stage="research",
+                   message=f"Auto-retune: {res.get('verdict')} — {res.get('detail', '')[:160]}")
+
+
 daily_tasks = DailyTasks(
     notifier.send_async, _daily_report_data,
     hour=int(_os.environ.get("HUB_DAILY_REPORT_HOUR", "8")),
     extra=[lambda: ledger.log(level="info", stage="ops",
-                              message=f"Nightly backup: {_backup_now(str(_config.DATA_DIR))['snapshot']}")])
+                              message=f"Nightly backup: {_backup_now(str(_config.DATA_DIR))['snapshot']}"),
+           _auto_retune_check])
 daily_tasks.start()
 
 # Apply persisted runtime overrides on top of env defaults.
@@ -1081,6 +1103,29 @@ def shadow_report():
     return {"active": True, **engine.shadow.report(live)}
 
 
+@router.post("/retune/run")
+def research_retune(timeframe: str = "", x_webhook_secret: str = Header(default="")):
+    """Run the self-retune search now: grid over brain configs on REAL data
+    (train/test split); if a candidate beats the incumbent on unseen data it
+    auto-starts as a shadow. Promotion stays manual."""
+    _check_secret(x_webhook_secret)
+    global _last_retune
+    from services.retune import retune
+    res = retune(engine, notifier.dispatch,
+                 timeframe=timeframe or engine.timeframe, force=True)
+    _last_retune = res
+    ledger.log(level="info", stage="research",
+               message=f"Manual retune: {res.get('verdict', '-')}")
+    return res
+
+
+@router.get("/retune/report")
+def research_retune_report():
+    """The last retune run (manual or nightly auto-check)."""
+    return _last_retune or {"ran": False, "note": "No retune has run yet. "
+                            "POST /retune/run to search now."}
+
+
 @router.get("/counterfactual/report")
 def counterfactual_report():
     """Every gate graded by what it actually blocked: saved_r per rule
@@ -1101,7 +1146,7 @@ def learning_report():
 def learning_run(x_webhook_secret: str = Header(default="")):
     """Force a re-learn from the full trade history right now."""
     _check_secret(x_webhook_secret)
-    return learning_book.update(paper.history(), pipeline._alert_info)
+    return learning_book.update(paper.history(), pipeline.alert_context())
 
 
 @router.get("/report/daily")
