@@ -105,6 +105,9 @@ class AutoStrategyEngine:
         self.limit_ttl_bars = max(1, int(limit_ttl_bars))
         self._pending: dict[str, dict] = {}     # symbol -> resting limit order
         self.stats_missed_entries = 0
+        # Shadow A/B: an optional services.shadow.ShadowRun fed the SAME bars
+        # the live strategy trades — a candidate audition with zero capital.
+        self.shadow = None
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -287,6 +290,12 @@ class AutoStrategyEngine:
         except Exception:  # noqa: BLE001
             self.last_bar_ts = str(getattr(bar, "timestamp", ""))
         self.last_activity = datetime.now(timezone.utc).isoformat()
+        # 0. shadow candidate sees the same bar (virtual, zero capital).
+        if self.shadow is not None:
+            try:
+                self.shadow.on_bar(sym, bar)
+            except Exception:  # noqa: BLE001 — the shadow must never affect live
+                pass
         # 1. resting limit entry: fill if this bar traded through it.
         self._check_pending(sym, bar)
         # 2. stop-loss / take-profit exits against this bar's range.

@@ -70,6 +70,12 @@ alert_channels = AlertChannels(notifier, _os.path.join(_os.path.dirname(settings
 # Economic-event calendar (user-set / provider-fed upcoming events).
 from services.econ_guard import EconCalendar  # noqa: E402
 econ_calendar = EconCalendar(_os.path.join(_os.path.dirname(settings.providers_path), "econ_events.json"))
+# Event-risk gate: the pipeline halts new entries in the blackout window
+# around high-impact events and halves size in the caution window.
+pipeline.econ_events = econ_calendar.events
+# Allocator tilt: size up symbols with a proven recent live record (bounded).
+from services.allocator import risk_weights as _alloc_weights  # noqa: E402
+pipeline.allocator = lambda sym: _alloc_weights(paper.history(), [sym]).get(sym.upper(), 1.0)
 
 # Trade journal (auto-entries from closed trades, human-editable).
 from services.journal import JournalStore  # noqa: E402
@@ -106,6 +112,10 @@ bot_os.bus.publish("system", "boot", {"msg": "Bot OS initialised"})
 # the simple EMA crossover instead.
 def _make_strategy(symbol: str):
     s = settings.auto_strategy
+    if s == "adaptive":
+        # multi-strategy allocation: per-symbol pick from market memory
+        from services.allocator import adaptive_factory
+        return adaptive_factory(memory_store, settings.auto_timeframe)(symbol)
     if s == "ema":
         from strategies.ema_strategy import EMAStrategy
         return EMAStrategy(symbol)
@@ -984,6 +994,59 @@ def set_execution_fill_model(body: FillModelBody, x_webhook_secret: Optional[str
         paper.fill_model = PerfectFill()
     ledger.log(level="info", stage="execution", message=f"Fill model set to {paper.fill_model.name}")
     return paper.fill_model.status()
+
+
+@router.get("/allocation/report")
+def allocation_report_endpoint():
+    """What the allocator would do right now: per-symbol size tilt from the
+    live record + the strategy memory recommends per symbol."""
+    from services.allocator import allocation_report
+    from services.strategy_presets import SYMBOLS
+    return allocation_report(paper.history(), SYMBOLS, memory_store)
+
+
+@router.post("/shadow/start")
+def shadow_start(strategy: str = "Decision Brain", conviction: float = 0.0,
+                 x_webhook_secret: str = Header(default="")):
+    """Audition a candidate strategy on the live engine's bars with zero
+    capital. ``conviction`` overrides the brain's threshold when > 0."""
+    _check_secret(x_webhook_secret)
+    from services.shadow import ShadowRun
+    from services.strategy_presets import make_replay_strategy
+
+    def factory(sym: str):
+        strat, err, _sid = make_replay_strategy(strategy, sym, settings.auto_timeframe)
+        if strat is None or err:
+            from strategies.brain_strategy import DecisionBrain
+            strat = DecisionBrain(sym)
+        if conviction > 0 and hasattr(strat, "params"):
+            strat.params["conviction_threshold"] = float(conviction)
+        return strat
+
+    label = strategy + (f" @conv {conviction}" if conviction > 0 else "")
+    engine.shadow = ShadowRun(label, factory, engine.symbols)
+    ledger.log(level="info", stage="engine", message=f"Shadow started: {label}")
+    return {"started": True, "candidate": label, "symbols": engine.symbols}
+
+
+@router.post("/shadow/stop")
+def shadow_stop(x_webhook_secret: str = Header(default="")):
+    _check_secret(x_webhook_secret)
+    was = engine.shadow.name if engine.shadow else None
+    engine.shadow = None
+    return {"stopped": was is not None, "candidate": was}
+
+
+@router.get("/shadow/report")
+def shadow_report():
+    """Candidate vs incumbent on the same live candles, with a promotion
+    verdict once both sides have 20+ closed trades."""
+    from services.shadow import live_stats_from_history
+    if engine.shadow is None:
+        return {"active": False,
+                "note": "No shadow running. POST /shadow/start to audition a candidate."}
+    live = live_stats_from_history(paper.history(), since_iso=engine.shadow.started_at)
+    return {"active": True, **engine.shadow.report(live)}
 
 
 @router.get("/learning/report")
