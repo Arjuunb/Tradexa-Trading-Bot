@@ -53,7 +53,7 @@ class DecisionBrain(HubStrategy):
     def __init__(self, symbol: str, *, fast: int = 12, slow: int = 26,
                  trend: int = 50, rsi_period: int = 14,
                  conviction_threshold: float = 0.56, max_history: int = 600, **params):
-        params.setdefault("rr_target", 2.5)  # validated reward:risk (walk-forward)
+        params.setdefault("rr_target", 3.0)  # validated reward:risk (out-of-sample sweep)
         super().__init__(symbol, fast=fast, slow=slow, trend=trend,
                          rsi_period=rsi_period, conviction_threshold=conviction_threshold,
                          **params)
