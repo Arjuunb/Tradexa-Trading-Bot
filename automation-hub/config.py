@@ -10,6 +10,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+# All persistent state (ledger, market data, learning, settings) lives here.
+# On cloud hosts the app directory is EPHEMERAL — attach a persistent disk and
+# set HUB_DATA_DIR to its mount path so trade history and learned lessons
+# survive redeploys. Individual HUB_*_PATH vars still override per-file.
+DATA_DIR = Path(os.environ.get("HUB_DATA_DIR") or (BASE_DIR / "logs"))
 
 
 def _load_dotenv(path: Path) -> None:
@@ -51,13 +56,13 @@ class Settings:
 
     # --- persistence (Phase 6) ---
     db_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_DB_PATH", str(BASE_DIR / "logs" / "hub.db")))
+        "HUB_DB_PATH", str(DATA_DIR / "hub.db")))
 
     # --- Kyros Phase 1: webhook + ledger ---
     webhook_secret: str = field(default_factory=lambda: os.environ.get("HUB_WEBHOOK_SECRET", "dev-webhook-secret"))
     exposure_limit_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_EXPOSURE_LIMIT", "0.05")))
     ledger_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_LEDGER_PATH", str(BASE_DIR / "logs" / "ledger.db")))
+        "HUB_LEDGER_PATH", str(DATA_DIR / "ledger.db")))
     dedup_window_s: int = field(default_factory=lambda: int(os.environ.get("HUB_DEDUP_WINDOW", "300")))
 
     # --- autonomous strategy engine (real signals -> paper execution) ---
@@ -91,22 +96,22 @@ class Settings:
     # allowed trading days bitmask (bit 0=Mon .. 6=Sun). 127 = all days.
     trading_days_mask: int = field(default_factory=lambda: int(os.environ.get("HUB_TRADING_DAYS", "127")))
     settings_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_SETTINGS_PATH", str(BASE_DIR / "logs" / "runtime_settings.json")))
+        "HUB_SETTINGS_PATH", str(DATA_DIR / "runtime_settings.json")))
     custom_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_CUSTOM_PATH", str(BASE_DIR / "logs" / "custom_strategies.json")))
+        "HUB_CUSTOM_PATH", str(DATA_DIR / "custom_strategies.json")))
     # Evolution Engine stores
     lessons_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_LESSONS_PATH", str(BASE_DIR / "logs" / "lessons.json")))
+        "HUB_LESSONS_PATH", str(DATA_DIR / "lessons.json")))
     upgrades_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_UPGRADES_PATH", str(BASE_DIR / "logs" / "upgrades.json")))
+        "HUB_UPGRADES_PATH", str(DATA_DIR / "upgrades.json")))
     versions_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_VERSIONS_PATH", str(BASE_DIR / "logs" / "strategy_versions.json")))
+        "HUB_VERSIONS_PATH", str(DATA_DIR / "strategy_versions.json")))
     # Historical market-data cache (real Binance candles)
     market_db: str = field(default_factory=lambda: os.environ.get(
-        "HUB_MARKET_DB", str(BASE_DIR / "logs" / "market_data.db")))
+        "HUB_MARKET_DB", str(DATA_DIR / "market_data.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
-        "HUB_PROVIDERS_PATH", str(BASE_DIR / "logs" / "providers.json")))
+        "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))
 
     # --- notifications (Phase 5) ---
     telegram_token: str = field(default_factory=lambda: os.environ.get("TELEGRAM_BOT_TOKEN", ""))

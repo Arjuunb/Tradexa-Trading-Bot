@@ -88,7 +88,7 @@ def test_update_incremental(tmp_path):
 
 def test_supported_universe():
     assert set(SYMBOLS) == {"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"}
-    assert set(TIMEFRAMES) == {"1w", "1d", "4h", "15m", "5m"}
+    assert set(TIMEFRAMES) == {"1w", "1d", "4h", "1h", "15m", "5m"}
 
 
 # ---- endpoints ----
