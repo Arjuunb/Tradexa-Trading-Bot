@@ -121,6 +121,11 @@ class SignalPipeline:
         self.equity_throttle = equity_throttle
         # Optional notification hook: callable(kind, title, detail). Best-effort.
         self.notifier = None
+        # Self-learning loop (services/learning.LearningBook). When attached,
+        # learned corrections gate entries + scale risk, and every close
+        # triggers a re-learn from the bot's own record.
+        self.learning = None
+        self._alert_info: dict[str, dict] = {}   # alert_id -> confidence/regime
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -191,6 +196,12 @@ class SignalPipeline:
                 dd = self._drawdown_trip()
                 if dd is not None:
                     self._engage_halt(dd)
+            # every closed trade is a datapoint: re-learn from the full record
+            if self.learning is not None:
+                try:
+                    self.learning.update(self.paper.history(), self._alert_info)
+                except Exception:  # noqa: BLE001 — learning must never block trading
+                    pass
             return PipelineResult(True, "execution", "position closed", steps, fill.__dict__)
 
         # 3b. OPEN — no pyramiding in Phase 1
@@ -213,6 +224,17 @@ class SignalPipeline:
                               f"(max {self.max_correlated_positions}) — correlated exposure")
             steps.append(Step("correlation", True,
                               f"{same}/{self.max_correlated_positions} {direction} in {cluster}"))
+
+        # 3c3. learned blocks — corrections the bot taught itself from its own
+        # losing trades (bad regime, low conviction, post-loss cooldown)
+        if self.learning is not None:
+            secs = self._since_last_loss()
+            why = self.learning.gate(symbol=symbol, regime=payload.get("regime", ""),
+                                     confidence=confidence,
+                                     minutes_since_loss=None if secs is None else secs / 60)
+            if why:
+                return reject("learning", why)
+            steps.append(Step("learning", True, "no learned blocks"))
 
         # 3d. drawdown circuit breaker — auto-halt NEW ENTRIES until manual resume
         #     (exits are never blocked, so open positions can always stop out).
@@ -281,14 +303,16 @@ class SignalPipeline:
         eff_risk = self.risk_per_trade_pct * (0.5 + 0.5 * confidence)
         kf = self._kelly_factor() if self.adaptive_risk else 1.0
         ef = self._equity_curve_factor() if self.equity_throttle else 1.0
-        eff_risk *= kf * ef
+        lf = self.learning.risk_multiplier(symbol) if self.learning is not None else 1.0
+        eff_risk *= kf * ef * lf
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
         kelly_note = f" × kelly {kf:.2f}" if kf < 1.0 else ""
         curve_note = f" × curve {ef:.2f}" if ef < 1.0 else ""
+        learned_note = f" × learned {lf:.2f}" if lf < 1.0 else ""
         steps.append(Step("risk", True,
-                          f"conf {confidence:.2f}{kelly_note}{curve_note}"
+                          f"conf {confidence:.2f}{kelly_note}{curve_note}{learned_note}"
                           f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
@@ -335,6 +359,12 @@ class SignalPipeline:
                               detail=(brain_reason or f"{side} {size:.6f} @ {entry}"))
         self._notify("trade", f"📈 {symbol} {side} opened", f"{size:.6f} @ {entry}")
         steps.append(Step("execution", True, f"opened {size:.6f} @ {entry}"))
+        # remember entry context so the learning loop can study this trade later
+        if alert_id:
+            self._alert_info[alert_id] = {"confidence": confidence,
+                                          "regime": payload.get("regime", "")}
+            if len(self._alert_info) > 500:
+                self._alert_info.pop(next(iter(self._alert_info)))
         return PipelineResult(True, "execution", "paper trade opened", steps, fill.__dict__)
 
     # ----------------------------------------------------- auto risk guard

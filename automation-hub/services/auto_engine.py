@@ -355,6 +355,7 @@ class AutoStrategyEngine:
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
             "confidence": getattr(signal, "confidence", 1.0),
+            "regime": getattr(signal, "regime", ""),
             "reason": getattr(signal, "reason", ""),
             "timestamp": signal.timestamp.isoformat(),
         })
