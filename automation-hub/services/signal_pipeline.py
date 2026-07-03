@@ -126,6 +126,12 @@ class SignalPipeline:
         # triggers a re-learn from the bot's own record.
         self.learning = None
         self._alert_info: dict[str, dict] = {}   # alert_id -> confidence/regime
+        # Event-risk gate: callable returning upcoming econ events. Blackout
+        # halts new entries; caution halves size (exits are never blocked).
+        self.econ_events = None
+        # Allocator tilt: callable(symbol) -> size multiplier from the live
+        # per-symbol record (evidence-only, capped — see services/allocator.py).
+        self.allocator = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -225,6 +231,22 @@ class SignalPipeline:
             steps.append(Step("correlation", True,
                               f"{same}/{self.max_correlated_positions} {direction} in {cluster}"))
 
+        # 3c2b. event-risk gate — high-impact macro events (CPI/FOMC/NFP) spike
+        # volatility and gap stops; inside the blackout window no NEW entries.
+        econ_risk = 1.0
+        if self.econ_events is not None:
+            from services.econ_guard import evaluate as _econ_eval
+            ev = _econ_eval(self.econ_events())
+            if ev["halt_new_entries"]:
+                return reject("event_risk",
+                              f"Event blackout: {ev['next_event']['name']} in "
+                              f"{ev['minutes_to_event']:.0f}m — no new entries")
+            econ_risk = ev.get("risk_multiplier", 1.0) or 1.0
+            if econ_risk < 1.0:
+                steps.append(Step("event_risk", True,
+                                  f"caution: {ev['next_event']['name']} in "
+                                  f"{ev['minutes_to_event']:.0f}m → risk ×{econ_risk:.2f}"))
+
         # 3c3. learned blocks — corrections the bot taught itself from its own
         # losing trades (bad regime, low conviction, post-loss cooldown)
         if self.learning is not None:
@@ -304,15 +326,19 @@ class SignalPipeline:
         kf = self._kelly_factor() if self.adaptive_risk else 1.0
         ef = self._equity_curve_factor() if self.equity_throttle else 1.0
         lf = self.learning.risk_multiplier(symbol) if self.learning is not None else 1.0
-        eff_risk *= kf * ef * lf
+        af = float(self.allocator(symbol)) if self.allocator is not None else 1.0
+        eff_risk *= kf * ef * lf * af * econ_risk
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
         kelly_note = f" × kelly {kf:.2f}" if kf < 1.0 else ""
         curve_note = f" × curve {ef:.2f}" if ef < 1.0 else ""
         learned_note = f" × learned {lf:.2f}" if lf < 1.0 else ""
+        alloc_note = f" × alloc {af:.2f}" if af != 1.0 else ""
+        event_note = f" × event {econ_risk:.2f}" if econ_risk < 1.0 else ""
         steps.append(Step("risk", True,
                           f"conf {confidence:.2f}{kelly_note}{curve_note}{learned_note}"
+                          f"{alloc_note}{event_note}"
                           f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
