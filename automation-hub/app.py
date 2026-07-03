@@ -62,6 +62,24 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# API protection: every data/control endpoint requires a signed-in session
+# (cookie) or the webhook secret (header). Exempt: the auth flow itself, the
+# TradingView webhook (it authenticates with the secret in its own handler),
+# static assets, and "/" (which redirects anonymous visitors to /login).
+_AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
+                "/favicon", "/docs", "/openapi.json", "/redoc", "/health")
+
+
+@app.middleware("http")
+async def _require_auth(request: Request, call_next):
+    path = request.url.path
+    if (path == "/" or any(path.startswith(p) for p in _AUTH_EXEMPT)
+            or _user(request)
+            or request.headers.get("x-webhook-secret") == settings.webhook_secret):
+        return await call_next(request)
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"error": "Sign in required"}, status_code=401)
+
 # Single-origin UI: when the React build is present (copied into ./webui by the
 # Docker image), serve it from this backend so Render shows the SAME dashboard as
 # Vercel. Assets are mounted; index.html is served at "/" with runtime config
@@ -104,14 +122,47 @@ def _start_auto_engine() -> None:
 from dashboard.stream import HubEventHub, sse_format  # noqa: E402
 hub_events = HubEventHub()
 
-# token -> username (Phase 1 in-memory session store)
+# token -> username (legacy in-memory sessions; kept for test fixtures)
 _sessions: dict[str, str] = {}
 COOKIE = "hub_session"
+SESSION_DAYS = 7
 
 
 # --------------------------------------------------------------- auth helpers
+def _sign_session(username: str) -> str:
+    """Stateless signed session token (survives server restarts — important on
+    hosts that spin down): username|expiry|HMAC(secret, username|expiry)."""
+    import hashlib
+    import hmac as _hmac
+    import time
+    exp = str(int(time.time()) + SESSION_DAYS * 86400)
+    msg = f"{username}|{exp}"
+    sig = _hmac.new(settings.webhook_secret.encode(), msg.encode(),
+                    hashlib.sha256).hexdigest()
+    return f"{msg}|{sig}"
+
+
+def _verify_session(token: str):
+    import hashlib
+    import hmac as _hmac
+    import time
+    try:
+        username, exp, sig = token.rsplit("|", 2)
+    except ValueError:
+        return None
+    msg = f"{username}|{exp}"
+    good = _hmac.new(settings.webhook_secret.encode(), msg.encode(),
+                     hashlib.sha256).hexdigest()
+    if not _hmac.compare_digest(sig, good):
+        return None
+    if int(exp) < time.time():
+        return None
+    return username if store.get_user(username) else None
+
+
 def _user(request: Request):
-    return _sessions.get(request.cookies.get(COOKIE, ""))
+    token = request.cookies.get(COOKIE, "")
+    return _verify_session(token) or _sessions.get(token)
 
 
 def _require(request: Request):
@@ -120,32 +171,94 @@ def _require(request: Request):
     return u if u else RedirectResponse("/login", status_code=303)
 
 
+def _signup_open() -> bool:
+    """Signup creates the single OWNER account. It stays open only while the
+    seeded default admin is the sole user — after that this hub has an owner."""
+    return all(u.username == settings.username for u in store.list_users())
+
+
 # ----------------------------------------------------------------------- login
+def _auth_page(title: str, body: str) -> str:
+    return f'''<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{w.esc(title)} · Tradexa</title><style>{w._CSS}</style></head>
+<body>{body}</body></html>'''
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
-    return f'''<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Login · {w.esc(settings.app_name)}</title><style>{w._CSS}</style></head>
-<body><form class="login" method="post" action="/login">
-<h1>⚡ {w.esc(settings.app_name)}</h1>
-<p>Sign in to your automation workspace.</p>
-<label>Username</label><input name="username" autofocus value="admin">
+    signup = ('<p style="margin-top:12px">New here? '
+              '<a href="/signup">Create your Tradexa account</a></p>'
+              if _signup_open() else "")
+    return _auth_page("Sign in", f'''<form class="login" method="post" action="/login">
+<h1>⚡ Tradexa</h1>
+<p>Sign in to your trading workspace.</p>
+<label>Username</label><input name="username" autofocus>
 <label>Password</label><input name="password" type="password">
-<div style="margin-top:16px"><button class="btn" style="width:100%" type="submit">Log in</button></div>
-{err}</form></body></html>'''
+<div style="margin-top:16px"><button class="btn" style="width:100%" type="submit">Sign in</button></div>
+{err}{signup}</form>''')
 
 
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
-    # Phase 7: verify against hashed credentials in the user store.
+    # verify against hashed credentials; signed cookie survives restarts
     if store.authenticate(username, password) is not None:
-        token = secrets.token_urlsafe(24)
-        _sessions[token] = username
         resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(COOKIE, token, httponly=True, samesite="lax")
+        resp.set_cookie(COOKIE, _sign_session(username), httponly=True,
+                        samesite="lax", max_age=SESSION_DAYS * 86400)
         return resp
     return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_form(error: str = "") -> str:
+    if not _signup_open():
+        return _auth_page("Sign up", '''<form class="login">
+<h1>⚡ Tradexa</h1><p>This hub already has an owner account.</p>
+<p><a href="/login">Sign in instead</a></p></form>''')
+    err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+    return _auth_page("Create account", f'''<form class="login" method="post" action="/signup">
+<h1>⚡ Tradexa</h1>
+<p>Create the owner account for this trading hub. There is exactly one —
+it controls the bot, so pick a strong password.</p>
+<label>Username</label><input name="username" autofocus>
+<label>Password (8+ characters)</label><input name="password" type="password">
+<label>Confirm password</label><input name="confirm" type="password">
+<div style="margin-top:16px"><button class="btn" style="width:100%" type="submit">Create account</button></div>
+{err}<p style="margin-top:12px"><a href="/login">Back to sign in</a></p></form>''')
+
+
+def _create_owner(username: str, password: str, confirm: str):
+    """Shared signup rules. Returns (username, None) or (None, error)."""
+    if not _signup_open():
+        return None, "This hub already has an owner account"
+    username = (username or "").strip()
+    if not (3 <= len(username) <= 32) or not username.replace("_", "").isalnum():
+        return None, "Username must be 3–32 letters/digits/underscores"
+    if len(password or "") < 8:
+        return None, "Password must be at least 8 characters"
+    if password != confirm:
+        return None, "Passwords do not match"
+    if store.get_user(username):
+        return None, "That username is taken"
+    store.create_user(username, password, role="owner")
+    # lock the seeded default admin if it still carries the default password —
+    # the owner account is now the only way in
+    if username != settings.username and store.authenticate(settings.username, settings.password):
+        store.set_password(settings.username, secrets.token_urlsafe(24))
+    return username, None
+
+
+@app.post("/signup")
+def signup(username: str = Form(...), password: str = Form(...), confirm: str = Form(...)):
+    user, err = _create_owner(username, password, confirm)
+    if err:
+        return RedirectResponse(f"/signup?error={err.replace(' ', '+')}", status_code=303)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(COOKIE, _sign_session(user), httponly=True,
+                    samesite="lax", max_age=SESSION_DAYS * 86400)
+    return resp
 
 
 @app.post("/logout")
@@ -156,15 +269,51 @@ def logout(request: Request):
     return resp
 
 
+# ------------------------------------------------------------- auth JSON API
+@app.get("/auth/status")
+def auth_status(request: Request):
+    """For the React app: who am I, and is first-time signup still open?"""
+    u = _user(request)
+    return {"authenticated": bool(u), "user": u, "signup_open": _signup_open()}
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    _sessions.pop(request.cookies.get(COOKIE, ""), None)
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(COOKIE)
+    return resp
+
+
+@app.post("/auth/change-password")
+async def auth_change_password(request: Request):
+    u = _user(request)
+    from fastapi.responses import JSONResponse
+    if not u:
+        return JSONResponse({"error": "Not signed in"}, status_code=401)
+    body = await request.json()
+    current, new = str(body.get("current", "")), str(body.get("new", ""))
+    if store.authenticate(u, current) is None:
+        return JSONResponse({"error": "Current password is wrong"}, status_code=400)
+    if len(new) < 8:
+        return JSONResponse({"error": "New password must be at least 8 characters"}, status_code=400)
+    if hasattr(store, "set_password"):
+        store.set_password(u, new)
+        return {"ok": True, "note": "Password changed."}
+    return JSONResponse({"error": "Password change not supported by this store"}, status_code=500)
+
+
 # ------------------------------------------------------------------- dashboard
 @app.get("/", response_class=HTMLResponse)
 def overview(request: Request):
-    # Serve the React dashboard when it's bundled (production); else the legacy UI.
-    if _WEBUI_READY:
-        return _serve_react()
+    # ALL dashboards require sign-in — the served page carries the control
+    # secret, so an anonymous visitor must never receive it.
     u = _require(request)
     if isinstance(u, RedirectResponse):
         return u
+    if _WEBUI_READY:
+        return _serve_react()
     return HTMLResponse(render_overview(manager, user=u))
 
 

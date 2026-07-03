@@ -61,6 +61,8 @@ export default function SettingsPage() {
         maxday: String(data.editable.max_trades_per_day),
         consec: String(data.editable.max_consecutive_losses),
         cooldown: String(data.editable.cooldown_after_loss_min),
+        entrymode: data.editable.entry_mode ?? "limit",
+        reporthour: String(data.editable.daily_report_hour ?? 8),
       });
     }
   }, [data, f]);
@@ -84,6 +86,8 @@ export default function SettingsPage() {
         max_consecutive_losses: Math.round(Number(f.consec)),
         cooldown_after_loss_min: Math.round(Number(f.cooldown)),
         trading_days_mask: days.reduce((acc, on, i) => (on ? acc | (1 << i) : acc), 0),
+        entry_mode: f.entrymode === "market" ? "market" : "limit",
+        daily_report_hour: Math.round(Number(f.reporthour)),
       });
       app.toast("Settings saved & applied (persisted on backend)", "success");
       refetch();
@@ -110,6 +114,8 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <AccountCard />
+
       <div className="grid-2-eq">
         <Card title="Risk Management" subtitle="editable · applied live + persisted">
           <div className="form-grid-2">
@@ -126,6 +132,15 @@ export default function SettingsPage() {
           <div className="form-grid-2">
             <Field label="Max open positions"><input value={f.maxpos ?? ""} onChange={set("maxpos")} inputMode="numeric" /></Field>
             <Field label="Duplicate window (s)" hint="reject repeat alert_id within this window"><input value={f.dedup ?? ""} onChange={set("dedup")} inputMode="numeric" /></Field>
+            <Field label="Entry mode" hint="limit = maker entries (measured better); market = immediate">
+              <select value={f.entrymode ?? "limit"} onChange={(e) => setF((prev) => ({ ...prev, entrymode: e.target.value }))}>
+                <option value="limit">limit (maker)</option>
+                <option value="market">market (taker)</option>
+              </select>
+            </Field>
+            <Field label="Daily report hour (UTC)" hint="-1 disables the Telegram morning report">
+              <input value={f.reporthour ?? ""} onChange={set("reporthour")} inputMode="numeric" />
+            </Field>
           </div>
         </Card>
       </div>
@@ -244,6 +259,57 @@ export default function SettingsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function AccountCard() {
+  const app = useApp();
+  const auth = useLive<{ authenticated: boolean; user: string | null; signup_open: boolean }>("/auth/status", 30000);
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+
+  const logout = async () => {
+    try { await fetch(`${API_BASE}/auth/logout`, { method: "POST" }); } catch { /* ignore */ }
+    window.location.href = "/login";
+  };
+  const changePw = async () => {
+    if (pw.next.length < 8) { app.toast("New password must be 8+ characters", "error"); return; }
+    if (pw.next !== pw.confirm) { app.toast("Passwords do not match", "error"); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/change-password`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: pw.current, new: pw.next }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) app.toast(body.error ?? "Change failed", "error");
+      else { app.toast("Password changed ✅", "success"); setPw({ current: "", next: "", confirm: "" }); }
+    } catch { app.toast("Change failed — backend unreachable?", "error"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card title="Tradexa Account" subtitle="who is signed in · change password · sign out"
+      right={<button className="btn btn-danger" onClick={logout}><Icon name="close" size={13} /> Log out</button>}>
+      <div className="risk-list" style={{ marginBottom: 10 }}>
+        <div className="risk-item"><span className="dim">Signed in as</span>
+          <b>{auth.data?.user ?? (auth.data?.authenticated === false ? "not signed in" : "…")}</b></div>
+        <div className="risk-item"><span className="dim">Sessions</span>
+          <span className="dim" style={{ fontSize: 12 }}>signed cookies · valid 7 days · survive restarts</span></div>
+      </div>
+      <div className="form-grid-2">
+        <Field label="Current password"><input type="password" value={pw.current}
+          onChange={(e) => setPw((s) => ({ ...s, current: e.target.value }))} /></Field>
+        <Field label="New password (8+)"><input type="password" value={pw.next}
+          onChange={(e) => setPw((s) => ({ ...s, next: e.target.value }))} /></Field>
+        <Field label="Confirm new password"><input type="password" value={pw.confirm}
+          onChange={(e) => setPw((s) => ({ ...s, confirm: e.target.value }))} /></Field>
+      </div>
+      <div className="row-actions" style={{ justifyContent: "flex-start", marginTop: 8 }}>
+        <button className="btn btn-soft" disabled={busy} onClick={changePw}>
+          {busy ? "Changing…" : "Change password"}</button>
+      </div>
+    </Card>
   );
 }
 

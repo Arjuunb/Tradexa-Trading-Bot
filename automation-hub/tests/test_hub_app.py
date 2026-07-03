@@ -26,7 +26,7 @@ def _login(client) -> None:
     r = client.post("/login", data={"username": "admin", "password": "admin"})
     assert r.status_code == 303
     token = r.cookies.get(hub_app.COOKIE)
-    assert token and token in hub_app._sessions
+    assert token and hub_app._verify_session(token) == "admin"  # signed, stateless
 
 
 def test_dashboard_requires_login(client):

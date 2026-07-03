@@ -123,5 +123,11 @@ class SqliteStore:
         if self.count_users() == 0:
             self.create_user(username, password, role="admin")
 
+    def set_password(self, username: str, new_password: str) -> None:
+        salt, pw_hash = auth.hash_password(new_password)
+        self._conn.execute("UPDATE users SET password_hash=?, salt=? WHERE username=?",
+                           (pw_hash, salt, username))
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()
