@@ -35,6 +35,7 @@ WINDOW = 200            # analyze at most the last N closed trades
 EXPIRY_DAYS = 14        # a lesson must re-confirm within this or it relaxes
 MIN_RISK_MULT = 0.5     # bounded: probation never cuts risk below half
 MAX_CONF_BUMP = 0.15    # bounded: learned confidence floor cap
+MAX_BOOST = 1.25        # bounded: a proven winning pattern sizes up at most 25%
 
 
 def _parse_ts(s) -> Optional[datetime]:
@@ -49,8 +50,10 @@ def _stats(trades: list[dict]) -> dict:
     n = len(trades)
     net = sum(t.get("pnl") or 0.0 for t in trades)
     wins = sum(1 for t in trades if (t.get("pnl") or 0.0) > 0)
+    rs = [float(t["rr"]) for t in trades if t.get("rr") is not None]
     return {"trades": n, "net_pnl": round(net, 2),
-            "win_rate": round(100.0 * wins / n, 1) if n else 0.0}
+            "win_rate": round(100.0 * wins / n, 1) if n else 0.0,
+            "expectancy_r": round(sum(rs) / len(rs), 3) if rs else None}
 
 
 # ─────────────────────────── pure classification ───────────────────────────
@@ -142,6 +145,31 @@ def classify(trades: list[dict], events: Optional[dict] = None) -> list[dict]:
                 findings.append({"kind": "regime-leak", "key": regime, "evidence": s,
                                  "lesson": f"'{regime}' entries lose ({s['win_rate']}% win over {s['trades']}, "
                                            f"{s['net_pnl']:+.2f}) — block entries in this regime."})
+
+        # 7. edge-regime — the mirror of the leak: a regime that consistently
+        # over-earns deserves more capital (bounded), not just equal treatment
+        for regime, ts in by_regime.items():
+            s = _stats(ts)
+            if (s["trades"] >= 8 and (s["expectancy_r"] or 0) >= 0.5
+                    and s["win_rate"] >= 45):
+                findings.append({"kind": "edge-regime", "key": regime, "evidence": s,
+                                 "lesson": f"'{regime}' entries earn {s['expectancy_r']:+.2f}R over "
+                                           f"{s['trades']} trades ({s['win_rate']}% win) — size them up."})
+
+        # 8. edge-conviction — the highest-conviction entries clearly out-earn
+        # the rest: trust the brain's own confidence with more size
+        top = [t for t in closed
+               if (events.get(t.get("alert_id") or "", {}).get("confidence") or 0.0) >= 0.75]
+        rest = [t for t in closed
+                if 0.0 < (events.get(t.get("alert_id") or "", {}).get("confidence") or 0.0) < 0.75]
+        stop_, srest = _stats(top), _stats(rest)
+        if (stop_["trades"] >= 8 and (stop_["expectancy_r"] or 0) >= 0.5
+                and srest["trades"] >= 5
+                and (stop_["expectancy_r"] or 0) - (srest["expectancy_r"] or 0) >= 0.3):
+            findings.append({"kind": "edge-conviction", "key": "confidence>=0.75",
+                             "evidence": stop_,
+                             "lesson": f"Conviction ≥0.75 entries earn {stop_['expectancy_r']:+.2f}R vs "
+                                       f"{(srest['expectancy_r'] or 0):+.2f}R for the rest — size them up."})
     return findings
 
 
@@ -231,6 +259,14 @@ class LearningBook:
                 elif f["kind"] == "revenge-trades":
                     apply("cooldown",
                           {"type": "cooldown_min", "minutes": 30, "evidence": ev}, f["lesson"])
+                elif f["kind"] == "edge-regime":
+                    apply(f"boost:regime:{f['key']}",
+                          {"type": "boost_regime", "regime": f["key"],
+                           "multiplier": MAX_BOOST, "evidence": ev}, f["lesson"])
+                elif f["kind"] == "edge-conviction":
+                    apply("boost:conviction",
+                          {"type": "boost_conviction", "threshold": 0.75,
+                           "multiplier": MAX_BOOST, "evidence": ev}, f["lesson"])
                 # session-leak / slipped-stops stay report-only recommendations
 
             # falsify: the counterfactual tracker measured this rule blocking
@@ -259,6 +295,18 @@ class LearningBook:
     def risk_multiplier(self, symbol: str) -> float:
         adj = self.adjustments.get(f"symbol:{(symbol or '').upper()}")
         return max(MIN_RISK_MULT, float(adj["multiplier"])) if adj else 1.0
+
+    def boost_multiplier(self, *, regime: str = "", confidence: float = 0.0) -> float:
+        """Bounded size-up when the entry matches a PROVEN winning pattern.
+        Boosts never stack (the best one wins) and never exceed MAX_BOOST."""
+        best = 1.0
+        b = self.adjustments.get(f"boost:regime:{regime}") if regime else None
+        if b:
+            best = max(best, float(b.get("multiplier", 1.0)))
+        c = self.adjustments.get("boost:conviction")
+        if c and confidence >= float(c.get("threshold", 0.75)):
+            best = max(best, float(c.get("multiplier", 1.0)))
+        return min(best, MAX_BOOST)
 
     def gate(self, *, symbol: str, regime: str = "", confidence: float = 1.0,
              minutes_since_loss: Optional[float] = None) -> Optional[str]:
