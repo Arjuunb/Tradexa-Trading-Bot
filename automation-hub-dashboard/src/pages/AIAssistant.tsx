@@ -9,6 +9,8 @@ import { useApp } from "../app-context";
 interface Ctx {
   sys: SystemStatus | null; acct: PaperAccount | null; perf: StrategyPerformance | null;
   risk: RiskSummary | null; positions: LedgerPosition[];
+  learning: any | null; gates: any | null; shadow: any | null; retune: any | null;
+  watchdog: any | null; storage: any | null;
 }
 
 // Deterministic, rule-based answers over REAL backend data — no fabricated
@@ -26,10 +28,38 @@ function answer(q: string, c: Ctx): string {
     return "Live trading is locked. The bot only trades paper money until the full safety flow passes and a broker is connected.";
   if (has("strategy", "engine", "running"))
     return `Strategy "${c.sys?.strategy ?? "—"}" on ${c.sys?.timeframe ?? "—"}; engine is ${c.sys?.engine_running ? "running" : "stopped"} in ${c.sys?.mode ?? "paper"} mode.`;
-  return "I can answer about your balance, performance, risk/exposure, the active strategy and live-trading status — all from real backend data. Try one of the suggestions above.";
+  if (has("learn", "lesson", "rule")) {
+    const rules = Object.entries(c.learning?.active_adjustments ?? {});
+    if (rules.length === 0) return "No learned rules are in force yet — the learning book needs ~20 closed trades before its first lessons appear. That's correct, not broken.";
+    return `${rules.length} learned rule(s) in force: ` + rules.slice(0, 3)
+      .map(([k, v]: any) => `${k} (${(v.lesson ?? "").slice(0, 70)}…)`).join(" · ");
+  }
+  if (has("gate", "veto", "blocked", "counterfactual")) {
+    const total = c.gates?.total_saved_r;
+    const n = Object.keys(c.gates?.rules ?? {}).length;
+    if (!n) return `No vetoes graded yet (${c.gates?.open_virtual_trades ?? 0} still resolving). Grades appear once gates start blocking trades.`;
+    return `The gates have saved ${total >= 0 ? "+" : ""}${total}R across ${n} rule(s). Costing rules get falsified automatically — see Gate Grades on the Evolution page.`;
+  }
+  if (has("shadow", "retune", "candidate", "audition")) {
+    if (c.shadow?.active)
+      return `Shadow audition running: "${c.shadow.candidate}" — ${c.shadow.shadow?.trades ?? 0} virtual trades vs ${c.shadow.live?.trades ?? 0} live; verdict "${c.shadow.verdict}". Promotion stays manual.`;
+    return c.retune?.verdict
+      ? `No shadow running. Last retune verdict: "${c.retune.verdict}" — ${(c.retune.detail ?? "").slice(0, 120)}`
+      : "No shadow running and no retune has run yet. The nightly check starts one automatically if the live record diverges from the backtest promise.";
+  }
+  if (has("health", "watchdog", "alive", "stalled"))
+    return (c.watchdog?.findings?.length
+      ? `Watchdog findings: ` + c.watchdog.findings.map((f: any) => f.title).join(" · ")
+      : `Watchdog: all clear (last heartbeat ${c.watchdog?.last_heartbeat ?? "—"}).`);
+  if (has("storage", "persist", "backup", "data dir"))
+    return c.storage?.warning
+      ? `⚠️ ${c.storage.warning}`
+      : `Storage looks durable (data dir ${c.storage?.data_dir ?? "—"}). Backups run nightly; see /ops/backups.`;
+  return "I can answer about balance, performance, risk, the engine, learned rules, gate grades, shadow/retune, watchdog health and storage — all from real backend data. Try the suggestions above.";
 }
 
-const SAMPLES = ["How is my account?", "How am I performing?", "What's my risk?", "Is live trading on?"];
+const SAMPLES = ["How is my account?", "How am I performing?", "What has the bot learned?",
+  "Are the gates saving money?", "Is a shadow candidate running?", "Is the bot healthy?"];
 
 export default function AIAssistantPage() {
   const sys = useLive<SystemStatus>("/system/status", 4000);
@@ -37,7 +67,15 @@ export default function AIAssistantPage() {
   const perf = useLive<StrategyPerformance>("/strategy/performance", 4000);
   const risk = useLive<RiskSummary>("/risk/summary", 4000);
   const positions = useLive<LedgerPosition[]>("/paper/positions", 4000);
-  const ctx: Ctx = { sys: sys.data, acct: acct.data, perf: perf.data, risk: risk.data, positions: positions.data ?? [] };
+  const learning = useLive<any>("/learning/report", 15000);
+  const gates = useLive<any>("/counterfactual/report", 15000);
+  const shadow = useLive<any>("/shadow/report", 15000);
+  const retune = useLive<any>("/retune/report", 30000);
+  const watchdog = useLive<any>("/ops/watchdog", 15000);
+  const storage = useLive<any>("/ops/storage", 60000);
+  const ctx: Ctx = { sys: sys.data, acct: acct.data, perf: perf.data, risk: risk.data,
+    positions: positions.data ?? [], learning: learning.data, gates: gates.data,
+    shadow: shadow.data, retune: retune.data, watchdog: watchdog.data, storage: storage.data };
 
   const [q, setQ] = useState("");
   const [log, setLog] = useState<{ q: string; a: string }[]>([]);

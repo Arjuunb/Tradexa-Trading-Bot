@@ -4,6 +4,7 @@ import Icon from "../components/common/Icon";
 import Sparkline from "../components/chart/Sparkline";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { apiGet, useLive, hhmmss, type LedgerPosition, type SystemStatus, type Watchlist, type ScanResult } from "../lib/api";
+import LoadDataButton from "../components/common/LoadDataButton";
 
 const TFS = ["1d", "4h", "1h"] as const;
 const fmt = (n?: number) => (n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: n >= 100 ? 2 : 4 }));
@@ -85,8 +86,11 @@ export default function MarketsPage() {
       {!anyReal && rows.length > 0 && (
         <Card title="">
           <p className="dim" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Icon name="info" size={14} /> No real Binance candles are cached yet — quotes show "no data" rather than faked numbers. Sync history on the Replay page to populate the watchlist.
+            <Icon name="info" size={14} /> No real Binance candles are cached yet — quotes show "no data" rather than faked numbers.
           </p>
+          <div style={{ marginTop: 8 }}>
+            <LoadDataButton onDone={() => watch.refetch()} />
+          </div>
         </Card>
       )}
 
