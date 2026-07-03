@@ -76,6 +76,12 @@ journal_store = JournalStore(_os.path.join(_os.path.dirname(settings.providers_p
 from services.memory import MemoryStore  # noqa: E402
 memory_store = MemoryStore(_os.path.join(_os.path.dirname(settings.providers_path), "memory.json"))
 
+# Self-learning loop: the bot studies its own losing trades after every close
+# and applies bounded, expiring corrections (see services/learning.py).
+from services.learning import LearningBook  # noqa: E402
+learning_book = LearningBook(_os.path.join(_os.path.dirname(settings.providers_path), "learning.json"))
+pipeline.learning = learning_book
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -975,6 +981,21 @@ def set_execution_fill_model(body: FillModelBody, x_webhook_secret: Optional[str
         paper.fill_model = PerfectFill()
     ledger.log(level="info", stage="execution", message=f"Fill model set to {paper.fill_model.name}")
     return paper.fill_model.status()
+
+
+@router.get("/learning/report")
+def learning_report():
+    """What the bot has learned from its own trades: named repeated mistakes
+    with evidence, the bounded corrections currently in force, and the full
+    applied/relaxed evolution timeline."""
+    return learning_book.report()
+
+
+@router.post("/learning/run")
+def learning_run(x_webhook_secret: str = Header(default="")):
+    """Force a re-learn from the full trade history right now."""
+    _check_secret(x_webhook_secret)
+    return learning_book.update(paper.history(), pipeline._alert_info)
 
 
 @router.get("/ops/watchdog")

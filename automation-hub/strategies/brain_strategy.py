@@ -116,6 +116,7 @@ class DecisionBrain(HubStrategy):
         signal = self._signal(bar, direction, reason)
         if signal is not None:
             signal.confidence = round(_clip(conviction, 0.0, 1.0), 3)
+            signal.regime = regime.name   # lets the learning loop study losses per regime
         return signal
 
     def _explain(self, direction, ef, es, et, price, r, regime, conviction) -> str:
