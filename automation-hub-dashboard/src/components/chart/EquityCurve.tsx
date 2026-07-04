@@ -15,21 +15,21 @@ export default function EquityCurve() {
     tooltip: {
       trigger: "axis",
       backgroundColor: "rgba(13,18,32,0.95)",
-      borderColor: "#2a3350",
+      borderColor: "#2a2a2f",
       borderWidth: 1,
       textStyle: { color: "#e6eaf2", fontSize: 12 },
       valueFormatter: (v) => `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
     },
     xAxis: {
       type: "category", data: labels, boundaryGap: false,
-      axisLine: { lineStyle: { color: "#2a3350" } },
+      axisLine: { lineStyle: { color: "#2a2a2f" } },
       axisTick: { show: false },
       axisLabel: { color: "#8a93a6", fontSize: 11 },
     },
     yAxis: {
       type: "value", scale: true,
       axisLabel: { color: "#8a93a6", fontSize: 11, formatter: (v: number) => `$${(v / 1000).toFixed(1)}K` },
-      splitLine: { lineStyle: { color: "#161d30" } },
+      splitLine: { lineStyle: { color: "#161618" } },
     },
     series: [
       {

@@ -164,7 +164,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
       </div>
 
       {tune && (
-        <div className="card" style={{ marginTop: 10, borderColor: tune.verdict === "improvement" ? "#22c55e" : tune.verdict === "overfit" ? "#ef4444" : "#5b6478", background: "#131a2c" }}>
+        <div className="card" style={{ marginTop: 10, borderColor: tune.verdict === "improvement" ? "#22c55e" : tune.verdict === "overfit" ? "#ef4444" : "#5b6478", background: "#1b1b1f" }}>
           <div className="row-actions" style={{ justifyContent: "space-between" }}>
             <b><Icon name="bot" size={14} /> Auto-Tune — best: min score {tune.best_tuning.min_score}, RR {tune.best_tuning.rr}</b>
             <Badge text={tune.verdict.replace("_", " ")} tone={tune.verdict === "improvement" ? "green" : tune.verdict === "overfit" ? "red" : "default"} />
@@ -179,7 +179,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
 
       {/* brain tuning panel */}
       {showTune && (
-        <div className="card" style={{ marginTop: 10, background: "#131a2c" }}>
+        <div className="card" style={{ marginTop: 10, background: "#1b1b1f" }}>
           <div className="form-grid-2">
             <Num label="Min trade score" value={cfg.tuning.min_score} min={0} max={95} step={5} onChange={(v) => setTune({ min_score: v })} />
             <Num label="Risk/Reward target" value={cfg.tuning.rr} min={1} max={5} step={0.1} onChange={(v) => setTune({ rr: v })} />

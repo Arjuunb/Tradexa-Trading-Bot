@@ -92,7 +92,7 @@ export default function MarketContextPanel() {
               </tr></thead>
               <tbody>
                 {c.provider_debug.map((d) => (
-                  <tr key={d.id} style={{ borderTop: "1px solid #1b2336" }}>
+                  <tr key={d.id} style={{ borderTop: "1px solid #1b1b1f" }}>
                     <td style={{ padding: "3px 8px 3px 0" }}>{d.label}</td>
                     <td style={{ color: d.status === "Not connected" ? "#8a93a6" : d.status.startsWith("Live") ? "#22c55e" : "#f59e0b" }}>{d.status}</td>
                     <td className="dim">{d.last_update ? d.last_update.slice(11, 19) : "—"}</td>
@@ -108,7 +108,7 @@ export default function MarketContextPanel() {
 
       {/* provider settings */}
       {showProviders && (
-        <div className="card" style={{ marginTop: 10, background: "#131a2c" }}>
+        <div className="card" style={{ marginTop: 10, background: "#1b1b1f" }}>
           <div className="card-subtitle" style={{ marginBottom: 8 }}>Data Providers — connect real sources (keys stored locally)</div>
           {(c?.providers ?? []).map((p) => (
             <div key={p.id} className="row-actions" style={{ justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>

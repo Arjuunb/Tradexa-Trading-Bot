@@ -14,14 +14,14 @@ export default function PnlDoughnut() {
 
   const option: EChartsOption = {
     tooltip: {
-      trigger: "item", backgroundColor: "rgba(13,18,32,0.95)", borderColor: "#2a3350",
+      trigger: "item", backgroundColor: "rgba(13,18,32,0.95)", borderColor: "#2a2a2f",
       textStyle: { color: "#e6eaf2", fontSize: 12 },
       formatter: (p: any) => `${p.name}: ${p.value} (${p.percent}%)`,
     },
     series: [{
       type: "pie", radius: ["64%", "86%"], center: ["50%", "50%"],
       avoidLabelOverlap: false, label: { show: false }, labelLine: { show: false },
-      itemStyle: { borderColor: "#0d1322", borderWidth: 3 },
+      itemStyle: { borderColor: "#131315", borderWidth: 3 },
       data: groups.map((g) => ({ name: g.name, value: Math.max(g.value, 0.0001), itemStyle: { color: g.color } })),
     }],
   };

@@ -19,20 +19,20 @@ export default function AreaLine({ labels, series, height = "100%", fill = true,
     tooltip: {
       trigger: "axis",
       backgroundColor: "rgba(13,18,32,0.95)",
-      borderColor: "#2a3350",
+      borderColor: "#2a2a2f",
       textStyle: { color: "#e6eaf2", fontSize: 12 },
       valueFormatter: valueFormatter ? (v) => valueFormatter(Number(v)) : undefined,
     },
     legend: series.length > 1 ? { show: true, top: 0, right: 0, textStyle: { color: "#8a93a6", fontSize: 11 }, itemWidth: 14, itemHeight: 8 } : undefined,
     xAxis: {
       type: "category", data: labels, boundaryGap: false,
-      axisLine: { lineStyle: { color: "#2a3350" } }, axisTick: { show: false },
+      axisLine: { lineStyle: { color: "#2a2a2f" } }, axisTick: { show: false },
       axisLabel: { color: "#8a93a6", fontSize: 11 },
     },
     yAxis: {
       type: "value", scale: true,
       axisLabel: { color: "#8a93a6", fontSize: 11, formatter: yFormatter ? (v: number) => yFormatter(v) : undefined },
-      splitLine: { lineStyle: { color: "#161d30" } },
+      splitLine: { lineStyle: { color: "#161618" } },
     },
     series: series.map((s) => ({
       name: s.name, type: "line", data: s.data, smooth: true, showSymbol: false,

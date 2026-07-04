@@ -15,12 +15,12 @@ export default function BarChart({ labels, data, color = "#eab54f", height = "10
   const colored = data.map((v) =>
     diverging ? (v >= 0 ? "#22c55e" : "#ef4444") : color,
   );
-  const cat = { type: "category" as const, data: labels, axisLine: { lineStyle: { color: "#2a3350" } }, axisTick: { show: false }, axisLabel: { color: "#8a93a6", fontSize: 11 } };
-  const val = { type: "value" as const, max, axisLabel: { color: "#8a93a6", fontSize: 11 }, splitLine: { lineStyle: { color: "#161d30" } } };
+  const cat = { type: "category" as const, data: labels, axisLine: { lineStyle: { color: "#2a2a2f" } }, axisTick: { show: false }, axisLabel: { color: "#8a93a6", fontSize: 11 } };
+  const val = { type: "value" as const, max, axisLabel: { color: "#8a93a6", fontSize: 11 }, splitLine: { lineStyle: { color: "#161618" } } };
   const option: EChartsOption = {
     backgroundColor: "transparent",
     grid: { left: horizontal ? 78 : 44, right: 16, top: 12, bottom: 26 },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: "rgba(13,18,32,0.95)", borderColor: "#2a3350", textStyle: { color: "#e6eaf2", fontSize: 12 } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, backgroundColor: "rgba(13,18,32,0.95)", borderColor: "#2a2a2f", textStyle: { color: "#e6eaf2", fontSize: 12 } },
     xAxis: horizontal ? val : cat,
     yAxis: horizontal ? cat : val,
     series: [{
