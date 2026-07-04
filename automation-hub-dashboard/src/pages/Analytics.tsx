@@ -6,6 +6,7 @@ import Icon from "../components/common/Icon";
 import StrategyHealth from "../components/cards/StrategyHealth";
 import { PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE, type PaperTradeRow, type StrategyPerformance } from "../lib/api";
+import ReportsHub from "../components/reports/ReportsHub";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
@@ -39,6 +40,8 @@ export default function AnalyticsPage() {
   return (
     <>
       <PageHeader title="Analytics" subtitle="Performance over the bot's real paper-trade history" />
+
+      <ReportsHub />
 
       {offline && (
         <div className="card" style={{ borderColor: "#ef4444", display: "flex", alignItems: "center", gap: 10 }}>
