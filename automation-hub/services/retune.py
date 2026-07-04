@@ -30,6 +30,8 @@ RR_TARGETS = (2.5, 3.0, 3.5)
 INCUMBENT = {"conviction_threshold": 0.56, "rr_target": 3.0}
 MIN_TEST_TRADES = 8          # per symbol, on the test slice
 BEAT_MARGIN = 1.10           # candidate must beat incumbent test net R by 10%
+# upgraded brain reads the per-symbol search auditions on REAL data
+READ_VARIANTS = ({}, {"er_mode": "add"}, {"er_mode": "add", "volume_conf": True})
 
 
 def _run_config(symbol: str, rows, params: dict) -> dict:
@@ -134,6 +136,20 @@ def evaluate_per_symbol(symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"),
         ranked = sorted(((_run_config(sym, train, p)["net_r"], i, p)
                          for i, p in enumerate(grid)), reverse=True)
         best = ranked[0][2]
+        # read-variant stage: audition the upgraded brain reads (efficiency-
+        # ratio vote / volume confirmation) at this symbol's best params.
+        # These are unjudgeable on synthetic data (volume is noise there and
+        # ER duplicates slope on GBM), so REAL candles here are their judge.
+        v_ranked = sorted(((_run_config(sym, train, {**best, **v})["net_r"], i, v)
+                           for i, v in enumerate(READ_VARIANTS)), reverse=True)
+        best_variant = v_ranked[0][2]
+        if best_variant:
+            plain = _run_config(sym, test, best)
+            upgraded = _run_config(sym, test, {**best, **best_variant})
+            if (upgraded["trades"] >= MIN_TEST_TRADES
+                    and upgraded["net_r"] > max(plain["net_r"] * BEAT_MARGIN,
+                                                plain["net_r"] + 1.0)):
+                best = {**best, **best_variant}
         if best == INCUMBENT:
             per[sym] = {"verdict": "keep-incumbent", "best": best,
                         "note": "the incumbent won its own train ranking"}

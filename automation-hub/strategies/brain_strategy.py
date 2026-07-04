@@ -52,13 +52,19 @@ class DecisionBrain(HubStrategy):
 
     def __init__(self, symbol: str, *, fast: int = 12, slow: int = 26,
                  trend: int = 50, rsi_period: int = 14,
-                 conviction_threshold: float = 0.56, max_history: int = 600, **params):
+                 conviction_threshold: float = 0.56, max_history: int = 600,
+                 er_mode: str = "off", volume_conf: bool = False, **params):
         params.setdefault("rr_target", 3.0)  # validated reward:risk (out-of-sample sweep)
         super().__init__(symbol, fast=fast, slow=slow, trend=trend,
                          rsi_period=rsi_period, conviction_threshold=conviction_threshold,
                          **params)
         self.max_history = max_history
         self._regime = RegimeDetector()
+        # experimental reads (measured via the eval harness before defaulting):
+        # er_mode: "off" | "replace" (ER replaces the slope vote) | "add" (5th vote)
+        # volume_conf: volume-surge conviction multiplier in [0.9, 1.1]
+        self.er_mode = er_mode
+        self.volume_conf = bool(volume_conf)
 
     def generate(self, bar: Bar) -> Optional[Signal]:
         p = self.params
@@ -91,11 +97,32 @@ class DecisionBrain(HubStrategy):
         elif r < 22:
             v_rsi = max(v_rsi, -0.2)
 
-        score = (self.W_TREND * v_trend + self.W_FILTER * v_filter
-                 + self.W_SLOPE * v_slope + self.W_RSI * v_rsi)
+        if self.er_mode != "off" and len(closes) >= 22:
+            # Kaufman efficiency ratio: |net move| / path length over 20 bars —
+            # a direct trendiness read (1 = clean trend, 0 = pure chop)
+            net = closes[-1] - closes[-21]
+            path = sum(abs(closes[j] - closes[j - 1]) for j in range(-20, 0))
+            v_er = _clip((net / path) * 2.5) if path else 0.0
+        else:
+            v_er = None
+
+        if v_er is not None and self.er_mode == "replace":
+            score = (self.W_TREND * v_trend + self.W_FILTER * v_filter
+                     + self.W_SLOPE * v_er + self.W_RSI * v_rsi)
+        elif v_er is not None and self.er_mode == "add":
+            score = (0.26 * v_trend + 0.22 * v_filter + 0.16 * v_slope
+                     + 0.20 * v_rsi + 0.16 * v_er)
+        else:
+            score = (self.W_TREND * v_trend + self.W_FILTER * v_filter
+                     + self.W_SLOPE * v_slope + self.W_RSI * v_rsi)
 
         factor = _REGIME_FACTOR.get(regime.name, 0.45)
         conviction = abs(score) * factor
+        if self.volume_conf and len(self.bars) >= 21:
+            vols = [b.volume for b in self.bars[-21:-1]]
+            avg = sum(vols) / len(vols) if vols else 0.0
+            ratio = (self.bars[-1].volume / avg) if avg > 0 else 1.0
+            conviction *= max(0.9, min(1.1, 0.9 + 0.2 * (ratio - 0.5)))
 
         if factor == 0.0 or conviction < p["conviction_threshold"]:
             return None  # the brain decides NOT to trade

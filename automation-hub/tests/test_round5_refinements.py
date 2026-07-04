@@ -92,7 +92,8 @@ def test_per_symbol_retune_structure():
     assert "best" in sym
     for s, p in rep["winners"].items():
         assert rep["per_symbol"][s]["verdict"] == "candidate-found"
-        assert set(p) == {"conviction_threshold", "rr_target"}
+        assert {"conviction_threshold", "rr_target"}.issubset(set(p))
+        assert set(p) <= {"conviction_threshold", "rr_target", "er_mode", "volume_conf"}
 
 
 def test_per_symbol_retune_honest_without_data(monkeypatch, tmp_path):
