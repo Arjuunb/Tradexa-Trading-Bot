@@ -80,6 +80,19 @@ def classify(trades: list[dict], events: Optional[dict] = None) -> list[dict]:
                              "lesson": f"{sym} keeps losing ({s['win_rate']}% win over "
                                        f"{s['trades']} trades, {s['net_pnl']:+.2f}) — trade it at half risk until it recovers."})
 
+    # 1b. side-leak — one direction bleeds while the other earns (common in
+    # crypto: shorts fighting the secular uptrend). Halve the leaking side.
+    for side in ("long", "short"):
+        mine = [t for t in closed if (t.get("side") or "") == side]
+        other = [t for t in closed if (t.get("side") or "") not in ("", side)]
+        sm, so = _stats(mine), _stats(other)
+        if (sm["trades"] >= 8 and (sm["expectancy_r"] or 0) <= -0.1
+                and so["trades"] >= 5 and (so["expectancy_r"] or 0) >= 0.1):
+            findings.append({"kind": "side-leak", "key": side, "evidence": sm,
+                             "lesson": f"{side.capitalize()}s lose {sm['expectancy_r']:+.2f}R/trade over "
+                                       f"{sm['trades']} while the other side earns "
+                                       f"{so['expectancy_r']:+.2f}R — halve {side} size."})
+
     # 2. revenge-trades — entries shortly after a loss on the same symbol
     revenge = []
     last_loss_close: dict[str, datetime] = {}
@@ -259,6 +272,10 @@ class LearningBook:
                 elif f["kind"] == "revenge-trades":
                     apply("cooldown",
                           {"type": "cooldown_min", "minutes": 30, "evidence": ev}, f["lesson"])
+                elif f["kind"] == "side-leak":
+                    apply(f"side:{f['key']}",
+                          {"type": "side_multiplier", "side": f["key"],
+                           "multiplier": MIN_RISK_MULT, "evidence": ev}, f["lesson"])
                 elif f["kind"] == "edge-regime":
                     apply(f"boost:regime:{f['key']}",
                           {"type": "boost_regime", "regime": f["key"],
@@ -295,6 +312,12 @@ class LearningBook:
     def risk_multiplier(self, symbol: str) -> float:
         adj = self.adjustments.get(f"symbol:{(symbol or '').upper()}")
         return max(MIN_RISK_MULT, float(adj["multiplier"])) if adj else 1.0
+
+    def side_multiplier(self, side: str) -> float:
+        """Bounded size-down for a direction that keeps losing while the other
+        earns (side-leak lesson). 1.0 when no lesson is active."""
+        adj = self.adjustments.get(f"side:{(side or '').lower()}")
+        return max(MIN_RISK_MULT, float(adj.get("multiplier", 1.0))) if adj else 1.0
 
     def boost_multiplier(self, *, regime: str = "", confidence: float = 0.0) -> float:
         """Bounded size-up when the entry matches a PROVEN winning pattern.

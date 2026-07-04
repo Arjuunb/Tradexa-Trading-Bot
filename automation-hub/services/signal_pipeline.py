@@ -355,13 +355,15 @@ class SignalPipeline:
         af = float(self.allocator(symbol)) if self.allocator is not None else 1.0
         # context sizing (funding/sentiment modifiers) — bounded [0.5, 1.0]
         xf = max(0.5, min(1.0, float(payload.get("context_size_factor", 1.0) or 1.0)))
+        sfm = (self.learning.side_multiplier(_dir(side))
+               if self.learning is not None else 1.0)
         # edge boost: size up ONLY a proven winning pattern, and never while any
         # other factor is throttling down — defense always outranks offense.
         bf = 1.0
         if self.learning is not None and min(kf, ef, lf, econ_risk) >= 1.0:
             bf = self.learning.boost_multiplier(regime=payload.get("regime", ""),
                                                 confidence=confidence)
-        eff_risk *= kf * ef * lf * af * econ_risk * bf * xf
+        eff_risk *= kf * ef * lf * af * econ_risk * bf * xf * sfm
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
@@ -372,9 +374,10 @@ class SignalPipeline:
         event_note = f" × event {econ_risk:.2f}" if econ_risk < 1.0 else ""
         edge_note = f" × edge {bf:.2f}" if bf > 1.0 else ""
         ctx_note = f" × context {xf:.2f}" if xf < 1.0 else ""
+        side_note = f" × side {sfm:.2f}" if sfm < 1.0 else ""
         steps.append(Step("risk", True,
                           f"conf {confidence:.2f}{kelly_note}{curve_note}{learned_note}"
-                          f"{alloc_note}{event_note}{edge_note}{ctx_note}"
+                          f"{alloc_note}{event_note}{edge_note}{ctx_note}{side_note}"
                           f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
