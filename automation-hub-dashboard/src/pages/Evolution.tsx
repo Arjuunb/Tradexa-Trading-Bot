@@ -67,10 +67,10 @@ export default function EvolutionPage() {
 
       {/* dashboard widgets */}
       <div className="stat-row">
-        <StatCard label="Market Sentiment" value={d?.sentiment.available ? (d.sentiment.mood ?? "—") : "Unavailable"}
-          tone={d?.sentiment.mood?.includes("Greed") ? "red" : d?.sentiment.mood?.includes("Fear") ? "amber" : "default"}
-          sub={d?.sentiment.available ? `F&G ${d.sentiment.fear_greed}` : "no live feed"} />
-        <StatCard label="Risk Mode" value={(d?.sentiment.risk_mode ?? "Normal").split("—")[0]} />
+        <StatCard label="Market Sentiment" value={d?.sentiment?.available ? (d.sentiment.mood ?? "—") : "Unavailable"}
+          tone={d?.sentiment?.mood?.includes("Greed") ? "red" : d?.sentiment?.mood?.includes("Fear") ? "amber" : "default"}
+          sub={d?.sentiment?.available ? `F&G ${d.sentiment.fear_greed}` : "no live feed"} />
+        <StatCard label="Risk Mode" value={(d?.sentiment?.risk_mode ?? "Normal").split("—")[0]} />
         <StatCard label="Lessons This Week" value={String(d?.lessons_weekly ?? 0)} sub={`${d?.lessons_total ?? 0} total`} />
         <StatCard label="Upgrades Approved" value={String(d?.upgrade_status?.Approved ?? 0)} tone="green"
           sub={`${d?.upgrade_status?.Suggested ?? 0} suggested · ${d?.upgrade_status?.Rejected ?? 0} rejected`} />
@@ -81,7 +81,7 @@ export default function EvolutionPage() {
           {(d?.workflow ?? []).map((w, i) => (
             <span key={w} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span className="ui-badge" style={{ background: "rgba(139,92,246,0.14)", color: "var(--purple-2)", border: "1px solid rgba(139,92,246,0.25)" }}>{w}</span>
-              {i < (d?.workflow.length ?? 0) - 1 && <Icon name="chevron" size={12} className="dim" />}
+              {i < (d?.workflow?.length ?? 0) - 1 && <Icon name="chevron" size={12} className="dim" />}
             </span>
           ))}
         </div>

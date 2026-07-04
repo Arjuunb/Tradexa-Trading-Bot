@@ -6,3 +6,7 @@ dist/
 
 # TS build info
 *.tsbuildinfo
+
+# Playwright
+automation-hub-dashboard/test-results/
+automation-hub-dashboard/playwright-report/

@@ -106,7 +106,7 @@ export default function ReplayPage() {
   const frame: ReplayFrame | null = data ? data.frames[idx] ?? null : null;
   const candle = data?.candles[idx];
   const visibleEvents = data ? data.events.filter((e) => e.idx <= idx).slice(-14).reverse() : [];
-  const active = data?.trades.find((t) => t.entry_idx <= idx && (t.exit_idx === null || t.exit_idx > idx));
+  const active = data?.trades?.find((t) => t.entry_idx <= idx && (t.exit_idx === null || t.exit_idx > idx));
   const lastClosed = data ? [...data.trades].reverse().find((t) => t.exit_idx !== null && t.exit_idx <= idx) : undefined;
 
   // live RR + status on the active trade
@@ -194,12 +194,12 @@ export default function ReplayPage() {
             HTF: {Object.entries(data.meta.htf_available).map(([k, v]) => `${k} ${v ? "✓" : "n/a"}`).join(" · ")}
           </p>
         )}
-        {data?.meta.data_warning && (
+        {data?.meta?.data_warning && (
           <div className="card" style={{ marginTop: 8, borderColor: "#f59e0b", background: "#f59e0b14" }}>
             <Icon name="warning" size={14} className="amber" /> {data.meta.data_warning}
           </div>
         )}
-        {data?.meta.debug && (
+        {data?.meta?.debug && (
           <details style={{ marginTop: 8 }}>
             <summary className="dim" style={{ cursor: "pointer", fontSize: 12 }}>Debug — engine wiring</summary>
             <div className="dim mono" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.6 }}>

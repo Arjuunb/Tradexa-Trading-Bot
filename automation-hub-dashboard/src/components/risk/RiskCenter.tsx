@@ -16,7 +16,7 @@ export default function RiskCenter() {
   const tone = (u: number) => (u >= 90 ? "red" : u >= 60 ? "amber" : "green") as "red" | "amber" | "green";
 
   const metrics = [
-    { label: "Exposure", value: r ? `${(r.exposure_pct * 100).toFixed(1)}% / ${(r.exposure_limit_pct * 100).toFixed(0)}%` : "—", pct: Math.round(expUse), tone: tone(expUse) },
+    { label: "Exposure", value: r ? `${(r.exposure_pct * 100).toFixed(1)}% / ${((r.exposure_limit_pct ?? 0) * 100).toFixed(0)}%` : "—", pct: Math.round(expUse), tone: tone(expUse) },
     { label: "Open Positions", value: r ? `${r.open_positions} / ${r.max_open_positions}` : "—", pct: Math.round(posUse), tone: tone(posUse) },
     { label: "Risk-blocked", value: r ? String(r.rejections) : "—", pct: 0, tone: "green" as const },
     { label: "Trading state", value: r?.trading_state ?? "—", pct: r?.trading_state === "Active" ? 100 : 0, tone: (r?.trading_state === "Active" ? "green" : "red") as "green" | "red" },

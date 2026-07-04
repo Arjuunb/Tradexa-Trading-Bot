@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import Card from "../components/common/Card";
+import ActionButton from "../components/common/ActionButton";
 import Icon from "../components/common/Icon";
 import { Badge, Field, PageHeader } from "../components/common/ui";
 import { useApp } from "../app-context";
@@ -205,7 +206,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid-2-eq">
-        <Card title="Notifications" subtitle="Telegram · editable" right={<button className="btn btn-soft" onClick={testNotif}><Icon name="external" size={14} /> Send test</button>}>
+        <Card title="Notifications" subtitle="Telegram · editable" right={<ActionButton className="btn btn-soft" icon="external" busyLabel="Sending…" onAction={testNotif}>Send test</ActionButton>}>
           <div className="risk-list">
             <Ro k="Telegram" v={notif.data?.telegram_configured ? "configured" : "not configured"} badge={<Badge text={notif.data?.telegram_configured ? "ON" : "OFF"} tone={notif.data?.telegram_configured ? "green" : "default"} />} />
             <Ro k="Email" v={notif.data?.email ?? "—"} />

@@ -167,12 +167,12 @@ function ResearchLab() {
   return (
     <Card title="Research Lab" subtitle="save A/B experiments + generate reports"
       right={<button className="btn btn-soft" disabled={busy} onClick={run}><Icon name="flask" size={13} /> {busy ? "Running…" : "Run EMA A/B"}</button>}>
-      {(list.data?.experiments.length ?? 0) === 0 ? (
+      {(list.data?.experiments?.length ?? 0) === 0 ? (
         <div className="dim ta-center" style={{ padding: 12 }}>No saved experiments — run one to compare ideas out-of-sample.</div>
       ) : (
         <table className="data-table" style={{ fontSize: 12 }}>
           <thead><tr><th>Experiment</th><th>Market</th><th>Verdict</th><th>OOS gain</th><th>Saved</th><th></th></tr></thead>
-          <tbody>{list.data!.experiments.map((e) => (
+          <tbody>{(list.data?.experiments ?? []).map((e) => (
             <tr key={e.id}>
               <td><b>{e.name}</b></td><td className="dim">{e.symbol} {e.timeframe}</td>
               <td><Badge text={e.verdict} tone={vTone2(e.verdict) as any} /></td>

@@ -29,7 +29,7 @@ function SystemHealth() {
             </div>
             <p className="dim" style={{ fontSize: 11, marginTop: 8 }}>
               Memory {r.memory_mb ?? "—"} MB · uptime {r.uptime_s ? `${Math.round(r.uptime_s / 60)}m` : "—"} ·
-              data {r.data_freshness.with_data}/{r.data_freshness.datasets} cached
+              data {r.data_freshness?.with_data ?? 0}/{r.data_freshness?.datasets ?? 0} cached
             </p>
           </>
         )}

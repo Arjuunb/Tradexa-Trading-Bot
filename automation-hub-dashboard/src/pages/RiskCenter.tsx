@@ -143,12 +143,12 @@ function PortfolioRiskPanel() {
           </div>
         ))}
       </div>
-      {(r?.warnings.length ?? 0) > 0 && r!.warnings.map((w, i) => (
+      {(r?.warnings?.length ?? 0) > 0 && r!.warnings.map((w, i) => (
         <div key={i} className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
           <Icon name="warning" size={14} className="amber" /> {w}
         </div>
       ))}
-      {r && r.warnings.length === 0 && <p className="dim" style={{ marginTop: 8 }}>Within all portfolio risk limits.</p>}
+      {r && (r.warnings ?? []).length === 0 && <p className="dim" style={{ marginTop: 8 }}>Within all portfolio risk limits.</p>}
     </Card>
   );
 }
@@ -230,12 +230,12 @@ function CorrelationMatrix() {
         <>
           <div style={{ overflowX: "auto" }}>
             <table className="data-table" style={{ textAlign: "center" }}>
-              <thead><tr><th></th>{data.symbols.map((s) => <th key={s} style={{ textAlign: "center" }}>{s.replace("USDT", "")}</th>)}</tr></thead>
+              <thead><tr><th></th>{(data?.symbols ?? []).map((s) => <th key={s} style={{ textAlign: "center" }}>{s.replace("USDT", "")}</th>)}</tr></thead>
               <tbody>
-                {data.symbols.map((a) => (
+                {(data?.symbols ?? []).map((a) => (
                   <tr key={a}>
                     <td><b>{a.replace("USDT", "")}</b></td>
-                    {data.symbols.map((b) => {
+                    {(data?.symbols ?? []).map((b) => {
                       const c = data.matrix[a]?.[b] ?? null; const st = cell(c);
                       return <td key={b} style={{ background: st.bg, color: st.txt, fontWeight: 600 }}>{c === null ? "—" : c.toFixed(2)}</td>;
                     })}
@@ -285,7 +285,7 @@ function DrawdownRecovery() {
           {r.recovery_active ? (
             <div className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
               <b className="amber"><Icon name="shield" size={13} /> Recovery actions</b>
-              <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{r.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+              <ul style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.5 }}>{(r.actions ?? []).map((a, i) => <li key={i}>{a}</li>)}</ul>
             </div>
           ) : <p className="dim" style={{ marginTop: 8 }}>Within the safe band — full risk allowed.</p>}
         </>

@@ -11,14 +11,14 @@ export default function PerformanceOverview() {
   const spark = (d?.equity_curve ?? []).map((p) => p.equity);
 
   const items: { label: string; value: string; tone: string; spark?: number[] }[] = [
-    { label: "Win Rate", value: d ? `${d.win_rate.toFixed(1)}%` : "—", tone: "" },
-    { label: "Profit Factor", value: d ? d.profit_factor.toFixed(2) : "—", tone: d && d.profit_factor >= 1 ? "green" : "red" },
+    { label: "Win Rate", value: d ? `${(d.win_rate ?? 0).toFixed(1)}%` : "—", tone: "" },
+    { label: "Profit Factor", value: d ? (d.profit_factor ?? 0).toFixed(2) : "—", tone: d && (d.profit_factor ?? 0) >= 1 ? "green" : "red" },
     { label: "Total Trades", value: d ? String(d.trades) : "—", tone: "" },
     { label: "Realized P&L", value: d ? money(d.realized_pnl) : "—", tone: d && d.realized_pnl >= 0 ? "green" : "red", spark: spark.length > 1 ? spark : undefined },
     { label: "Expectancy", value: d ? money(d.expectancy) : "—", tone: d && d.expectancy >= 0 ? "green" : "red" },
     { label: "Best Trade", value: d ? money(d.best) : "—", tone: "green" },
     { label: "Worst Trade", value: d ? money(d.worst) : "—", tone: "red" },
-    { label: "Max Drawdown", value: d ? `${d.max_drawdown_pct.toFixed(1)}%` : "—", tone: "red" },
+    { label: "Max Drawdown", value: d ? `${(d.max_drawdown_pct ?? 0).toFixed(1)}%` : "—", tone: "red" },
   ];
 
   return (
