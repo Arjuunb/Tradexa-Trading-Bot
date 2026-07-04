@@ -25,6 +25,13 @@ fills against the Decision Brain's plain 3R exit (net +175.3R):
 
 Every early-exit rule truncated the big winners more than it saved on losers.
 Enable a config here only after validating it on real market data.
+
+ONE exception earned its place: a LOOSE time stop (max_hold_bars=150, about
+six days on 1h bars). Measured out-of-sample: tuning +176.7R vs +175.3R,
+holdout +94.7R vs +90.6R, mixed-vol identical — neutral-to-positive on every
+suite, and it guarantees no position can sit stale forever. Tight time stops
+are as destructive as the other early exits (40 bars: +119.6R) — do not
+shorten it without re-measuring.
 """
 from __future__ import annotations
 
@@ -43,6 +50,7 @@ class ManagedTrade:
     be: bool = False          # stop moved to break-even?
     scaled: bool = False      # partial profit taken?
     best: float = field(default=0.0)  # most favorable price seen
+    age: int = 0              # bars held (for the optional time stop)
 
     def __post_init__(self):
         if not self.best:
@@ -70,22 +78,32 @@ class TradeManager:
 
     def __init__(self, *, be_at_r: float = 0, scale_at_r: float = 0,
                  scale_frac: float = 0.5, trail_r: float = 0.0,
-                 trail_after_r: float = 0.0):
+                 trail_after_r: float = 0.0, max_hold_bars: int = 150):
         self.be_at_r = float(be_at_r)
         self.scale_at_r = float(scale_at_r)
         self.scale_frac = min(max(float(scale_frac), 0.0), 0.9)
         self.trail_r = float(trail_r)
         self.trail_after_r = float(trail_after_r)
+        self.max_hold_bars = int(max_hold_bars)   # 0 = no time stop
 
-    def on_bar(self, t: ManagedTrade, high: float, low: float) -> Action:
+    def on_bar(self, t: ManagedTrade, high: float, low: float,
+               close: float = None) -> Action:
         act = Action()
         sign = 1.0 if t.side == "long" else -1.0
         fav_px = high if t.side == "long" else low     # best price this bar
         adv_px = low if t.side == "long" else high     # worst price this bar
+        t.age += 1
 
         # 1. stop first, against the CURRENT stop (pessimistic intrabar rule)
         if (adv_px - t.stop) * sign <= 0:
             act.exit_price, act.exit_reason = t.stop, "stop"
+            return act
+
+        # 1b. time stop: a trade that reached neither stop nor target after
+        # max_hold_bars exits at the close (0 disables — the measured default)
+        if self.max_hold_bars > 0 and t.age >= self.max_hold_bars:
+            act.exit_price = close if close is not None else t.entry
+            act.exit_reason = "time"
             return act
 
         # 2. scale-out at +scale_at_r (before the runner target)

@@ -145,12 +145,14 @@ def test_kelly_factor_reduces_position_size_in_pipeline():
 
 
 # ───────────────────── simulator parity (managed default == legacy) ─────────────────────
-def test_simulate_strategy_managed_default_matches_legacy():
+def test_simulate_strategy_managed_matches_legacy_without_time_stop():
+    # the manager's only measured-on default is the 150-bar time stop; with it
+    # disabled, the managed path must be BIT-identical to plain stop/target
     from data.market_data import get_bars
     from strategies.brain_strategy import DecisionBrain
+    from strategies.custom import simulate_strategy
     bars, _ = get_bars("ZZZUSDT", n=1500, timeframe="1h")
-    a = __import__("strategies.custom", fromlist=["simulate_strategy"]).simulate_strategy(
-        DecisionBrain("ZZZUSDT"), bars, manage=True)
-    b = __import__("strategies.custom", fromlist=["simulate_strategy"]).simulate_strategy(
-        DecisionBrain("ZZZUSDT"), bars, manage=False)
+    a = simulate_strategy(DecisionBrain("ZZZUSDT"), bars, manage=True,
+                          manager=TradeManager(max_hold_bars=0))
+    b = simulate_strategy(DecisionBrain("ZZZUSDT"), bars, manage=False)
     assert a["net_r"] == b["net_r"] and a["total_trades"] == b["total_trades"]

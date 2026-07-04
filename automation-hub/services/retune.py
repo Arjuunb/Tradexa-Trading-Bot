@@ -108,6 +108,56 @@ def evaluate_candidates(symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"),
             "ran_at": datetime.now(timezone.utc).isoformat()}
 
 
+def evaluate_per_symbol(symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"),
+                        timeframe: str = "4h", bars: int = 4000,
+                        split: float = 0.7, require_real: bool = True) -> dict:
+    """Per-symbol search: BTC and DOGE do not deserve the same brain config.
+    Each symbol ranks the grid on ITS OWN train slice and its winner must beat
+    the incumbent on ITS OWN unseen test slice. Winners become a per-symbol
+    parameter map for the shadow candidate; symbols with no winner keep the
+    incumbent."""
+    from data.market_data import get_bars
+
+    grid = [{"conviction_threshold": c, "rr_target": r}
+            for c in CONVICTIONS for r in RR_TARGETS]
+    per: dict = {}
+    winners: dict = {}
+    any_data = False
+    for sym in symbols:
+        rows, _src = get_bars(sym, n=bars, timeframe=timeframe, require_real=require_real)
+        if not rows or len(rows) < 600:
+            per[sym] = {"verdict": "no-data"}
+            continue
+        any_data = True
+        cut = int(len(rows) * split)
+        train, test = rows[:cut], rows[cut:]
+        ranked = sorted(((_run_config(sym, train, p)["net_r"], i, p)
+                         for i, p in enumerate(grid)), reverse=True)
+        best = ranked[0][2]
+        if best == INCUMBENT:
+            per[sym] = {"verdict": "keep-incumbent", "best": best,
+                        "note": "the incumbent won its own train ranking"}
+            continue
+        cand = _run_config(sym, test, best)
+        inc = _run_config(sym, test, INCUMBENT)
+        beats = (cand["trades"] >= MIN_TEST_TRADES
+                 and cand["net_r"] > max(inc["net_r"] * BEAT_MARGIN, inc["net_r"] + 1.0))
+        per[sym] = {"verdict": "candidate-found" if beats else "keep-incumbent",
+                    "best": best, "test": {"candidate": cand, "incumbent": inc}}
+        if beats:
+            winners[sym] = best
+    if not any_data:
+        return {"available": False, "verdict": "no-real-data",
+                "detail": "No real candles cached — run POST /data/backfill first."}
+    verdict = "candidate-found" if winners else "keep-incumbent"
+    detail = (f"{len(winners)} symbol(s) have a validated per-symbol config: "
+              + ", ".join(f"{s} {p}" for s, p in winners.items())
+              if winners else
+              "No symbol's candidate beat the incumbent on unseen data — keep the current brain.")
+    return {"available": True, "verdict": verdict, "detail": detail,
+            "per_symbol": per, "winners": winners, "incumbent": INCUMBENT}
+
+
 def retune(engine, notifier=None, *, timeframe: str = "4h",
            track_verdict: Optional[str] = None, force: bool = False,
            require_real: bool = True) -> dict:
@@ -117,7 +167,7 @@ def retune(engine, notifier=None, *, timeframe: str = "4h",
         return {"ran": False,
                 "detail": f"Track record is '{track_verdict}' — retune runs only on "
                           f"divergence (or force=true)."}
-    report = evaluate_candidates(symbols=tuple(engine.symbols),
+    report = evaluate_per_symbol(symbols=tuple(engine.symbols),
                                  timeframe=timeframe, require_real=require_real)
     report["ran"] = True
     if report.get("verdict") != "candidate-found":
@@ -125,13 +175,12 @@ def retune(engine, notifier=None, *, timeframe: str = "4h",
 
     from services.shadow import ShadowRun
     from strategies.brain_strategy import DecisionBrain
-    params = report["best_candidate"]
+    winners = report["winners"]
 
     def factory(sym: str):
-        return DecisionBrain(sym, **params)
+        return DecisionBrain(sym, **winners.get(sym, INCUMBENT))
 
-    label = (f"Retuned brain (conv {params['conviction_threshold']}, "
-             f"RR {params['rr_target']})")
+    label = f"Per-symbol retuned brain ({', '.join(sorted(winners))})"
     engine.shadow = ShadowRun(label, factory, engine.symbols)
     report["shadow_started"] = label
     if notifier is not None:

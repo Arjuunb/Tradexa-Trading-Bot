@@ -453,6 +453,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                       brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None,
                       max_trades_per_day: int = 0, cooldown_after_loss: int = 0,
                       max_consecutive_losses: int = 0, manage: bool = True,
+                      manager=None,
                       entry_mode: str = "market", limit_ttl_bars: int = 3) -> dict:
     """Run a built-in HubStrategy object over historical bars and return results
     in the SAME shape as ``simulate()`` (metrics, equity curve, trades).
@@ -473,7 +474,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
     from bot.types import SignalType
     from services.trade_manager import ManagedTrade, TradeManager
     cost = fee + slippage
-    mgr = TradeManager() if manage else None
+    mgr = (manager or TradeManager()) if manage else None
     pos = None
     pending = None                      # resting limit entry (entry_mode='limit')
     missed = 0                          # limit entries that expired unfilled
@@ -518,7 +519,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
             exit_px = exit_reason = None
             mt = pos["mt"]
             if mgr is not None:
-                act = mgr.on_bar(mt, bar.high, bar.low)
+                act = mgr.on_bar(mt, bar.high, bar.low, bar.close)
                 if act.partial_price is not None:
                     pos["partial"] = act.partial_price
                 if act.exit_price is not None:

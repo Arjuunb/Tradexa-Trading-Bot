@@ -90,14 +90,14 @@ def test_retune_starts_shadow_when_candidate_wins(monkeypatch):
         shadow = None
     eng = _Eng()
     sent = []
-    monkeypatch.setattr(rt, "evaluate_candidates", lambda **kw: {
+    monkeypatch.setattr(rt, "evaluate_per_symbol", lambda **kw: {
         "available": True, "verdict": "candidate-found",
-        "detail": "candidate beats incumbent",
-        "best_candidate": {"conviction_threshold": 0.62, "rr_target": 3.5},
-        "test_net_r": {"candidate": 30.0, "incumbent": 20.0}})
+        "detail": "1 symbol has a validated per-symbol config",
+        "winners": {"ZZZUSDT": {"conviction_threshold": 0.62, "rr_target": 3.5}},
+        "per_symbol": {}, "incumbent": rt.INCUMBENT})
     res = rt.retune(eng, lambda k, t, d: sent.append(t), force=True)
     assert res["verdict"] == "candidate-found"
-    assert eng.shadow is not None and "0.62" in eng.shadow.name
+    assert eng.shadow is not None and "ZZZUSDT" in eng.shadow.name
     assert sent and "Retune" in sent[0]
     # the shadow candidate really runs the retuned params
     strat = eng.shadow._strats["ZZZUSDT"]
@@ -112,8 +112,9 @@ def test_retune_keeps_incumbent_without_shadow(monkeypatch):
         symbols = ["ZZZUSDT"]
         shadow = None
     eng = _Eng()
-    monkeypatch.setattr(rt, "evaluate_candidates", lambda **kw: {
-        "available": True, "verdict": "keep-incumbent", "detail": "no winner"})
+    monkeypatch.setattr(rt, "evaluate_per_symbol", lambda **kw: {
+        "available": True, "verdict": "keep-incumbent", "detail": "no winner",
+        "winners": {}, "per_symbol": {}})
     res = rt.retune(eng, None, force=True)
     assert res["verdict"] == "keep-incumbent" and eng.shadow is None
 

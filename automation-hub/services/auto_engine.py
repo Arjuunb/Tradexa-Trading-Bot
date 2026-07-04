@@ -393,7 +393,7 @@ class AutoStrategyEngine:
         if mt is not None:
             # shared TradeManager: stop/target exits + break-even / scale-out /
             # trailing when enabled (identical to the plain checks when not).
-            act = self.trade_manager.on_bar(mt, bar.high, bar.low)
+            act = self.trade_manager.on_bar(mt, bar.high, bar.low, bar.close)
             if act.partial_price is not None:
                 fill = self.paper.reduce(symbol=sym, exit_price=act.partial_price,
                                          fraction=self.trade_manager.scale_frac)
