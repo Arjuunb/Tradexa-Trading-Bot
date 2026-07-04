@@ -36,9 +36,9 @@ export default function PortfolioPage() {
         <StatCard label="Value at Risk (1d)" value={pf?.value_at_risk_pct != null ? `${pf.value_at_risk_pct}%` : "—"} tone="amber" sub={pf?.value_at_risk != null ? `${money(pf.value_at_risk)} · ${Math.round((pf.var_confidence ?? 0.95) * 100)}%` : "needs data"} />
       </div>
 
-      {(pf?.warnings.length ?? 0) > 0 && (
+      {(pf?.warnings?.length ?? 0) > 0 && (
         <Card title="">
-          {pf!.warnings.map((w, i) => (
+          {(pf?.warnings ?? []).map((w, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
               <Icon name="warning" size={14} className="amber" /> <span>{w}</span>
             </div>

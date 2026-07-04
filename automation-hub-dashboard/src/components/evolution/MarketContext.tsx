@@ -48,26 +48,26 @@ export default function MarketContextPanel() {
         <button className="btn btn-soft" onClick={() => setShowProviders((x) => !x)}><Icon name="settings" size={13} /> Data Providers</button>
       </div>}>
       <div className="stat-row" style={{ flexWrap: "wrap" }}>
-        <W label="Fear & Greed" ok={!!c?.fear_greed.available} note="Live source unavailable">
-          {c?.fear_greed.value} <Badge text={c?.fear_greed.mood ?? ""} tone={moodTone(c?.fear_greed.mood) as any} />
+        <W label="Fear & Greed" ok={!!c?.fear_greed?.available} note="Live source unavailable">
+          {c?.fear_greed?.value} <Badge text={c?.fear_greed?.mood ?? ""} tone={moodTone(c?.fear_greed?.mood) as any} />
         </W>
-        <W label="BTC Dominance" ok={!!c?.btc_dominance.available}>{c?.btc_dominance.value}%</W>
-        <W label="Total Market Cap" ok={!!c?.total_mcap_usd.available}>{usd(c?.total_mcap_usd.value)}</W>
-        <W label="ETH/BTC (30d)" ok={!!c?.eth_btc.available} note={c?.eth_btc.note}>
-          <Badge text={c?.eth_btc.trend ?? ""} tone={trendTone(c?.eth_btc.trend) as any} /> {c?.eth_btc.change_30d_pct != null ? `${c.eth_btc.change_30d_pct > 0 ? "+" : ""}${c.eth_btc.change_30d_pct}%` : ""}
+        <W label="BTC Dominance" ok={!!c?.btc_dominance?.available}>{c?.btc_dominance?.value}%</W>
+        <W label="Total Market Cap" ok={!!c?.total_mcap_usd?.available}>{usd(c?.total_mcap_usd?.value)}</W>
+        <W label="ETH/BTC (30d)" ok={!!c?.eth_btc?.available} note={c?.eth_btc?.note}>
+          <Badge text={c?.eth_btc?.trend ?? ""} tone={trendTone(c?.eth_btc?.trend) as any} /> {c?.eth_btc?.change_30d_pct != null ? `${c.eth_btc.change_30d_pct > 0 ? "+" : ""}${c.eth_btc.change_30d_pct}%` : ""}
         </W>
-        <W label="BTC Funding" ok={!!c?.funding_rate.available} note={c?.funding_rate.note}>{c?.funding_rate.value}%</W>
-        <W label="BTC Open Interest" ok={!!c?.open_interest.available} note={c?.open_interest.note}>{c?.open_interest.value?.toLocaleString()}</W>
-        <W label="Liquidations" ok={false} note={c?.liquidations.note}><span /></W>
-        <W label="Econ Calendar" ok={false} note={c?.economic_calendar.note}><span /></W>
+        <W label="BTC Funding" ok={!!c?.funding_rate?.available} note={c?.funding_rate?.note}>{c?.funding_rate?.value}%</W>
+        <W label="BTC Open Interest" ok={!!c?.open_interest?.available} note={c?.open_interest?.note}>{c?.open_interest?.value?.toLocaleString()}</W>
+        <W label="Liquidations" ok={false} note={c?.liquidations?.note}><span /></W>
+        <W label="Econ Calendar" ok={false} note={c?.economic_calendar?.note}><span /></W>
       </div>
 
       {/* news */}
       <div style={{ marginTop: 10 }}>
         <WorldNews />
 
-        <div className="card-subtitle" style={{ marginBottom: 6, marginTop: 12 }}>Crypto News — CryptoPanic {c?.news.connected ? "" : "(optional, not connected)"}</div>
-        {c?.news.available && c.news.headlines.length ? (
+        <div className="card-subtitle" style={{ marginBottom: 6, marginTop: 12 }}>Crypto News — CryptoPanic {c?.news?.connected ? "" : "(optional, not connected)"}</div>
+        {c?.news?.available && c.news.headlines.length ? (
           <div className="alert-stack">
             {c.news.headlines.map((h, i) => (
               <div key={i} className="exec-line">
@@ -77,7 +77,7 @@ export default function MarketContextPanel() {
             ))}
           </div>
         ) : (
-          <div className="dim" style={{ fontSize: 13 }}><Icon name="info" size={13} /> {c?.news.note ?? "No news yet."}</div>
+          <div className="dim" style={{ fontSize: 13 }}><Icon name="info" size={13} /> {c?.news?.note ?? "No news yet."}</div>
         )}
       </div>
 

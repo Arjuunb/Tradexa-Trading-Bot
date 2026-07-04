@@ -21,7 +21,7 @@ export default function LiveTradingPage() {
   const [confirmed, setConfirmed] = useState(false);
 
   const prog = getProgress();
-  const brokerConnected = !!(sys?.broker_connected ?? settings?.readonly.broker_connected);
+  const brokerConnected = !!(sys?.broker_connected ?? settings?.readonly?.broker_connected);
   const checklist: [string, boolean][] = [
     ["Valid backtest results", prog.backtest],
     ["Simulation results recorded", prog.simulation],
@@ -92,7 +92,7 @@ function BrokerConnections() {
       {!b ? <div className="dim">—</div> : (
         <>
           <div className="risk-list">
-            {b.brokers.map((br) => (
+            {(b.brokers ?? []).map((br) => (
               <div className="risk-item" key={br.kind}>
                 <span><b>{br.name}</b> <span className="dim" style={{ fontSize: 11 }}>· {br.mode}</span></span>
                 <Badge text={br.connected ? (br.kind === "paper" ? "Executable" : "Connected") : "Not connected"}

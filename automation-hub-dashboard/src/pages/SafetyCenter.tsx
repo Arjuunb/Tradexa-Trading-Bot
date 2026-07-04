@@ -137,7 +137,7 @@ function AlertsPanel() {
           </div>
           <div className="form-grid-2" style={{ marginTop: 8 }}>
             <label className="field"><span className="field-label">Discord webhook</span>
-              <input type="password" placeholder={c?.discord.connected ? "•••• connected" : "webhook URL"} value={keys.discord_webhook ?? ""} onChange={(e) => setKeys((k) => ({ ...k, discord_webhook: e.target.value }))} /></label>
+              <input type="password" placeholder={c?.discord?.connected ? "•••• connected" : "webhook URL"} value={keys.discord_webhook ?? ""} onChange={(e) => setKeys((k) => ({ ...k, discord_webhook: e.target.value }))} /></label>
             <label className="field"><span className="field-label">Alert email</span>
               <input placeholder="you@example.com" value={keys.email_to ?? ""} onChange={(e) => setKeys((k) => ({ ...k, email_to: e.target.value }))} /></label>
             <label className="field"><span className="field-label">SMTP host</span>
@@ -150,7 +150,7 @@ function AlertsPanel() {
         </div>
         <div>
           <div className="card-subtitle" style={{ marginBottom: 6 }}>Live alerts now</div>
-          {(live.data?.alerts.length ?? 0) === 0 ? <div className="dim" style={{ fontSize: 13 }}>No alert conditions firing right now.</div> : (
+          {(live.data?.alerts?.length ?? 0) === 0 ? <div className="dim" style={{ fontSize: 13 }}>No alert conditions firing right now.</div> : (
             <div className="alert-stack">
               {live.data!.alerts.map((a, i) => (
                 <div key={i} className="risk-item" style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}>

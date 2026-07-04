@@ -35,7 +35,7 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
         <span className="sep">·</span>
         <span className="dim">{detail}</span>
         {data?.strategy?.startsWith("Custom") && (
-          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(139,92,246,0.18)", color: "#a78bfa" }}>CUSTOM</span>
+          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(234,181,79,0.18)", color: "var(--gold)" }}>CUSTOM</span>
         )}
         <Icon name="settings" size={13} className="dim" />
       </button>

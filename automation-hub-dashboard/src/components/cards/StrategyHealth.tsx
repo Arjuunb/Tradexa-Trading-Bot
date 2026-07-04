@@ -58,7 +58,7 @@ export default function StrategyHealth() {
         </div>
       )}
 
-      {(h?.warnings.length ?? 0) > 0 && (
+      {(h?.warnings?.length ?? 0) > 0 && (
         <div style={{ marginTop: 10 }}>
           {h!.warnings.map((w, i) => (
             <div key={i} className="risk-item" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -69,16 +69,16 @@ export default function StrategyHealth() {
         </div>
       )}
 
-      {((data?.breakdown.by_symbol.length ?? 0) > 0 || (data?.breakdown.by_session.length ?? 0) > 0) && (
+      {((data?.breakdown?.by_symbol?.length ?? 0) > 0 || (data?.breakdown?.by_session?.length ?? 0) > 0) && (
         <div className="grid-2-eq" style={{ marginTop: 12 }}>
-          {(data?.breakdown.by_symbol.length ?? 0) > 0 && (
+          {(data?.breakdown?.by_symbol?.length ?? 0) > 0 && (
             <div>
               <div className="card-subtitle" style={{ marginBottom: 6 }}>By symbol (worst first)</div>
               <div className="tablewrap">
                 <table className="data-table">
                   <thead><tr><th>Symbol</th><th>Trades</th><th>Win%</th><th>Net P&amp;L</th><th>Blocked</th></tr></thead>
                   <tbody>
-                    {data!.breakdown.by_symbol.map((s) => (
+                    {(data?.breakdown?.by_symbol ?? []).map((s) => (
                       <tr key={s.name}>
                         <td><b>{s.name}</b></td>
                         <td>{s.trades}</td>
@@ -92,14 +92,14 @@ export default function StrategyHealth() {
               </div>
             </div>
           )}
-          {(data?.breakdown.by_session.length ?? 0) > 0 && (
+          {(data?.breakdown?.by_session?.length ?? 0) > 0 && (
             <div>
               <div className="card-subtitle" style={{ marginBottom: 6 }}>By session (UTC)</div>
               <div className="tablewrap">
                 <table className="data-table">
                   <thead><tr><th>Session</th><th>Trades</th><th>Win%</th><th>Net P&amp;L</th></tr></thead>
                   <tbody>
-                    {data!.breakdown.by_session.map((s) => (
+                    {(data?.breakdown?.by_session ?? []).map((s) => (
                       <tr key={s.name}>
                         <td><b>{s.name}</b></td>
                         <td>{s.trades}</td>

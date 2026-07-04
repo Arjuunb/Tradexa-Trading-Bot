@@ -136,8 +136,8 @@ function Marketplace() {
         )}
       </Card>
 
-      <Card title="My Library" subtitle={`${d?.counts.library ?? 0} saved · ${d?.counts.favorites ?? 0} favorite`}>
-        {(d?.library.length ?? 0) === 0 ? <div className="dim ta-center" style={{ padding: 14 }}>Clone a template below to start your library.</div> : (
+      <Card title="My Library" subtitle={`${d?.counts?.library ?? 0} saved · ${d?.counts?.favorites ?? 0} favorite`}>
+        {(d?.library?.length ?? 0) === 0 ? <div className="dim ta-center" style={{ padding: 14 }}>Clone a template below to start your library.</div> : (
           <div className="scan-grid">
             {d!.library.map((s) => (
               <div className="scan-card" key={s.id} style={{ ["--sc-accent" as any]: s.favorite ? "var(--gold)" : "var(--purple)" }}>

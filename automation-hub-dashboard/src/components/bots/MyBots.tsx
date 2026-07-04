@@ -14,7 +14,7 @@ export default function MyBots() {
   const app = useApp();
   const [tab, setTab] = useState<Tab>("All");
   const { data } = useLive<LiveBot[]>("/bots/live", 2500);
-  const bots = data ?? [];
+  const bots = Array.isArray(data) ? data : [];
 
   const counts = useMemo(() => ({
     All: bots.length,
