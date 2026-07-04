@@ -179,7 +179,7 @@ def validate_cross_asset(symbols=("ETHUSDT", "SOLUSDT", "XRPUSDT"),
     """Baseline vs BTC-gated run per altcoin on the SAME candles."""
     from data.market_data import get_bars
     from strategies.brain_strategy import DecisionBrain
-    from strategies.custom import simulate_strategy
+    from strategies.custom import gated_sim
 
     leader_rows, _src = get_bars(_LEADER, n=bars, timeframe=timeframe,
                                  require_real=require_real)
@@ -195,9 +195,11 @@ def validate_cross_asset(symbols=("ETHUSDT", "SOLUSDT", "XRPUSDT"),
             per.append({"symbol": sym, "note": "no data"})
             continue
         n = min(len(rows), len(trends))
-        base = simulate_strategy(DecisionBrain(sym), rows[-n:])
+        # PARITY: both runs go through the live quality gate (the modifier is
+        # judged on top of the system that actually trades, not a bare brain)
+        base = gated_sim(DecisionBrain(sym), rows[-n:])
         gated_strat = _GatedStrategy(DecisionBrain(sym), trends[-n:])
-        gated = simulate_strategy(gated_strat, rows[-n:])
+        gated = gated_sim(gated_strat, rows[-n:])
         base_total += base.get("net_r", 0.0)
         gated_total += gated.get("net_r", 0.0)
         per.append({"symbol": sym,
@@ -234,7 +236,7 @@ def validate_sizing_modifier(kind: str, factor_by_day: dict[str, float],
     trade-R stream re-weighted by the entry-day factor — exact, not simulated."""
     from data.market_data import get_bars
     from strategies.brain_strategy import DecisionBrain
-    from strategies.custom import simulate_strategy
+    from strategies.custom import gated_sim
 
     if not factor_by_day:
         return {"available": False, "verdict": "no-history",
@@ -245,7 +247,7 @@ def validate_sizing_modifier(kind: str, factor_by_day: dict[str, float],
         rows, _s = get_bars(sym, n=bars, timeframe=timeframe, require_real=require_real)
         if not rows or len(rows) < 400:
             continue
-        res = simulate_strategy(DecisionBrain(sym), rows)
+        res = gated_sim(DecisionBrain(sym), rows)
         trades = res.get("trades", [])
         n_trades += len(trades)
         base_total += sum(float(t.get("r") or 0.0) for t in trades)

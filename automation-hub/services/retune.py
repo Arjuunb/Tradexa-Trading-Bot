@@ -36,9 +36,11 @@ READ_VARIANTS = ({}, {"er_mode": "add"}, {"er_mode": "add", "volume_conf": True}
 
 def _run_config(symbol: str, rows, params: dict) -> dict:
     from strategies.brain_strategy import DecisionBrain
-    from strategies.custom import simulate_strategy
+    from strategies.custom import gated_sim
     strat = DecisionBrain(symbol, **params)
-    res = simulate_strategy(strat, rows)
+    # PARITY: simulate through the live engine's quality gate, or the search
+    # optimizes a brain the bot never actually trades.
+    res = gated_sim(strat, rows)
     return {"trades": res.get("total_trades", 0), "net_r": res.get("net_r", 0.0),
             "win_rate": res.get("win_rate", 0.0),
             "profit_factor": res.get("profit_factor", 0.0)}
