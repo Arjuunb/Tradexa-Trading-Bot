@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from bot.data.indicators import ema, rsi
+from bot.data.indicators import atr, ema, rsi
 from bot.types import Bar, Signal, SignalType
 from services.regime import RegimeDetector
 from strategies.base_strategy import HubStrategy
@@ -144,6 +144,42 @@ class DecisionBrain(HubStrategy):
         if signal is not None:
             signal.confidence = round(_clip(conviction, 0.0, 1.0), 3)
             signal.regime = regime.name   # lets the learning loop study losses per regime
+            signal.brain_score = round(score, 3)
+            # REAL decision context for the trade journal — the exact reads and
+            # market values this decision was made on (never fabricated).
+            a = atr(self.bars, 14)
+            avg_vol = (sum(b.volume for b in self.bars[-21:-1]) / 20
+                       if len(self.bars) >= 21 else 0.0)
+            signal.snapshot = {
+                "price": round(price, 6), "ema_fast": round(ef, 6), "ema_slow": round(es, 6),
+                "ema_trend": round(et, 6), "rsi": round(r, 1), "atr": round(a, 6),
+                "atr_pct": round(a / price * 100, 3) if price else 0.0,
+                "regime": regime.name, "trend_direction": "up" if price > et else "down",
+                "volume": round(self.bars[-1].volume, 2), "avg_volume_20": round(avg_vol, 2),
+                "volatility": getattr(regime, "volatility", None),
+            }
+            sd = 1.0 if score > 0 else -1.0
+            def _st(agree, weak=False):
+                return "Passed" if agree else ("Neutral" if weak else "Failed")
+            signal.checklist = [
+                {"name": "HTF trend filter (price vs EMA50)", "status": _st(v_filter * sd > 0),
+                 "detail": f"price {'>' if price > et else '<'} EMA50"},
+                {"name": "EMA trend (fast vs slow)", "status": _st(v_trend * sd > 0),
+                 "detail": f"EMA{p['fast']} {'>' if ef > es else '<'} EMA{p['slow']}"},
+                {"name": "Momentum (EMA slope)", "status": _st(v_slope * sd >= 0, v_slope * sd >= -0.25),
+                 "detail": f"slope vote {v_slope:+.2f}"},
+                {"name": "RSI confirmation", "status": _st(v_rsi * sd > 0, True),
+                 "detail": f"RSI {r:.0f}"},
+                {"name": "Regime tradeable", "status": _st(factor > 0),
+                 "detail": f"{regime.name} (size ×{factor:.2f})"},
+                {"name": "Volume confirmation",
+                 "status": ("Passed" if (self.volume_conf and self.bars[-1].volume > avg_vol)
+                            else "Neutral" if self.volume_conf else "Not checked"),
+                 "detail": "vs 20-bar avg" if self.volume_conf else "not part of this config"},
+                {"name": "Efficiency ratio",
+                 "status": ("Passed" if self.er_mode != "off" else "Not checked"),
+                 "detail": "Kaufman ER" if self.er_mode != "off" else "not part of this config"},
+            ]
         return signal
 
     def _explain(self, direction, ef, es, et, price, r, regime, conviction) -> str:
