@@ -8,5 +8,5 @@ dist/
 *.tsbuildinfo
 
 # Playwright
-automation-hub-dashboard/test-results/
-automation-hub-dashboard/playwright-report/
+test-results/
+playwright-report/
