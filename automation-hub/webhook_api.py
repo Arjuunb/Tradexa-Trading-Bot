@@ -1138,6 +1138,22 @@ def research_retune_report():
                             "POST /retune/run to search now."}
 
 
+@router.post("/research/validate-context")
+def research_validate_context(timeframe: str = "1h", bars: int = 2500,
+                              x_webhook_secret: str = Header(default="")):
+    """Validate the three context modifiers (cross-asset gate, funding sizing,
+    sentiment sizing) on REAL cached candles + real funding / Fear&Greed
+    history. Per-modifier verdicts; nothing is enabled automatically."""
+    _check_secret(x_webhook_secret)
+    from services.context_brain import validate_context
+    rep = validate_context(timeframe=timeframe, bars=max(600, min(bars, 6000)))
+    ledger.log(level="info", stage="research",
+               message=("Context validation: cross=%s funding=%s sentiment=%s" % (
+                   rep["cross_asset"].get("verdict"), rep["funding"].get("verdict"),
+                   rep["sentiment"].get("verdict"))))
+    return rep
+
+
 @router.get("/counterfactual/report")
 def counterfactual_report():
     """Every gate graded by what it actually blocked: saved_r per rule

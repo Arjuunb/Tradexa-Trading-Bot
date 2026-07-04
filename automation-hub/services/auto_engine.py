@@ -110,6 +110,12 @@ class AutoStrategyEngine:
         self.min_quality_score = int(_os.environ.get("HUB_MIN_SCORE", "60"))
         from strategies.brain import TradeBrain
         self._quality_brain = TradeBrain()
+        # Context-aware modifiers (cross-asset gate / funding / sentiment) —
+        # ALL OFF by default; enable validated ones via HUB_CONTEXT after
+        # POST /research/validate-context proves them on real candles.
+        from services.context_brain import ContextModifiers
+        self.context = ContextModifiers(
+            leader_bars_fn=lambda: self._fetcher("BTCUSDT", self.timeframe, 80)[0])
         self._pending: dict[str, dict] = {}     # symbol -> resting limit order
         self.stats_missed_entries = 0
         # Shadow A/B: an optional services.shadow.ShadowRun fed the SAME bars
@@ -475,6 +481,24 @@ class AutoStrategyEngine:
                     except Exception:  # noqa: BLE001
                         pass
                 return
+        # context gate: never long an altcoin against BTC's own trend
+        # (cross-asset modifier; OFF unless validated + enabled)
+        ctx_why = self.context.gate(sym, "long" if signal.type == SignalType.LONG else "short")
+        if ctx_why and pos is None:
+            self.stats["rejections"] += 1
+            self.ledger.log(level="info", stage="context", symbol=sym,
+                            message=f"{sym} {side} blocked: {ctx_why}")
+            if self.counterfactual is not None:
+                try:
+                    self.counterfactual.record_veto(
+                        symbol=sym,
+                        side="long" if signal.type == SignalType.LONG else "short",
+                        entry=signal.entry, stop=signal.stop_loss,
+                        target=signal.take_profit, rule="context:btc-trend",
+                        detail=ctx_why, time=signal.timestamp.isoformat())
+                except Exception:  # noqa: BLE001
+                    pass
+            return
         payload = {
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
@@ -482,6 +506,8 @@ class AutoStrategyEngine:
             "confidence": getattr(signal, "confidence", 1.0),
             "regime": getattr(signal, "regime", ""),
             "reason": getattr(signal, "reason", ""),
+            "context_size_factor": self.context.size_factor(
+                sym, "long" if signal.type == SignalType.LONG else "short"),
             "timestamp": signal.timestamp.isoformat(),
         }
         # Maker entry: when FLAT, park a resting limit instead of paying the
