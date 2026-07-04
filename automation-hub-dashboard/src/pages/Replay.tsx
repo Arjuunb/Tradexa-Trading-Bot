@@ -394,7 +394,7 @@ function BrainPanel({ frame, active, liveRR, status, decision }: {
         {frame.breakdown && Object.entries(frame.breakdown).map(([k, v]: any) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
             <span className="dim" style={{ width: 130, fontSize: 11 }}>{k}</span>
-            <div style={{ flex: 1, height: 6, background: "#161d30", borderRadius: 3 }}>
+            <div style={{ flex: 1, height: 6, background: "#161618", borderRadius: 3 }}>
               <div style={{ width: `${Math.min(100, (v / 25) * 100)}%`, height: 6, background: "#eab54f", borderRadius: 3 }} />
             </div>
             <b style={{ width: 24, textAlign: "right", fontSize: 11 }}>+{v}</b>
@@ -404,7 +404,7 @@ function BrainPanel({ frame, active, liveRR, status, decision }: {
       </div>
 
       {active && (
-        <div style={{ marginTop: 10, borderTop: "1px solid #1b2336", paddingTop: 8 }}>
+        <div style={{ marginTop: 10, borderTop: "1px solid #1b1b1f", paddingTop: 8 }}>
           <div className="card-subtitle" style={{ marginBottom: 4 }}>Open {active.side} #{active.id}</div>
           <div className="risk-item"><span className="dim">Status</span>
             <Badge text={status ?? "Open"} tone={status?.includes("Partial") ? "amber" : "default"} /></div>
@@ -470,7 +470,7 @@ function TradeReview({ trade }: { trade?: ReplayTrade }) {
           </p>
         )}
       </div>
-      <div style={{ marginTop: 10, borderTop: "1px solid #1b2336", paddingTop: 8 }}>
+      <div style={{ marginTop: 10, borderTop: "1px solid #1b1b1f", paddingTop: 8 }}>
         <div className="risk-item" style={{ alignItems: "flex-start" }}>
           <span className="dim" style={{ minWidth: 110 }}>What helped</span>
           <span className="pos" style={{ textAlign: "right" }}>{ins.helped}</span></div>

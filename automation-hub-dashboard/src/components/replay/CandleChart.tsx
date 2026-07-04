@@ -75,13 +75,13 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
 
     const xAxis: any[] = grids.map((_, gi) => ({
       type: "category", data: cats, gridIndex: gi, boundaryGap: true,
-      axisLine: { lineStyle: { color: "#2a3350" } }, axisTick: { show: false },
+      axisLine: { lineStyle: { color: "#2a2a2f" } }, axisTick: { show: false },
       axisLabel: gi === grids.length - 1 ? { color: "#8a93a6", fontSize: 10, hideOverlap: true } : { show: false },
       axisPointer: { label: { show: gi === grids.length - 1 } },
     }));
     const yAxis: any[] = [{ scale: true, position: "right", gridIndex: 0,
       axisLabel: { color: "#8a93a6", fontSize: 10, formatter: (v: number) => fmt(v) },
-      splitLine: { lineStyle: { color: "#161d30" } } }];
+      splitLine: { lineStyle: { color: "#161618" } } }];
     if (hasVol) yAxis.push({ scale: true, position: "right", gridIndex: volGrid, name: "Vol",
       nameTextStyle: { color: "#5b6478", fontSize: 9 },
       axisLabel: { color: "#5b6478", fontSize: 9, formatter: (v: number) => volFmt(v) }, splitLine: { show: false } });
@@ -199,7 +199,7 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
         left: 58, top: 4, textStyle: { color: upCol, fontSize: 11, fontWeight: 500 },
         text: `${data.meta.symbol} ${data.meta.timeframe}   O ${fmt(last.o)}  H ${fmt(last.h)}  L ${fmt(last.l)}  C ${fmt(last.c)}  Vol ${volFmt(last.v)}   ${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`,
       },
-      axisPointer: { link: [{ xAxisIndex: "all" }], label: { backgroundColor: "#1e2438" } },
+      axisPointer: { link: [{ xAxisIndex: "all" }], label: { backgroundColor: "#1e1e21" } },
       legend: legend.length ? { data: legend, top: 4, right: 64, itemWidth: 14, itemHeight: 8,
         textStyle: { color: "#8a93a6", fontSize: 10 }, icon: "roundRect" } : undefined,
       grid: grids,
@@ -207,12 +207,12 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
       dataZoom: [
         { type: "inside", xAxisIndex: allX, startValue: startV, endValue: end - 1, zoomOnMouseWheel: true, moveOnMouseMove: true, minValueSpan: 20 },
         { type: "slider", xAxisIndex: allX, startValue: startV, endValue: end - 1, height: 18, bottom: 6,
-          backgroundColor: "rgba(30,36,56,0.4)", fillerColor: "rgba(139,92,246,0.15)", borderColor: "#2a3350",
-          handleStyle: { color: "#eab54f" }, textStyle: { color: "#8a93a6", fontSize: 9 }, dataBackground: { lineStyle: { color: "#2a3350" }, areaStyle: { color: "#161d30" } } },
+          backgroundColor: "rgba(30,36,56,0.4)", fillerColor: "rgba(139,92,246,0.15)", borderColor: "#2a2a2f",
+          handleStyle: { color: "#eab54f" }, textStyle: { color: "#8a93a6", fontSize: 9 }, dataBackground: { lineStyle: { color: "#2a2a2f" }, areaStyle: { color: "#161618" } } },
       ],
       tooltip: {
         trigger: "axis", axisPointer: { type: "cross", crossStyle: { color: "#5b6478" } },
-        backgroundColor: "rgba(13,18,32,0.96)", borderColor: "#2a3350", textStyle: { color: "#e6eaf2", fontSize: 11 },
+        backgroundColor: "rgba(13,18,32,0.96)", borderColor: "#2a2a2f", textStyle: { color: "#e6eaf2", fontSize: 11 },
         formatter: (ps: any) => {
           const i = ps[0].dataIndex; const b = c[i]; if (!b) return "";
           const up = b.c >= b.o;
