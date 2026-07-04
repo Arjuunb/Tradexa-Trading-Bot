@@ -448,6 +448,20 @@ def _detect_reversal(spec: dict) -> bool:
     return detect_reversal(spec)
 
 
+# The quality bar the LIVE engine applies to every entry (HUB_MIN_SCORE default).
+# Research judges MUST simulate with this same gate, or they score a different
+# system than the one that trades. See services/retune, services/context_brain.
+LIVE_MIN_SCORE = 60
+
+
+def gated_sim(strat, bars, **kw) -> dict:
+    """Simulate a strategy through the SAME TradeBrain quality gate the live
+    engine enforces — the canonical parity path for retune / context judges."""
+    from strategies.brain import TradeBrain
+    return simulate_strategy(strat, bars, brain=TradeBrain(),
+                             min_score=LIVE_MIN_SCORE, **kw)
+
+
 def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                       starting_balance: float = 10_000.0, risk_pct: float = 0.01,
                       brain=None, min_score: int = 0, mtf_lookup=None, mtf_tfs=None,
