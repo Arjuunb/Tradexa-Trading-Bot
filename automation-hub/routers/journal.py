@@ -1,0 +1,92 @@
+"""Journal endpoints — split from webhook_api.py.
+
+Endpoint bodies are unchanged except that references to shared state resolve via
+``_wa.<name>`` so singletons (pipeline, ledger, paper, engine, …) are read from
+webhook_api at request time. That keeps the test suite's fixture rebinding
+(``webhook_api.pipeline = <fresh>``) working exactly as before the split.
+"""
+import webhook_api as _wa
+from fastapi import APIRouter, Header, HTTPException, Body, Query, Depends  # noqa: F401
+from typing import Optional, List, Dict  # noqa: F401
+
+# Fallback: expose every webhook_api global by name so references the qualifier
+# intentionally left bare (e.g. inside f-strings) still resolve. Qualified
+# `_wa.<name>` uses stay dynamic; these copies are only a safety net.
+globals().update({k: v for k, v in vars(_wa).items()
+                  if not k.startswith("__") and k != "router"})
+
+router = APIRouter()
+
+
+@router.get("/journal")
+def journal_list():
+    """Trade journal entries (auto-created from trades, human-editable)."""
+    return {"entries": _wa.journal_store.list()}
+
+@router.post("/journal/from-replay")
+def journal_from_replay(symbol: str = "BTCUSDT", strategy: str = "Decision Brain",
+                        timeframe: str = "15m", limit: int = 800,
+                        x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Auto-journal every closed trade from a real replay run (#11)."""
+    _wa._check_secret(x_webhook_secret)
+    from services.replay import build_replay
+    rep = build_replay(symbol, timeframe, limit, strategy=strategy)
+    if rep["meta"]["bars"] == 0:
+        raise _wa.HTTPException(400, rep["meta"].get("data_warning", "No data."))
+    closed = [t for t in rep["trades"] if t.get("rr") is not None]
+    added = _wa.journal_store.add_from_trades(closed, symbol=symbol, strategy=strategy, timeframe=timeframe)
+    return {"added": len(added), "entries": added}
+
+@router.patch("/journal/{eid}")
+def journal_update(eid: str, body: _wa.JournalEdit, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Edit the human fields of a journal entry."""
+    _wa._check_secret(x_webhook_secret)
+    r = _wa.journal_store.update(eid, body.model_dump(exclude_none=True))
+    if r is None:
+        raise _wa.HTTPException(404, "Entry not found")
+    return r
+
+@router.delete("/journal/{eid}")
+def journal_delete(eid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    _wa._check_secret(x_webhook_secret)
+    return {"deleted": _wa.journal_store.delete(eid)}
+
+@router.get("/skipped/trades")
+def skipped_trades(limit: int = 100, symbol: _wa.Optional[str] = None,
+                   stage: _wa.Optional[str] = None, q: _wa.Optional[str] = None):
+    """Every setup the bot rejected — newest first — with the exact reason, the
+    gate that failed, and the market snapshot. Filter by symbol / stage or
+    free-text search across reason + symbol + stage."""
+    return {"trades": _wa.skipped_store.list(limit=max(1, min(limit, 500)),
+                                         symbol=symbol, stage=stage, q=q)}
+
+@router.get("/skipped/summary")
+def skipped_summary():
+    """Count of skips per failed gate — where the bot most often says 'no'."""
+    return {"stages": _wa.skipped_store.summary()}
+
+@router.get("/journal/trades")
+def journal_trades(limit: int = 100, mode: _wa.Optional[str] = None,
+                   symbol: _wa.Optional[str] = None, result: _wa.Optional[str] = None):
+    """List trades that have a decision journal (newest first), with summary +
+    grade. Filter by mode / symbol / result. The full journal is at
+    GET /journal/{trade_id}."""
+    return {"trades": _wa.decision_journal_store.list(limit=max(1, min(limit, 500)), mode=mode,
+                                                  symbol=symbol, result=result)}
+
+@router.get("/journal/evolution")
+def journal_evolution():
+    """Aggregated evolution memory per setup (strategy·regime·side) with the
+    early-signal / building / evidence staging that governs how much a pattern
+    can be trusted. Never auto-changes risk."""
+    return {"setups": _wa.decision_journal_store.evolution()}
+
+@router.get("/journal/{trade_id}")
+def journal_trade(trade_id: str):
+    """The full decision journal for one trade: summary, entry decision, rule
+    checklist, market snapshot, risk check, timeline, exit decision, post-trade
+    review and evolution note."""
+    j = _wa.decision_journal_store.get(trade_id)
+    if j is None:
+        raise _wa.HTTPException(404, "No journal for that trade id")
+    return j
