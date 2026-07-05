@@ -35,7 +35,9 @@ export default function SafetyCenterPage() {
 
   return (
     <>
-      <PageHeader title="Safety Center" subtitle="Progression flow, data separation and emergency controls" />
+      <PageHeader title="Safety Center" subtitle="Live-trading gate, progression flow, data separation and emergency controls" />
+
+      <LiveReadinessPanel />
 
       <Card title="Required Progression" subtitle="strategies can never skip a step">
         <div className="flow-row" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
@@ -73,6 +75,74 @@ export default function SafetyCenterPage() {
       <AlertsPanel />
       <EconProtectionPanel />
     </>
+  );
+}
+
+type Requirement = { key: string; label: string; passed: boolean; detail: string };
+type LiveReadiness = {
+  live_allowed: boolean; hard_locked: boolean; locked_reason: string;
+  default_mode: string; passed: number; total: number; requirements: Requirement[];
+};
+
+function LiveReadinessPanel() {
+  const app = useApp();
+  const r = useLive<LiveReadiness>("/safety/live-readiness", 5000);
+  const [testing, setTesting] = useState(false);
+  const d = r.data;
+
+  const testEstop = async () => {
+    if (!window.confirm("Test the kill switch? This halts trading momentarily, then restores your current state.")) return;
+    setTesting(true);
+    try {
+      const res = await apiPost<{ verified: boolean; state_after: string }>("/safety/test-emergency-stop");
+      if (res.verified) app.toast(`Kill switch verified — restored to ${res.state_after}`, "success");
+      else app.toast("Kill switch did NOT halt trading — investigate", "error");
+      r.refetch();
+    } catch {
+      app.toast("Test needs the webhook secret", "error");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const locked = !d || d.hard_locked || !d.live_allowed;
+  return (
+    <Card
+      title="Live Trading Readiness"
+      subtitle="live is locked by default — it unlocks only when every requirement below is met on real state"
+      right={d && <Badge text={locked ? "LOCKED" : "READY"} tone={locked ? "red" : "green"} />}
+    >
+      {!d ? <div className="dim">Loading readiness…</div> : (
+        <>
+          <div className="card" style={{ marginBottom: 10, borderColor: locked ? "#ef4444" : "#22c55e",
+            background: locked ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
+            <Icon name={locked ? "lock" : "check"} size={16} className={locked ? "neg" : "pos"} />
+            <span>
+              <b className={locked ? "neg" : "pos"}>{locked ? "Live trading is LOCKED." : "Live trading requirements met."}</b>{" "}
+              <span className="dim">{d.locked_reason}</span>
+            </span>
+          </div>
+
+          <div className="risk-list">
+            {d.requirements.map((req) => (
+              <div key={req.key} className="risk-item">
+                <span style={{ fontSize: 13 }}>
+                  {req.label} <span className="dim">· {req.detail}</span>
+                </span>
+                <Badge text={req.passed ? "Passed" : "Required"} tone={req.passed ? "green" : "red"} />
+              </div>
+            ))}
+          </div>
+
+          <div className="row-actions" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+            <span className="dim" style={{ fontSize: 12 }}>{d.passed} / {d.total} requirements passed · default mode <b>{d.default_mode}</b></span>
+            <button className="btn btn-soft" onClick={testEstop} disabled={testing}>
+              <Icon name="shield" size={13} /> {testing ? "Testing…" : "Test Emergency Stop"}
+            </button>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

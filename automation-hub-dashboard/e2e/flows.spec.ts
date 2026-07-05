@@ -93,3 +93,16 @@ test("Journal page — lists journaled trades and expands the full decision jour
   await expect(page.getByText(/Evolution Memory/i)).toBeVisible();
   await expect(page.locator("table.data-table").last()).toContainText("early-signal");
 });
+
+test("Safety Center — live readiness is locked and the kill-switch test verifies", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/safety-center");
+  await page.waitForTimeout(600);
+  await expect(page.getByRole("heading", { name: /Live Trading Readiness/i })).toBeVisible();
+  await expect(page.getByText("Live trading is LOCKED.")).toBeVisible();
+  await expect(page.getByText(/Paper trading track record/)).toBeVisible();
+  // kill-switch test: accept the confirm dialog, expect the verified toast
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: /Test Emergency Stop/i }).click();
+  await expect(page.locator(".toast.success")).toBeVisible();
+});
