@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multi-asset-trading-bot"
+name = "tradexa-trading-bot"
 version = "0.3.0"
-description = "Stdlib-only multi-asset trading bot: event-driven backtester, risk engine, live runner, HTML reports, and a live dashboard."
+description = "Tradexa — a stdlib-only multi-asset trading bot: event-driven backtester, risk engine, live runner, HTML reports, and a live dashboard."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -36,8 +36,8 @@ dev = ["pytest>=8.0", "pyyaml>=6.0", "fastapi>=0.110", "httpx>=0.27", "python-mu
 bot = "bot.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Arjuunb/multi-asset-trading-bot"
-Repository = "https://github.com/Arjuunb/multi-asset-trading-bot"
+Homepage = "https://github.com/Arjuunb/Tradexa-Trading-Bot"
+Repository = "https://github.com/Arjuunb/Tradexa-Trading-Bot"
 
 [tool.setuptools.packages.find]
 include = ["bot*"]

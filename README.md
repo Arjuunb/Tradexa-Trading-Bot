@@ -1,6 +1,6 @@
-# Multi-Asset Trading Bot
+# Tradexa Trading Bot
 
-A Python trading bot with a **broker-adapter layer** so the same strategy code
+A Python **multi-asset** trading bot with a **broker-adapter layer** so the same strategy code
 runs on crypto (Binance / Coinbase / Kraken / Bybit / 100+ exchanges via
 [ccxt](https://github.com/ccxt/ccxt)), US equities (Alpaca), and FX/CFDs
 (OANDA). Includes a built-in **support / resistance + rejection-candle**
@@ -134,8 +134,8 @@ overridden on construction.
 ## Quick start: backtest on synthetic data (no API keys)
 
 ```bash
-git clone https://github.com/Arjuun25/multi-asset-trading-bot.git
-cd multi-asset-trading-bot
+git clone https://github.com/Arjuunb/Tradexa-Trading-Bot.git
+cd Tradexa-Trading-Bot
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt   # ccxt/alpaca/oanda are optional
 python -m examples.run_backtest
