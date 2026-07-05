@@ -106,10 +106,19 @@ export function useLive<T>(path: string, intervalMs = 2500): LiveState<T> {
 
 // ---- response shapes (match the FastAPI endpoints) ----
 export interface PaperAccount {
+  // separated, persisted concepts
+  initial_capital: number;
+  current_equity: number;
+  available_balance: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  last_updated: string | null;
+  open_positions: number;
+  persistent: boolean;
+  warning: string | null;
+  // legacy keys (kept for back-compat)
   starting_balance: number;
   balance: number;
-  realized_pnl: number;
-  open_positions: number;
 }
 export interface LedgerPosition {
   id: string; symbol: string; side: string; size: number;

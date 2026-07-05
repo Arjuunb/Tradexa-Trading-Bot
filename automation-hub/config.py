@@ -118,6 +118,9 @@ class Settings:
     # Skipped-trade log (every rejected setup: failed gate + market snapshot)
     skipped_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_SKIPPED_DB", str(DATA_DIR / "skipped.db")))
+    # Persistent paper-account state (initial capital + current equity snapshot)
+    account_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_ACCOUNT_DB", str(DATA_DIR / "account.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))

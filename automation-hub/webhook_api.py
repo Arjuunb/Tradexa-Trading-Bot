@@ -118,6 +118,18 @@ from data.skipped_store import SkippedTradeStore  # noqa: E402
 skipped_store = SkippedTradeStore(settings.skipped_db)
 pipeline.skipped = skipped_store
 
+# Persistent paper-account state: capital / equity survive logout, refresh and
+# restart (with HUB_DATA_DIR). initial_capital is seeded once from the configured
+# starting cash; the SAVED value wins over the default on every restart.
+from data.account_store import AccountStore  # noqa: E402
+account_store = AccountStore(settings.account_db)
+account_store.seed_if_empty(settings.starting_cash)
+# the persisted initial capital drives the paper account (not the env default)
+paper.starting_balance = account_store.initial_capital()
+paper.account_store = account_store
+# reconcile the snapshot from the ledger's real closed trades on boot
+paper._persist_account_snapshot()
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()

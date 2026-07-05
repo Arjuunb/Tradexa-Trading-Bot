@@ -117,6 +117,8 @@ export default function SettingsPage() {
 
       <AccountCard />
 
+      <PaperCapitalCard />
+
       <div className="grid-2-eq">
         <Card title="Risk Management" subtitle="editable · applied live + persisted">
           <div className="form-grid-2">
@@ -260,6 +262,55 @@ export default function SettingsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function PaperCapitalCard() {
+  const app = useApp();
+  const acct = useLive<import("../lib/api").PaperAccount>("/paper/account", 4000);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const a = acct.data;
+  const money = (n?: number) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+  const apply = async () => {
+    const v = Number(amount);
+    if (!Number.isFinite(v) || v <= 0) { app.toast("Enter a positive amount", "error"); return; }
+    if (!window.confirm(`Set initial capital to ${money(v)}?\n\nThis RESETS the paper account: equity and P&L go back to ${money(v)} and paper trade history is cleared. It does not affect live trading (which stays locked).`)) return;
+    setBusy(true);
+    try {
+      const r = await apiPostJson<any>("/paper/initial-capital", { amount: v, confirm: true, reset_trades: true });
+      if (r?.error || r?.detail) app.toast(r.error || r.detail, "error");
+      else { app.toast(`Initial capital set to ${money(v)} — paper account reset`, "success"); setAmount(""); acct.refetch(); }
+    } catch { app.toast("Change needs the webhook secret", "error"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card title="Paper Capital" subtitle="initial capital vs current equity · persists across logout / restart">
+      {a?.persistent === false && a?.warning && (
+        <div className="card" style={{ marginBottom: 10, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
+          <Icon name="warning" size={13} className="amber" /> <span className="dim">{a.warning}</span>
+        </div>
+      )}
+      <div className="risk-list" style={{ marginBottom: 10 }}>
+        <div className="risk-item"><span className="dim">Initial capital</span><b>{money(a?.initial_capital)}</b></div>
+        <div className="risk-item"><span className="dim">Current equity</span><b className={(a?.current_equity ?? 0) >= (a?.initial_capital ?? 0) ? "pos" : "neg"}>{money(a?.current_equity)}</b></div>
+        <div className="risk-item"><span className="dim">Available balance</span><b>{money(a?.available_balance)}</b></div>
+        <div className="risk-item"><span className="dim">Realized P&amp;L</span><b>{money(a?.realized_pnl)}</b></div>
+        <div className="risk-item"><span className="dim">Last updated</span><span className="dim" style={{ fontSize: 12 }}>{a?.last_updated ?? "—"}</span></div>
+      </div>
+      <div className="form-grid-2">
+        <Field label="Set new initial capital ($)"><input type="number" min={1} placeholder={String(a?.initial_capital ?? "")} value={amount}
+          onChange={(e) => setAmount(e.target.value)} /></Field>
+        <div style={{ display: "flex", alignItems: "flex-end" }}>
+          <button className="btn btn-warn" disabled={busy} onClick={apply}><Icon name="refresh" size={13} /> {busy ? "…" : "Set & reset paper account"}</button>
+        </div>
+      </div>
+      <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>
+        Changing initial capital resets the paper account (equity + trade history) after an explicit confirmation. It never affects live trading — live stays locked.
+      </p>
+    </Card>
   );
 }
 

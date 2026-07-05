@@ -18,14 +18,74 @@ globals().update({k: v for k, v in vars(_wa).items()
 router = APIRouter()
 
 
+def _persistence_status() -> dict:
+    """Is the data dir on a persistent disk? (Real check, reused from ops.)"""
+    on_cloud = bool(_wa._os.environ.get("RENDER") or _wa._os.environ.get("DYNO"))
+    data_dir_set = bool(_wa._os.environ.get("HUB_DATA_DIR"))
+    persistent = data_dir_set or not on_cloud
+    warning = None
+    if not persistent:
+        warning = ("No persistent disk (HUB_DATA_DIR not set on a cloud host) — "
+                   "capital, trades and validation data may reset on redeploy.")
+    return {"persistent": persistent, "warning": warning}
+
+
 @router.get("/paper/account")
 def paper_account():
+    """Paper account with initial_capital and current_equity kept SEPARATE and
+    the current values persisted, so capital survives logout / refresh / restart
+    (with HUB_DATA_DIR). Legacy keys (starting_balance / balance) are kept."""
+    acct = _wa.account_store.get() or {}
+    realized = _wa.paper.realized_pnl()
+    initial = float(acct.get("initial_capital", _wa.paper.starting_balance))
+    current_equity = _wa.paper.balance()          # initial + realized P&L
+    available = _wa.paper.available_balance()
+    persist = _persistence_status()
     return {
-        "starting_balance": _wa.paper.starting_balance,
-        "balance": _wa.paper.balance(),
-        "realized_pnl": _wa.paper.realized_pnl(),
+        # separated, persisted concepts
+        "initial_capital": initial,
+        "current_equity": current_equity,
+        "available_balance": available,
+        "realized_pnl": realized,
+        "unrealized_pnl": float(acct.get("unrealized_pnl", 0.0)),
+        "last_updated": acct.get("last_updated"),
         "open_positions": len(_wa.paper.positions()),
+        "persistent": persist["persistent"],
+        "warning": persist["warning"],
+        # legacy keys (unchanged) so existing callers keep working
+        "starting_balance": initial,
+        "balance": current_equity,
     }
+
+
+class InitialCapital(_wa.BaseModel):
+    amount: float
+    confirm: bool = False       # must be true — resets the paper account
+    reset_trades: bool = True   # clear trade history so equity == new initial
+
+
+@router.post("/paper/initial-capital")
+def paper_set_initial_capital(body: InitialCapital,
+                              x_webhook_secret: Optional[str] = Header(default=None)):
+    """Change the initial capital. This RESETS the paper account, so it requires
+    an explicit ``confirm: true``. Never touches live trading."""
+    _wa._check_secret(x_webhook_secret)
+    if not body.confirm:
+        raise HTTPException(400, "Changing initial capital resets the paper account — "
+                                 "resend with confirm=true to proceed.")
+    if body.amount <= 0:
+        raise HTTPException(400, "initial capital must be positive")
+    if body.reset_trades:
+        try:
+            _wa.ledger.reset_paper()   # clears trades + positions if supported
+        except Exception:  # noqa: BLE001 — some ledgers can't reset; snapshot still resets
+            pass
+    _wa.account_store.set_initial_capital(body.amount, reset_account=True)
+    _wa.paper.starting_balance = body.amount
+    _wa.paper._persist_account_snapshot()
+    _wa.ledger.log(level="warning", stage="account",
+                   message=f"Initial capital set to {body.amount} — paper account reset.")
+    return {"ok": True, **(paper_account())}
 
 @router.get("/paper/positions")
 def paper_positions():
