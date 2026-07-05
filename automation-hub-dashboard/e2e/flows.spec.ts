@@ -106,3 +106,16 @@ test("Safety Center — live readiness is locked and the kill-switch test verifi
   await page.getByRole("button", { name: /Test Emergency Stop/i }).click();
   await expect(page.locator(".toast.success")).toBeVisible();
 });
+
+test("Logs — skipped trades are listed with failed gate and expandable snapshot", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/logs");
+  await page.waitForTimeout(600);
+  await expect(page.getByRole("heading", { name: /Skipped Trades/i })).toBeVisible();
+  // the failed gate + reason render
+  await expect(page.getByText("Max open positions (3) reached")).toBeVisible();
+  // expand the market snapshot for the row that has one
+  await page.getByRole("button", { name: /^View$/ }).first().click();
+  await page.waitForTimeout(300);
+  await expect(page.getByText(/regime/i).first()).toBeVisible();
+});

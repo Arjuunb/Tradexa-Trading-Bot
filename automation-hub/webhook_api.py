@@ -112,6 +112,12 @@ pipeline.journal = DecisionJournal(decision_journal_store)
 from services.safety_gate import SafetyState  # noqa: E402
 safety_state = SafetyState(settings.safety_state_path)
 
+# Skipped-trade log: every rejected setup with its failed gate + market
+# snapshot, so a quiet bot is explainable and searchable (not a black box).
+from data.skipped_store import SkippedTradeStore  # noqa: E402
+skipped_store = SkippedTradeStore(settings.skipped_db)
+pipeline.skipped = skipped_store
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -1026,6 +1032,22 @@ def safety_test_emergency_stop(x_webhook_secret: Optional[str] = Header(default=
                        f"(restored to {prior})")
     return {"ok": verified, "verified": verified, "prior_state": prior,
             "state_after": controls.state, "tested_at": tested_at}
+
+
+@router.get("/skipped/trades")
+def skipped_trades(limit: int = 100, symbol: Optional[str] = None,
+                   stage: Optional[str] = None, q: Optional[str] = None):
+    """Every setup the bot rejected — newest first — with the exact reason, the
+    gate that failed, and the market snapshot. Filter by symbol / stage or
+    free-text search across reason + symbol + stage."""
+    return {"trades": skipped_store.list(limit=max(1, min(limit, 500)),
+                                         symbol=symbol, stage=stage, q=q)}
+
+
+@router.get("/skipped/summary")
+def skipped_summary():
+    """Count of skips per failed gate — where the bot most often says 'no'."""
+    return {"stages": skipped_store.summary()}
 
 
 @router.get("/econ/protection")

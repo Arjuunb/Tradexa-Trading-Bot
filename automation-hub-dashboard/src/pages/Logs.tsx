@@ -1,8 +1,97 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE, type LogRow, type Readiness, type BotOsSnap } from "../lib/api";
+
+type SkippedTrade = {
+  id: number; ts: string; symbol: string; side: string; stage: string;
+  status: string; reason: string; entry: number | null; stop: number | null;
+  target: number | null; strategy: string; timeframe: string;
+  snapshot: Record<string, any>;
+};
+
+function SkippedTrades() {
+  const [q, setQ] = useState("");
+  const [stage, setStage] = useState<string>("all");
+  const [open, setOpen] = useState<number | null>(null);
+  const qs = new URLSearchParams({ limit: "200" });
+  if (q.trim()) qs.set("q", q.trim());
+  if (stage !== "all") qs.set("stage", stage);
+  const rows = useLive<{ trades: SkippedTrade[] }>(`/skipped/trades?${qs.toString()}`, 4000);
+  const summary = useLive<{ stages: { stage: string; count: number }[] }>("/skipped/summary", 8000);
+
+  const trades = rows.data?.trades ?? [];
+  const stages = summary.data?.stages ?? [];
+
+  return (
+    <Card
+      title="Skipped Trades"
+      subtitle="every setup the bot rejected — the failed gate, exact reason, and market snapshot"
+      right={<Badge text={`${stages.reduce((s, x) => s + x.count, 0)} skipped`} tone="amber" />}
+    >
+      <div className="toolbar">
+        <div className="search">
+          <Icon name="info" size={15} className="search-icon" />
+          <input placeholder="Search reason / symbol / gate…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="chips">
+          <button className={`chip-btn ${stage === "all" ? "active" : ""}`} onClick={() => setStage("all")}>all</button>
+          {stages.slice(0, 8).map((s) => (
+            <button key={s.stage} className={`chip-btn ${stage === s.stage ? "active" : ""}`} onClick={() => setStage(s.stage)}>
+              {s.stage} <span className="dim">{s.count}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="tablewrap">
+        <table className="data-table">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Failed gate</th><th>Reason</th><th>Snapshot</th></tr></thead>
+          <tbody>
+            {trades.map((t) => {
+              const isOpen = open === t.id;
+              const hasSnap = t.snapshot && Object.keys(t.snapshot).length > 0;
+              return (
+                <Fragment key={t.id}>
+                  <tr>
+                    <td className="dim mono">{hhmmss(t.ts)}</td>
+                    <td><b>{t.symbol}</b></td>
+                    <td className="dim">{t.side}</td>
+                    <td><Badge text={t.stage} tone="amber" /></td>
+                    <td>{t.reason}</td>
+                    <td>
+                      {hasSnap ? (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setOpen(isOpen ? null : t.id)}>
+                          <Icon name="chevron" size={12} className={isOpen ? "rot-180" : undefined} /> {isOpen ? "Hide" : "View"}
+                        </button>
+                      ) : <span className="dim" style={{ fontSize: 11 }}>none captured</span>}
+                    </td>
+                  </tr>
+                  {isOpen && hasSnap && (
+                    <tr>
+                      <td colSpan={6} style={{ background: "var(--surface-2, #121214)" }}>
+                        <div className="form-grid-3" style={{ padding: "6px 4px" }}>
+                          {Object.entries(t.snapshot).map(([k, v]) => v == null ? null : (
+                            <div key={k} className="risk-item"><span className="dim">{k.replace(/_/g, " ")}</span><b style={{ fontSize: 12 }}>{String(v)}</b></div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {trades.length === 0 && (
+              <tr><td colSpan={6} className="dim ta-center" style={{ padding: 20 }}>
+                No skipped trades match — the bot has not rejected a setup{q || stage !== "all" ? " for this filter" : " yet"}.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
 function stTone(s: string) { return s === "healthy" || s === "up" ? "green" : s === "down" || s === "error" ? "red" : "amber"; }
 
@@ -78,6 +167,8 @@ export default function LogsPage() {
         } />
 
       <SystemHealth />
+
+      <SkippedTrades />
 
       {error && !data && (
         <div className="card" style={{ borderColor: "#ef4444" }}>
