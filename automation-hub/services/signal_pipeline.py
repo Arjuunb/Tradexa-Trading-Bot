@@ -136,6 +136,8 @@ class SignalPipeline:
         # Counterfactual tracker: every meaningful veto is followed as a
         # virtual trade so each rule gets graded by what it actually blocked.
         self.counterfactual = None
+        # Decision journal: the full explainable record of every trade.
+        self.journal = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -210,7 +212,18 @@ class SignalPipeline:
         if side in _CLOSE_SIDES or (existing and _dir(side) != existing["side"]):
             if existing is None:
                 return reject("execution", "Close signal with no open position")
+            # link the closing trade to its open journal before the ledger row closes
+            _open_tid = next((t["id"] for t in self.ledger.get_paper_trades()
+                              if t["symbol"] == symbol and t["status"] == "open"), None)
             fill = self.paper.close(symbol=symbol, exit_price=entry)
+            if self.journal is not None and _open_tid:
+                try:
+                    self.journal.record_exit(
+                        trade_id=_open_tid, exit_price=entry, pnl=fill.pnl,
+                        exit_reason=payload.get("exit_reason")
+                        or ("opposite-signal" if side not in _CLOSE_SIDES else "manual-close"))
+                except Exception:  # noqa: BLE001 — journaling must never block trading
+                    pass
             self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
                                               entry=entry, stop=stop, payload=payload, status="accepted")
             self.ledger.log(level="info", stage="execution",
@@ -425,6 +438,19 @@ class SignalPipeline:
                               detail=(brain_reason or f"{side} {size:.6f} @ {entry}"))
         self._notify("trade", f"📈 {symbol} {side} opened", f"{size:.6f} @ {entry}")
         steps.append(Step("execution", True, f"opened {size:.6f} @ {entry}"))
+        # full explainable decision journal for this trade (real data only)
+        if self.journal is not None and fill.trade_id:
+            try:
+                self.journal.record_entry(
+                    trade_id=fill.trade_id, mode=payload.get("mode", "paper"),
+                    symbol=symbol, side=_dir(side),
+                    strategy=payload.get("strategy", brain_reason.split(" ")[0] or "Strategy"),
+                    timeframe=payload.get("timeframe", ""), entry=entry, stop=stop,
+                    target=payload.get("target"), size=size, equity=self.equity,
+                    confidence=confidence, brain_score=payload.get("brain_score"),
+                    regime=payload.get("regime", ""), steps=steps, payload=payload)
+            except Exception:  # noqa: BLE001 — journaling must never block trading
+                pass
         # remember entry context so the learning loop can study this trade later
         if alert_id:
             self._alert_info[alert_id] = {"confidence": confidence,

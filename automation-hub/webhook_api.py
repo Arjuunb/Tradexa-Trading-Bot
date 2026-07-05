@@ -99,6 +99,14 @@ counterfactual = CounterfactualTracker(
     _os.path.join(_os.path.dirname(settings.providers_path), "counterfactual.json"))
 pipeline.counterfactual = counterfactual
 
+# Decision journal: the full explainable record of every bot trade — entry
+# reasoning, rule checklist, market snapshot, risk check, exit, review and
+# evolution notes, all from REAL decision data.
+from data.journal_store import JournalStore  # noqa: E402
+from services.decision_journal import DecisionJournal  # noqa: E402
+journal_store = JournalStore(settings.journal_db)
+pipeline.journal = DecisionJournal(journal_store)
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -1152,6 +1160,35 @@ def research_validate_context(timeframe: str = "1h", bars: int = 2500,
                    rep["cross_asset"].get("verdict"), rep["funding"].get("verdict"),
                    rep["sentiment"].get("verdict"))))
     return rep
+
+
+@router.get("/journal/trades")
+def journal_trades(limit: int = 100, mode: Optional[str] = None,
+                   symbol: Optional[str] = None, result: Optional[str] = None):
+    """List trades that have a decision journal (newest first), with summary +
+    grade. Filter by mode / symbol / result. The full journal is at
+    GET /journal/{trade_id}."""
+    return {"trades": journal_store.list(limit=max(1, min(limit, 500)), mode=mode,
+                                         symbol=symbol, result=result)}
+
+
+@router.get("/journal/evolution")
+def journal_evolution():
+    """Aggregated evolution memory per setup (strategy·regime·side) with the
+    early-signal / building / evidence staging that governs how much a pattern
+    can be trusted. Never auto-changes risk."""
+    return {"setups": journal_store.evolution()}
+
+
+@router.get("/journal/{trade_id}")
+def journal_trade(trade_id: str):
+    """The full decision journal for one trade: summary, entry decision, rule
+    checklist, market snapshot, risk check, timeline, exit decision, post-trade
+    review and evolution note."""
+    j = journal_store.get(trade_id)
+    if j is None:
+        raise HTTPException(404, "No journal for that trade id")
+    return j
 
 
 @router.get("/counterfactual/report")

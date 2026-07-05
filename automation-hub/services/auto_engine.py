@@ -420,6 +420,7 @@ class AutoStrategyEngine:
             res = self._route({
                 "alert_id": f"auto-{sym}-x{next(self._seq)}", "symbol": sym,
                 "side": "CLOSE", "entry": exit_price, "stop": None,
+                "exit_reason": why,          # real exit cause for the journal
                 "timestamp": bar.timestamp.isoformat(),
             })
             if res is not None and res.accepted:
@@ -508,6 +509,14 @@ class AutoStrategyEngine:
             "reason": getattr(signal, "reason", ""),
             "context_size_factor": self.context.size_factor(
                 sym, "long" if signal.type == SignalType.LONG else "short"),
+            # real decision context for the trade journal
+            "brain_score": getattr(signal, "brain_score", None),
+            "snapshot": getattr(signal, "snapshot", None),
+            "brain_checklist": getattr(signal, "checklist", None),
+            "strategy": self.strategy_label,
+            "timeframe": self.timeframe,
+            "mode": "live" if self.live else "paper",
+            "open_trades": len(self.paper.positions()),
             "timestamp": signal.timestamp.isoformat(),
         }
         # Maker entry: when FLAT, park a resting limit instead of paying the

@@ -109,6 +109,9 @@ class Settings:
     # Historical market-data cache (real Binance candles)
     market_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_MARKET_DB", str(DATA_DIR / "market_data.db")))
+    # Decision-journal database (full explainable record of every trade)
+    journal_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_JOURNAL_DB", str(DATA_DIR / "journal.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))

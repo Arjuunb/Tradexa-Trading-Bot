@@ -1,6 +1,8 @@
+import { Fragment, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
+import DecisionJournalPanel from "../components/journal/DecisionJournalPanel";
 import { useApp } from "../app-context";
 import {
   apiPost, useLive, hhmmss, API_BASE,
@@ -23,6 +25,7 @@ export default function PaperTradingPage() {
   const alertsFeed = useLive<AlertRow[]>("/ledger/alerts?limit=20", 4000);
 
   const offline = account.error && !account.data;
+  const [openJournal, setOpenJournal] = useState<string | null>(null);
 
   const act = async (path: string, msg: string, refetch: () => void) => {
     try {
@@ -112,10 +115,13 @@ export default function PaperTradingPage() {
       <Card title="Paper Trade History" subtitle={`${trades.data?.length ?? 0} closed trades`}>
         <div className="tablewrap">
           <table className="data-table">
-            <thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>R:R</th><th>Closed</th></tr></thead>
+            <thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>R:R</th><th>Closed</th><th>Journal</th></tr></thead>
             <tbody>
-              {(trades.data ?? []).map((t) => (
-                <tr key={t.id}>
+              {(trades.data ?? []).map((t) => {
+                const isOpen = openJournal === String(t.id);
+                return (
+                <Fragment key={t.id}>
+                <tr>
                   <td><b>{t.symbol}</b></td>
                   <td><Badge text={t.side} tone={t.side === "long" ? "green" : "red"} /></td>
                   <td>{t.size.toFixed(6)}</td>
@@ -124,9 +130,28 @@ export default function PaperTradingPage() {
                   <td className={(t.pnl ?? 0) >= 0 ? "pos" : "neg"}>{(t.pnl ?? 0) >= 0 ? "+" : ""}{money(t.pnl)}</td>
                   <td>{t.rr !== null ? `${t.rr.toFixed(2)}R` : "—"}</td>
                   <td className="dim mono">{hhmmss(t.closed_at)}</td>
+                  <td>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenJournal(isOpen ? null : String(t.id))}
+                    >
+                      <Icon name="chevron" size={12} className={isOpen ? "rot-180" : undefined} />
+                      {isOpen ? "Hide" : "View Decision Journal"}
+                    </button>
+                  </td>
                 </tr>
-              ))}
-              {(trades.data?.length ?? 0) === 0 && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 18 }}>No closed trades yet.</td></tr>}
+                {isOpen && (
+                  <tr>
+                    <td colSpan={9} style={{ background: "var(--surface-2, #121214)", padding: 0 }}>
+                      <DecisionJournalPanel tradeId={String(t.id)} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
+              {(trades.data?.length ?? 0) === 0 && <tr><td colSpan={9} className="dim ta-center" style={{ padding: 18 }}>No closed trades yet.</td></tr>}
             </tbody>
           </table>
         </div>
