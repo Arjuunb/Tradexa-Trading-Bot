@@ -259,6 +259,8 @@ export interface StrategyPerformance {
   avg_win: number; avg_loss: number; best: number; worst: number;
   realized_pnl: number; starting_balance: number; balance: number;
   max_drawdown_abs: number; max_drawdown_pct: number; longest_losing_streak: number;
+  sharpe_ratio: number; sortino_ratio: number;
+  risk_adjusted: { sharpe_ratio: number; sortino_ratio: number; sample: number; basis: string; note: string };
   equity_curve: EquityCurvePoint[];
   recent: PaperTradeRow[];
 }

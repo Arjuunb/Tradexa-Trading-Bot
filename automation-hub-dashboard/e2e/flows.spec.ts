@@ -3,7 +3,7 @@ import { mockApi } from "./mock";
 
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
+  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Assistant",
   "Risk Manager", "Evolution", "Journal", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
@@ -131,4 +131,21 @@ test("Bot Health — shows real engine/feed/risk/watchdog status", async ({ page
   // watchdog + no-errors states render honestly
   await expect(page.getByText(/all clear/i)).toBeVisible();
   await expect(page.getByText(/No errors logged/i)).toBeVisible();
+});
+
+test("Strategy Proof — shows risk-adjusted stats, walk-forward, and breakdowns", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/strategy-proof");
+  await page.waitForTimeout(600);
+  await expect(page.locator("h1.pagehead-title", { hasText: "Strategy Proof" })).toBeVisible();
+  // risk-adjusted ratios surface (computed from real R returns)
+  await expect(page.getByText("Sharpe").first()).toBeVisible();
+  await expect(page.getByText("Sortino").first()).toBeVisible();
+  // per-symbol / per-session breakdowns render real rows
+  await expect(page.getByText(/Per-Symbol Performance/i)).toBeVisible();
+  await expect(page.getByText("BTCUSDT").first()).toBeVisible();
+  // walk-forward on demand
+  await page.getByRole("button", { name: /Run walk-forward/i }).click();
+  await page.waitForTimeout(300);
+  await expect(page.getByText(/folds positive/i)).toBeVisible();
 });
