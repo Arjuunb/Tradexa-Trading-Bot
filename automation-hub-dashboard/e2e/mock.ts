@@ -37,8 +37,59 @@ const PERF = {
   expectancy: 0, best: 0, worst: 0,
 };
 
+const JOURNAL_FULL = {
+  trade_id: "t1234567abcdef", mode: "paper", symbol: "BTCUSDT", side: "long",
+  strategy: "Decision Brain", timeframe: "4h", entry: 100, stop: 95, target: 115,
+  exit: 115, size: 2, risk_amount: 10, planned_rr: 3, actual_rr: 3, pnl: 30,
+  result: "win", confidence: 0.8, brain_score: 0.5, regime: "Trending",
+  grade: "A", status: "closed",
+  events: [
+    { ts: "2026-07-05T08:00:00Z", kind: "setup-detected", detail: "aligned long" },
+    { ts: "2026-07-05T08:00:01Z", kind: "risk-check-passed", detail: "1% risk" },
+    { ts: "2026-07-05T08:00:02Z", kind: "trade-opened", detail: "long 2 @ 100" },
+    { ts: "2026-07-05T09:00:00Z", kind: "exit-triggered", detail: "take-profit" },
+    { ts: "2026-07-05T09:00:01Z", kind: "trade-closed", detail: "+30" },
+  ],
+  sections: {
+    entry_decision: { main_reason: "Aligned 4-vote long", strategy_setup: "Trend pullback",
+      higher_timeframe_trend: "up", confidence_score: 0.8, final_decision_score: 0.5 },
+    checklist: {
+      entry_reads: [
+        { name: "EMA trend (fast vs slow)", status: "Passed", detail: "EMA12>EMA26" },
+        { name: "Fair-value gap (FVG)", status: "Not checked" },
+      ],
+      risk_gates: [
+        { rule: "daily_loss", name: "Daily loss limit", status: "Passed", detail: "today +0" },
+        { rule: "exposure", name: "Exposure cap", status: "Passed", detail: "within 5%" },
+      ],
+    },
+    market_snapshot: { price: 100, rsi: 58, atr: 1.2, regime: "Trending", trend_direction: "up" },
+    risk_check: { risk_per_trade: "1%", final_risk_decision: "approved" },
+    exit_decision: { exit_reason: "take-profit", exit_price: 115, actual_rr: 3, pnl: 30, result: "win" },
+    review: { grade: "A", quality: "good", entry_valid: true, risk_valid: true, exit_valid: true,
+      followed_strategy: true, mistake: "", improvement: "Repeatable — keep taking this setup." },
+    evolution: { learned: "Aligned trend longs pay in Trending regime", strength: "early signal (3 trades)",
+      take_similar_again: true, confidence_direction: "hold", rule_weight_hint: "no change yet",
+      guardrails: ["Risk is never increased automatically.",
+        "The Risk Manager and Safety Center are never bypassed.",
+        "Insights under 30 trades are early signals; 50+ trades are needed for stronger changes."] },
+  },
+};
+const JOURNAL_TRADES = { trades: [{
+  trade_id: "t1234567abcdef", created_at: "2026-07-05T08:00:00Z", closed_at: "2026-07-05T09:00:01Z",
+  mode: "paper", symbol: "BTCUSDT", side: "long", strategy: "Decision Brain", timeframe: "4h",
+  entry: 100, exit: 115, pnl: 30, planned_rr: 3, actual_rr: 3, result: "win", grade: "A", status: "closed",
+}] };
+const JOURNAL_EVOLUTION = { setups: [{
+  setup_key: "Brain|Trending|long", strategy: "Decision Brain", regime: "Trending", side: "long",
+  trades: 3, wins: 2, net_r: 4, stage: "early-signal", note: "Early signal — needs 30+ trades." }] };
+
 // exact shapes keyed by pathname substring (first match wins)
 const SHAPES: [string, unknown][] = [
+  // journal: /trades and /evolution must precede the single-journal fallback
+  ["/journal/trades", JOURNAL_TRADES],
+  ["/journal/evolution", JOURNAL_EVOLUTION],
+  ["/journal/t1234567abcdef", JOURNAL_FULL],
   ["/settings", SETTINGS],
   ["/replay/run", { meta: { bars: 0, data_warning: "" }, candles: [], trades: [], frames: [], events: [] }],
   ["/strategies/registry", { strategies: [] }],

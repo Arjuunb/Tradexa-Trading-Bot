@@ -144,3 +144,21 @@ def test_journal_endpoints():
     assert "trades" in client.get("/journal/trades").json()
     assert "setups" in client.get("/journal/evolution").json()
     assert client.get("/journal/does-not-exist").status_code == 404
+
+
+def test_decision_store_does_not_shadow_the_human_journal():
+    """The decision-journal store and the human trade-journal store share the
+    class name ``JournalStore`` — guard against one silently replacing the other
+    (which would break /journal, /journal/from-replay, PATCH/DELETE)."""
+    pytest.importorskip("fastapi")
+    import webhook_api
+    # two distinct stores, each with its own API surface
+    assert webhook_api.journal_store is not webhook_api.decision_journal_store
+    assert hasattr(webhook_api.journal_store, "add_from_trades")  # human journal
+    assert hasattr(webhook_api.decision_journal_store, "evolution")  # decision journal
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI(); app.include_router(webhook_api.router)
+    client = TestClient(app)
+    # old human-journal endpoint still returns its own shape, not decision rows
+    assert "entries" in client.get("/journal").json()

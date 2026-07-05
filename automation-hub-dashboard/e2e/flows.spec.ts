@@ -4,7 +4,7 @@ import { mockApi } from "./mock";
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
-  "Risk Manager", "Evolution", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
 
@@ -73,4 +73,23 @@ test("no unexpected 4xx/5xx from the app's own requests during a page tour", asy
     await page.waitForTimeout(700);
   }
   expect(bad, bad.join("\n")).toHaveLength(0);
+});
+
+test("Journal page — lists journaled trades and expands the full decision journal", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/journal");
+  await page.waitForTimeout(700);
+  // page + a journaled trade row render
+  await expect(page.getByRole("heading", { name: /Bot Trade Journal/i })).toBeVisible();
+  await expect(page.locator("table.data-table").first()).toContainText("BTCUSDT");
+  // expand the decision journal for that trade
+  await page.getByRole("button", { name: /^View$/ }).first().click();
+  await page.waitForTimeout(400);
+  // the 9-section panel is now visible with real captured data + honesty markers
+  await expect(page.getByText("1 · Trade Summary")).toBeVisible();
+  await expect(page.getByText(/Not checked/).first()).toBeVisible();
+  await expect(page.getByText(/never bypassed/i)).toBeVisible();
+  // evolution memory table shows the staged setup
+  await expect(page.getByText(/Evolution Memory/i)).toBeVisible();
+  await expect(page.locator("table.data-table").last()).toContainText("early-signal");
 });

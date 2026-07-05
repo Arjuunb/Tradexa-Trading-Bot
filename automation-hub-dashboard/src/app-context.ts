@@ -17,11 +17,11 @@ export const AppContext = createContext<AppApi>({
 
 export const useApp = () => useContext(AppContext);
 
-// The 14 sidebar pages (the standalone trading-bot workspace layout).
+// The sidebar pages (the standalone trading-bot workspace layout).
 export const NAV_LABELS = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
-  "Risk Manager", "Evolution", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Logs", "Settings", "Safety Center",
 ] as const;
 
 // Extra routes reachable by hash but not shown in the main nav (kept so the
