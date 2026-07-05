@@ -12,7 +12,22 @@ services:
     envVars:
       - key: HUB_AUTO_ENGINE
         value: "1"
+      # Paper-trade the validated DecisionBrain on real Binance candles instead
+      # of synthetic data, so the trade journal reflects real market decisions.
+      - key: HUB_USE_LIVE_DATA
+        value: "1"
       # Set a real secret here and use the SAME value for VITE_WEBHOOK_SECRET on
       # Vercel so the Pause/Stop/Start controls work from the deployed UI.
       - key: HUB_WEBHOOK_SECRET
         sync: false
+      # --- dashboard login (defaults are admin/admin — CHANGE THESE) ---
+      # Render prompts you to fill these at deploy; leaving them unset falls back
+      # to insecure dev defaults on a public URL.
+      - key: HUB_USERNAME
+        sync: false
+      - key: HUB_PASSWORD
+        sync: false
+      # Session-cookie signing key — Render generates a strong random value so it
+      # is never the insecure dev default. You never need to see it.
+      - key: HUB_SECRET
+        generateValue: true
