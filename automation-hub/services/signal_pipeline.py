@@ -138,6 +138,8 @@ class SignalPipeline:
         self.counterfactual = None
         # Decision journal: the full explainable record of every trade.
         self.journal = None
+        # Skipped-trade log: every rejected setup with its failed gate + snapshot.
+        self.skipped = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -172,6 +174,17 @@ class SignalPipeline:
             self.ledger.log(level="warning", stage=stage, message=f"{symbol} {side} rejected: {reason}", symbol=symbol)
             self.ledger.add_alert(severity="warning", category="trade",
                                   title=f"Trade rejected — {symbol}", detail=reason)
+            # First-class skipped-trade record: the gate that failed + the real
+            # market snapshot, so every "no" is explainable and searchable.
+            if self.skipped is not None:
+                try:
+                    self.skipped.record(
+                        symbol=symbol, side=side, stage=stage, reason=reason,
+                        status=status, entry=entry, stop=stop, target=payload.get("target"),
+                        strategy=payload.get("strategy", ""), timeframe=payload.get("timeframe", ""),
+                        snapshot=payload.get("snapshot") or {})
+                except Exception:  # noqa: BLE001 — logging must never block trading
+                    pass
             if (self.counterfactual is not None and stage in _GRADED_STAGES
                     and stop and entry and side not in _CLOSE_SIDES):
                 rule = stage
