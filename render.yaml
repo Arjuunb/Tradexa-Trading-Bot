@@ -31,3 +31,9 @@ services:
       # is never the insecure dev default. You never need to see it.
       - key: HUB_SECRET
         generateValue: true
+      # --- risk guards active by default in production ---
+      # Daily-loss kill switch (3% of starting equity; resets each UTC day).
+      # Off by default in code (0) so tests stay deterministic; on here so a
+      # real deploy runs with the guard engaged and Safety Center shows it green.
+      - key: HUB_MAX_DAILY_LOSS
+        value: "0.03"

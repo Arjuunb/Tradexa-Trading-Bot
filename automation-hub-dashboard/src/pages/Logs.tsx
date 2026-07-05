@@ -7,9 +7,13 @@ import { useLive, hhmmss, API_BASE, type LogRow, type Readiness, type BotOsSnap 
 type SkippedTrade = {
   id: number; ts: string; symbol: string; side: string; stage: string;
   status: string; reason: string; entry: number | null; stop: number | null;
-  target: number | null; strategy: string; timeframe: string;
+  target: number | null; strategy: string; timeframe: string; category: string;
   snapshot: Record<string, any>;
 };
+
+const catTone = (c: string) =>
+  ({ risk: "red", safety: "red", quality: "amber", duplicate: "blue",
+     session: "blue", signal: "default" }[c] as any) ?? "default";
 
 function SkippedTrades() {
   const [q, setQ] = useState("");
@@ -46,7 +50,7 @@ function SkippedTrades() {
       </div>
       <div className="tablewrap">
         <table className="data-table">
-          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Failed gate</th><th>Reason</th><th>Snapshot</th></tr></thead>
+          <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Category</th><th>Failed gate</th><th>Reason</th><th>Snapshot</th></tr></thead>
           <tbody>
             {trades.map((t) => {
               const isOpen = open === t.id;
@@ -57,6 +61,7 @@ function SkippedTrades() {
                     <td className="dim mono">{hhmmss(t.ts)}</td>
                     <td><b>{t.symbol}</b></td>
                     <td className="dim">{t.side}</td>
+                    <td><Badge text={t.category} tone={catTone(t.category)} /></td>
                     <td><Badge text={t.stage} tone="amber" /></td>
                     <td>{t.reason}</td>
                     <td>
@@ -69,7 +74,7 @@ function SkippedTrades() {
                   </tr>
                   {isOpen && hasSnap && (
                     <tr>
-                      <td colSpan={6} style={{ background: "var(--surface-2, #121214)" }}>
+                      <td colSpan={7} style={{ background: "var(--surface-2, #121214)" }}>
                         <div className="form-grid-3" style={{ padding: "6px 4px" }}>
                           {Object.entries(t.snapshot).map(([k, v]) => v == null ? null : (
                             <div key={k} className="risk-item"><span className="dim">{k.replace(/_/g, " ")}</span><b style={{ fontSize: 12 }}>{String(v)}</b></div>
@@ -82,7 +87,7 @@ function SkippedTrades() {
               );
             })}
             {trades.length === 0 && (
-              <tr><td colSpan={6} className="dim ta-center" style={{ padding: 20 }}>
+              <tr><td colSpan={7} className="dim ta-center" style={{ padding: 20 }}>
                 No skipped trades match — the bot has not rejected a setup{q || stage !== "all" ? " for this filter" : " yet"}.
               </td></tr>
             )}
