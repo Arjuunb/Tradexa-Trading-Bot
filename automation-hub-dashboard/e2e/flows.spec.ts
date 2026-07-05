@@ -149,3 +149,24 @@ test("Strategy Proof — shows risk-adjusted stats, walk-forward, and breakdowns
   await page.waitForTimeout(300);
   await expect(page.getByText(/folds positive/i)).toBeVisible();
 });
+
+test("Strategy Proof — Paper Validation panel shows readiness and keeps live locked", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/strategy-proof");
+  await page.waitForTimeout(600);
+  await expect(page.getByRole("heading", { name: /Paper Validation/i })).toBeVisible();
+  // eligibility verdict + the never-unlock guarantee
+  await expect(page.getByText(/NOT ELIGIBLE/)).toBeVisible();
+  await expect(page.getByText(/Live trading LOCKED\./)).toBeVisible();
+  await expect(page.getByText(/never auto-enables real-money trading/i)).toBeVisible();
+  // real sample-size reason surfaces
+  await expect(page.getByText(/Need ≥ 30 closed paper trades/)).toBeVisible();
+});
+
+test("Logs — skipped trades show a rejection category", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/logs");
+  await page.waitForTimeout(500);
+  // category column badges (risk / safety) render
+  await expect(page.locator("table.data-table").filter({ hasText: "Failed gate" }).getByText("risk").first()).toBeVisible();
+});

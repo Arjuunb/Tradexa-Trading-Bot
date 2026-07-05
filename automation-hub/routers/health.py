@@ -264,3 +264,52 @@ def ops_storage():
     return {"data_dir": str(_cfg.DATA_DIR), "hub_data_dir_set": data_dir_set,
             "persistent": data_dir_set or not on_cloud, "warning": warning,
             "files": files}
+
+
+@router.get("/validation/paper")
+def validation_paper():
+    """Paper-trading validation readiness (Phase 8) — real closed trades, skip
+    log and Safety Center rolled into a single human-review verdict. Never
+    unlocks live trading; live stays hard-locked regardless of this result."""
+    from services.performance import summarize
+    from services.safety_gate import build_live_readiness
+    from services.paper_validation import build_paper_validation
+
+    trades = _wa.paper.history()
+    perf = summarize(trades, _wa.paper.starting_balance)
+
+    rr = [float(t["rr"]) for t in trades if t.get("rr") is not None]
+    avg_rr = (sum(rr) / len(rr)) if rr else 0.0
+
+    # per-symbol net P&L from the real closed trades
+    by_sym: dict = {}
+    for t in trades:
+        if t.get("pnl") is not None:
+            by_sym[t["symbol"]] = round(by_sym.get(t["symbol"], 0.0) + float(t["pnl"]), 2)
+    per_symbol = [{"name": s, "net_pnl": v} for s, v in by_sym.items()]
+
+    # per-strategy net R from the decision journal's evolution memory (real)
+    by_strat: dict = {}
+    try:
+        for e in _wa.decision_journal_store.evolution():
+            by_strat[e["strategy"]] = round(by_strat.get(e["strategy"], 0.0) + float(e.get("net_r", 0)), 2)
+    except Exception:  # noqa: BLE001
+        pass
+    per_strategy = [{"name": s, "net_r": v} for s, v in by_strat.items()]
+
+    closed = sum(1 for t in trades if str(t.get("status")) == "closed")
+    readiness = build_live_readiness(
+        hard_locked=_wa.broker_registry.live_locked(),
+        closed_paper_trades=closed,
+        max_daily_loss_pct=float(getattr(_wa.settings, "max_daily_loss_pct", 0) or 0),
+        max_drawdown_pct=float(getattr(_wa.settings, "max_drawdown_pct", 0) or 0),
+        broker_connected=_wa._broker_live_connected(),
+        decision_logging=getattr(_wa.pipeline, "journal", None) is not None,
+        emergency_stop_tested_at=_wa.safety_state.emergency_stop_tested_at(),
+    )
+
+    return build_paper_validation(
+        perf=perf, avg_rr=avg_rr, per_symbol=per_symbol, per_strategy=per_strategy,
+        skipped_total=_wa.skipped_store.total(),
+        skipped_by_category=_wa.skipped_store.categories(),
+        readiness=readiness)

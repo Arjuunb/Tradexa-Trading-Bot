@@ -8,6 +8,79 @@ import {
   type WalkForward, type EngineStatus,
 } from "../lib/api";
 
+type NamedVal = { name: string; net_pnl?: number; net_r?: number } | null;
+type PaperValidation = {
+  sample_size: number; min_review: number; min_evidence: number;
+  metrics: { win_rate: number; profit_factor: number; expectancy: number;
+    max_drawdown_pct: number; avg_rr: number; sharpe_ratio: number; sortino_ratio: number };
+  best_symbol: NamedVal; worst_symbol: NamedVal; best_strategy: NamedVal; worst_strategy: NamedVal;
+  skipped_total: number; skipped_by_category: { category: string; count: number }[];
+  safety: { live_allowed: boolean; hard_locked: boolean; passed: number; total: number };
+  live_review: { eligible: boolean; stage: string; reasons: string[]; note: string };
+};
+
+function PaperValidationPanel() {
+  const v = useLive<PaperValidation>("/validation/paper", 5000).data;
+  if (!v) return null;
+  const m = v.metrics;
+  const pct = (n: number) => `${(n ?? 0).toFixed(1)}%`;
+  const money = (n?: number) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const eligible = v.live_review.eligible;
+  const progress = Math.min(100, Math.round((v.sample_size / v.min_review) * 100));
+  return (
+    <Card
+      title="Paper Validation"
+      subtitle={`${v.sample_size} / ${v.min_review} closed trades toward a live review · ${v.min_evidence}+ for strong evidence`}
+      right={<Badge text={eligible ? "READY FOR REVIEW" : "NOT ELIGIBLE"} tone={eligible ? "green" : "amber"} />}
+    >
+      <div className="card" style={{ marginBottom: 10, borderColor: v.safety.hard_locked ? "#ef4444" : "#22c55e",
+        background: v.safety.hard_locked ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
+        <Icon name="lock" size={16} className="neg" />
+        <span><b className="neg">Live trading LOCKED.</b> <span className="dim">{v.live_review.note}</span></span>
+      </div>
+
+      {/* progress toward the sample-size minimum */}
+      <div style={{ margin: "4px 0 10px" }}>
+        <div style={{ height: 8, borderRadius: 6, background: "#2a2a2e", overflow: "hidden" }}>
+          <div style={{ width: `${progress}%`, height: "100%", background: eligible ? "#22c55e" : "var(--gold)" }} />
+        </div>
+        <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>Stage: <b>{v.live_review.stage}</b></div>
+      </div>
+
+      <div className="form-grid-3">
+        <div className="risk-item"><span className="dim">Win rate</span><b>{pct(m.win_rate)}</b></div>
+        <div className="risk-item"><span className="dim">Profit factor</span><b className={m.profit_factor >= 1 ? "pos" : "neg"}>{m.profit_factor.toFixed(2)}</b></div>
+        <div className="risk-item"><span className="dim">Expectancy</span><b className={m.expectancy >= 0 ? "pos" : "neg"}>{money(m.expectancy)}</b></div>
+        <div className="risk-item"><span className="dim">Avg R</span><b>{m.avg_rr.toFixed(2)}R</b></div>
+        <div className="risk-item"><span className="dim">Max drawdown</span><b>{pct(m.max_drawdown_pct)}</b></div>
+        <div className="risk-item"><span className="dim">Sharpe / Sortino</span><b>{m.sharpe_ratio.toFixed(2)} / {m.sortino_ratio.toFixed(2)}</b></div>
+        <div className="risk-item"><span className="dim">Best / worst symbol</span><b>{v.best_symbol?.name ?? "—"} / {v.worst_symbol?.name ?? "—"}</b></div>
+        <div className="risk-item"><span className="dim">Best / worst strategy</span><b>{v.best_strategy?.name ?? "—"} / {v.worst_strategy?.name ?? "—"}</b></div>
+        <div className="risk-item"><span className="dim">Skipped trades</span><b>{v.skipped_total}</b></div>
+      </div>
+
+      {v.skipped_by_category.length > 0 && (
+        <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          <span className="dim" style={{ fontSize: 12 }}>Rejections:</span>
+          {v.skipped_by_category.map((s) => <Badge key={s.category} text={`${s.category} · ${s.count}`} tone="amber" />)}
+        </div>
+      )}
+
+      <div style={{ marginTop: 10 }}>
+        <div className="dim" style={{ fontSize: 11, marginBottom: 4 }}>Live-review eligibility (needs sample size + proven edge + safety guards — never one metric):</div>
+        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+          {v.live_review.reasons.map((r, i) => (
+            <li key={i} style={{ fontSize: 12 }} className={eligible ? "pos" : "dim"}>{r}</li>
+          ))}
+        </ul>
+        <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>
+          Safety Center: {v.safety.passed}/{v.safety.total} requirements passed · live_allowed <b>{String(v.safety.live_allowed)}</b>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /** Strategy Proof — the evidence a strategy actually works, from REAL results:
  *  paper track record, walk-forward out-of-sample folds, per-symbol / session /
  *  timeframe breakdowns, and risk-adjusted ratios. No numbers are invented; a
@@ -59,6 +132,8 @@ export default function StrategyProofPage() {
   return (
     <>
       <PageHeader title="Strategy Proof" subtitle="the real evidence a strategy works — paper record, walk-forward, breakdowns, risk-adjusted ratios" />
+
+      <PaperValidationPanel />
 
       {noTrades && (
         <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
