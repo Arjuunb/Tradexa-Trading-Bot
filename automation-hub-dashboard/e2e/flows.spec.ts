@@ -4,7 +4,7 @@ import { mockApi } from "./mock";
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
 
@@ -118,4 +118,17 @@ test("Logs — skipped trades are listed with failed gate and expandable snapsho
   await page.getByRole("button", { name: /^View$/ }).first().click();
   await page.waitForTimeout(300);
   await expect(page.getByText(/regime/i).first()).toBeVisible();
+});
+
+test("Bot Health — shows real engine/feed/risk/watchdog status", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/bot-health");
+  await page.waitForTimeout(600);
+  await expect(page.locator("h1.pagehead-title", { hasText: "Bot Health" })).toBeVisible();
+  await expect(page.getByText(/Decision Brain/).first()).toBeVisible();
+  // last rejected signal (from the skip log) surfaces here
+  await expect(page.getByText("Max open positions (3) reached")).toBeVisible();
+  // watchdog + no-errors states render honestly
+  await expect(page.getByText(/all clear/i)).toBeVisible();
+  await expect(page.getByText(/No errors logged/i)).toBeVisible();
 });

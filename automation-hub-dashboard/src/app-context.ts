@@ -21,7 +21,7 @@ export const useApp = () => useContext(AppContext);
 export const NAV_LABELS = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Bot Health", "Logs", "Settings", "Safety Center",
 ] as const;
 
 // Extra routes reachable by hash but not shown in the main nav (kept so the
