@@ -5,7 +5,7 @@ import {
   BookOpen, Activity, BadgeCheck, Settings, Lock, type LucideIcon,
 } from "lucide-react";
 import { NAV_LABELS } from "../../app-context";
-import { useLive, type RiskSummary } from "../../lib/api";
+import { useLive, type RiskSummary, type PaperAccount } from "../../lib/api";
 
 // Real icons (lucide), one per page — gold when active, sky on hover.
 const NAV_LUCIDE: Record<string, LucideIcon> = {
@@ -40,6 +40,7 @@ const money = (n: number | undefined) => `$${(n ?? 0).toLocaleString(undefined, 
 
 export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
   const { data: r } = useLive<RiskSummary>("/risk/summary", 3000);
+  const { data: acct } = useLive<PaperAccount>("/paper/account", 3000);
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
@@ -66,8 +67,9 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
       </nav>
 
       <div className="account-card">
-        <div className="account-title">Paper Account</div>
-        <div className="account-equity">{r ? money(r.equity) : "—"}</div>
+        <div className="account-title">Current Equity</div>
+        <div className="account-equity">{acct ? money(acct.current_equity) : r ? money(r.equity) : "—"}</div>
+        <div className="account-row"><span>Initial capital</span><b>{acct ? money(acct.initial_capital) : "—"}</b></div>
         <div className="account-row"><span>Realized P&amp;L</span>
           <b className={(r?.realized_pnl ?? 0) >= 0 ? "pos" : "neg"}>{r ? money(r.realized_pnl) : "—"}</b></div>
         <div className="account-row"><span>Open Positions</span><b>{r?.open_positions ?? 0}</b></div>

@@ -150,6 +150,14 @@ class SqliteLedger:
         with self._lock:
             return [dict(r) for r in self._c.execute("SELECT * FROM paper_trades ORDER BY opened_at DESC")]
 
+    def reset_paper(self) -> None:
+        """Clear paper trades + positions — used ONLY when the operator changes
+        initial capital (a confirmed paper-account reset). Never live."""
+        with self._lock:
+            self._c.execute("DELETE FROM paper_trades")
+            self._c.execute("DELETE FROM positions")
+            self._c.commit()
+
     # ----------------------------------------------------------- logs / alerts
     def log(self, *, level, stage, message, symbol=""):
         with self._lock:

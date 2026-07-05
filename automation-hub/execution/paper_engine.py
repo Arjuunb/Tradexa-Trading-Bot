@@ -38,6 +38,9 @@ class PaperExecutionEngine:
             fill_model = PerfectFill()
         self.fill_model = fill_model
         self.quality = None   # optional services.execution_quality.ExecutionQuality
+        # optional data.account_store.AccountStore — persists the account snapshot
+        # (current equity / available / realized) so capital survives a restart.
+        self.account_store = None
 
     # --------------------------------------------------------------- queries
     def open_position(self, symbol: str) -> Optional[dict]:
@@ -69,6 +72,26 @@ class PaperExecutionEngine:
 
     def equity(self, marks: Optional[dict[str, float]] = None) -> float:
         return self.balance() + (self.unrealized_pnl(marks) if marks else 0.0)
+
+    def open_notional(self) -> float:
+        return sum((p["size"] * p["entry"]) for p in self.positions())
+
+    def available_balance(self) -> float:
+        """Funds not committed to open positions."""
+        return self.balance() - self.open_notional()
+
+    def _persist_account_snapshot(self) -> None:
+        """Save the account state to the persistent store so it survives a
+        backend restart. Never raises into the trading path."""
+        if self.account_store is None:
+            return
+        try:
+            self.account_store.update_snapshot(
+                current_equity=self.balance(),
+                available_balance=self.available_balance(),
+                realized_pnl=self.realized_pnl())
+        except Exception:  # noqa: BLE001 — persistence must never block trading
+            pass
 
     # --------------------------------------------------------------- actions
     def open(self, *, symbol: str, side: str, size: float, entry: float,
@@ -118,6 +141,7 @@ class PaperExecutionEngine:
             "alert_id": "", "symbol": symbol, "side": pos["side"],
             "size": remainder, "entry": pos["entry"], "stop": pos.get("stop"),
         })
+        self._persist_account_snapshot()
         return FillResult("reduced", symbol, pos["side"], closed_size, exit_price, pnl, pos["id"])
 
     def close(self, *, symbol: str, exit_price: float) -> FillResult:
@@ -139,6 +163,7 @@ class PaperExecutionEngine:
             if t["symbol"] == symbol and t["status"] == "open":
                 self.ledger.close_paper_trade(t["id"], exit_price=exit_price, pnl=pnl, rr=rr)
                 break
+        self._persist_account_snapshot()
         return FillResult("closed", symbol, pos["side"], pos["size"], exit_price, pnl, pos["id"])
 
     # --------------------------------------------------------------- helpers

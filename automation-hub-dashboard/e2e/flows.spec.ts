@@ -170,3 +170,16 @@ test("Logs — skipped trades show a rejection category", async ({ page }) => {
   // category column badges (risk / safety) render
   await expect(page.locator("table.data-table").filter({ hasText: "Failed gate" }).getByText("risk").first()).toBeVisible();
 });
+
+test("Paper capital — Current Equity and Initial Capital shown separately", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/paper-trading");
+  await page.waitForTimeout(600);
+  // stat card (main content) shows current equity with initial capital as sub
+  await expect(page.locator(".content").getByText("Current Equity")).toBeVisible();
+  await expect(page.getByText(/Initial \$10,000/)).toBeVisible();
+  await expect(page.locator(".content").getByText("$10,300").first()).toBeVisible();
+  // sidebar account card shows both too
+  await expect(page.locator("aside.sidebar").getByText("Current Equity")).toBeVisible();
+  await expect(page.locator("aside.sidebar").getByText(/Initial capital/)).toBeVisible();
+});

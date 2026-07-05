@@ -70,9 +70,16 @@ export default function PaperTradingPage() {
         </div>
       )}
 
+      {acct?.persistent === false && acct?.warning && (
+        <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)", display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="warning" size={16} className="amber" />
+          <span><b className="amber">Data not persistent.</b> <span className="dim">{acct.warning}</span></span>
+        </div>
+      )}
+
       <div className="stat-row">
-        <StatCard label="Paper Balance" value={money(acct?.balance)} sub={`Start ${money(acct?.starting_balance)}`} />
-        <StatCard label="Realized P&L" value={money(acct?.realized_pnl)} tone={(acct?.realized_pnl ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Current Equity" value={money(acct?.current_equity)} sub={`Initial ${money(acct?.initial_capital)}`} tone={(acct?.current_equity ?? 0) >= (acct?.initial_capital ?? 0) ? "green" : "red"} />
+        <StatCard label="Available Balance" value={money(acct?.available_balance)} sub={`Realized ${money(acct?.realized_pnl)}`} />
         <StatCard label="Open Positions" value={String(acct?.open_positions ?? 0)} />
         <StatCard label="Engine" value={eng?.running ? "Running" : "Stopped"} tone={eng?.running ? "green" : "red"} sub={eng ? `${eng.signals} signals · ${eng.trades} fills` : ""} />
         <StatCard label="Trading State" value={state ?? "—"} tone={stateTone(state)} />
