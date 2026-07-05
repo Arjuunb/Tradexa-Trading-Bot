@@ -187,7 +187,7 @@ const SHAPES: [string, unknown][] = [
   ["/lab/walk-forward", WALK_FORWARD],
   ["/paper/account", { initial_capital: 10000, current_equity: 10300, available_balance: 10300,
     realized_pnl: 300, unrealized_pnl: 0, last_updated: "2026-07-05T09:00:00Z", open_positions: 0,
-    persistent: true, warning: null, starting_balance: 10000, balance: 10300 }],
+    persistent: true, storage: "supabase", warning: null, starting_balance: 10000, balance: 10300 }],
   ["/auth/status", { authenticated: true, user: "admin", signup_open: false }],
   ["/notifications/status", { notify_trades: true, notify_risk: true, configured: false }],
   ["/execution/fill-model", { model: "perfect" }],

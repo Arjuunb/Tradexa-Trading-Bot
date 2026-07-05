@@ -37,3 +37,14 @@ services:
       # real deploy runs with the guard engaged and Safety Center shows it green.
       - key: HUB_MAX_DAILY_LOSS
         value: "0.03"
+      # --- FREE persistence (so capital/trades survive redeploy without a paid
+      # disk): create a free Supabase project, run automation-hub/data/
+      # ledger_schema.sql, then set these two. Leave blank to skip.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      # Optional: set your starting capital here so it persists across redeploys
+      # for free (env config, not disk). Defaults to 10000.
+      - key: HUB_STARTING_CASH
+        sync: false

@@ -98,3 +98,27 @@ def test_account_endpoint_shape_and_no_reset():
     assert ok["initial_capital"] == 20_000 and ok["current_equity"] == 20_000
     # a plain re-read still shows the saved value (no reset on a fresh request)
     assert client.get("/paper/account").json()["initial_capital"] == 20_000
+
+
+def test_supabase_counts_as_persistent(monkeypatch):
+    """Free Supabase (SUPABASE_URL+KEY) must read as persistent — otherwise the
+    UI would falsely warn even when the free external DB is configured."""
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import webhook_api
+    app = FastAPI(); app.include_router(webhook_api.router)
+    client = TestClient(app)
+
+    monkeypatch.setenv("RENDER", "1")
+    monkeypatch.delenv("HUB_DATA_DIR", raising=False)
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+    a = client.get("/paper/account").json()
+    assert a["persistent"] is False and a["storage"] == "ephemeral"
+    assert "SUPABASE" in (a["warning"] or "")
+
+    monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "svc-key")
+    b = client.get("/paper/account").json()
+    assert b["persistent"] is True and b["storage"] == "supabase" and b["warning"] is None
