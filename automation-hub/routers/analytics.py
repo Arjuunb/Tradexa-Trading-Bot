@@ -255,19 +255,50 @@ def shadow_report():
     live = live_stats_from_history(_wa.paper.history(), since_iso=_wa.engine.shadow.started_at)
     return {"active": True, **_wa.engine.shadow.report(live)}
 
+def _closed_paper_trades() -> int:
+    try:
+        return sum(1 for t in _wa.paper.history() if t.get("pnl") is not None)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+@router.get("/retune/gate")
+def research_retune_gate():
+    """Strategy retune gate — may a retune run given the live paper sample size?
+    Below 30 closed trades the answer is no (except a critical-bug override);
+    50+ is evidence level. Never touches live trading."""
+    from services.retune_gate import evaluate_retune_gate
+    return evaluate_retune_gate(closed_paper_trades=_closed_paper_trades())
+
+
 @router.post("/retune/run")
-def research_retune(timeframe: str = "", x_webhook_secret: str = _wa.Header(default="")):
+def research_retune(timeframe: str = "", critical_bug: bool = False,
+                    x_webhook_secret: str = _wa.Header(default="")):
     """Run the self-retune search now: grid over brain configs on REAL data
     (train/test split); if a candidate beats the incumbent on unseen data it
-    auto-starts as a shadow. Promotion stays manual."""
+    auto-starts as a shadow. Promotion stays manual.
+
+    Gated by the live paper sample size (Phase 10): below 30 closed trades this
+    refuses to run unless ``critical_bug=true`` (logged), so the strategy is
+    never retuned from a small sample."""
     _wa._check_secret(x_webhook_secret)
+    from services.retune_gate import evaluate_retune_gate
+    gate = evaluate_retune_gate(closed_paper_trades=_closed_paper_trades(),
+                                critical_bug=critical_bug)
+    if not gate["allowed"]:
+        _wa.ledger.log(level="info", stage="research",
+                       message=f"Retune blocked by gate: {gate['stage']} — {gate['reason']}")
+        return {"ran": False, "blocked": True, "gate": gate}
+    if critical_bug:
+        _wa.ledger.log(level="warning", stage="research",
+                       message="Retune ran under CRITICAL-BUG override (sample gate bypassed).")
     from services.retune import retune
     res = retune(_wa.engine, _wa.notifier.dispatch,
                  timeframe=timeframe or _wa.engine.timeframe, force=True)
     _wa._last_retune = res
     _wa.ledger.log(level="info", stage="research",
                message=f"Manual retune: {res.get('verdict', '-')}")
-    return res
+    return {"ran": True, "blocked": False, "gate": gate, **res}
 
 @router.get("/retune/report")
 def research_retune_report():
