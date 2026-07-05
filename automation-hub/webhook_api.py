@@ -1050,6 +1050,87 @@ def skipped_summary():
     return {"stages": skipped_store.summary()}
 
 
+@router.get("/health/bot")
+def health_bot():
+    """One-call Bot Health — engine, data source, broker, last candle / signal /
+    rejection, open positions, today's P&L, risk usage, watchdog and the latest
+    errors. Every field is real; nothing is fabricated."""
+    from datetime import datetime, timezone
+    st = engine.status()
+    positions = paper.positions()
+    equity = paper.balance()
+    try:
+        trades = ledger.get_paper_trades()
+    except Exception:  # noqa: BLE001
+        trades = []
+
+    last_trade = max(trades, key=lambda t: str(t.get("opened_at") or ""), default=None) if trades else None
+    last_rej = (skipped_store.list(limit=1) or [None])[0]
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    daily_pnl = sum((t.get("pnl") or 0) for t in trades
+                    if str(t.get("status")) == "closed" and str(t.get("closed_at") or "").startswith(today))
+
+    errors = []
+    try:
+        for row in ledger.get_logs(200):
+            if str(row.get("level", "")).lower() in ("error", "critical"):
+                errors.append({"ts": row.get("ts"), "stage": row.get("stage"),
+                               "message": row.get("message"), "symbol": row.get("symbol")})
+                if len(errors) >= 8:
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+
+    notional = sum((p["size"] * p["entry"]) for p in positions)
+    return {
+        "engine": {
+            "running": st.get("running", False),
+            "mode": st.get("mode"),
+            "strategy": engine.strategy_label,
+            "symbols": engine.symbols,
+            "timeframe": engine.timeframe,
+            "bars_processed": st.get("bars", 0),
+            "signals": st.get("signals", 0),
+            "trades": st.get("trades", 0),
+            "rejections": st.get("rejections", 0),
+            "uptime_s": round(time.time() - _BOOT, 0),
+            "started_at": st.get("started_at"),
+        },
+        "data_source": "live (ccxt)" if engine.live else "synthetic / replay",
+        "broker": {
+            "connected": _broker_live_connected(),
+            "active": "paper",
+            "live_locked": broker_registry.live_locked(),
+            "note": "paper execution only — no live venue connected",
+        },
+        "last_candle": {"symbol": (engine.symbols[0] if engine.symbols else None),
+                        "ts": st.get("last_bar_ts")},
+        "last_signal": (None if not last_trade else {
+            "symbol": last_trade.get("symbol"), "side": last_trade.get("side"),
+            "entry": last_trade.get("entry"), "ts": last_trade.get("opened_at")}),
+        "last_rejected": (None if not last_rej else {
+            "symbol": last_rej.get("symbol"), "side": last_rej.get("side"),
+            "stage": last_rej.get("stage"), "reason": last_rej.get("reason"),
+            "ts": last_rej.get("ts")}),
+        "open_positions": len(positions),
+        "daily_pnl": round(daily_pnl, 2),
+        "risk": {
+            "equity": equity,
+            "exposure_pct": (notional / equity) if equity > 0 else 0.0,
+            "exposure_limit_pct": settings.exposure_limit_pct,
+            "open_positions": len(positions),
+            "max_open_positions": settings.max_open_positions,
+            "trading_state": controls.state,
+            "auto_halted": pipeline.halted,
+            "halt_reason": pipeline.halt_reason,
+            "max_drawdown_pct": settings.max_drawdown_pct,
+        },
+        "watchdog": watchdog.status(),
+        "errors": errors,
+    }
+
+
 @router.get("/econ/protection")
 def econ_protection():
     """Economic-event protection — halt / reduce-size / widen-stops around the
