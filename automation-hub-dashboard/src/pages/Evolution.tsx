@@ -316,7 +316,7 @@ function StrategyDNA() {
         <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>{DNA_STRATS.map((s) => <option key={s}>{s}</option>)}</select>
         <button className="btn btn-primary" disabled={busy} onClick={load}><Icon name="bot" size={14} /> {busy ? "Mining…" : "Build DNA"}</button>
       </div>}>
-      {!m ? <div className="dim ta-center" style={{ padding: 14 }}>Mine real results into this strategy's memory + DNA.</div> : (
+      {!m || !m.dna ? <div className="dim ta-center" style={{ padding: 14 }}>Mine real results into this strategy's memory + DNA.</div> : (
         <div className="grid-2-eq">
           <div>
             <div className="card-subtitle" style={{ marginBottom: 6 }}>DNA profile <Badge text={`${m.confidence} confidence`} tone={m.confidence === "high" ? "green" : m.confidence === "medium" ? "amber" : "default"} /></div>

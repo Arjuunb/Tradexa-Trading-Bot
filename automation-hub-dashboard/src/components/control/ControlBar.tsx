@@ -245,7 +245,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
         <Select label="Strategy" value={cmpStrat} opts={opt?.strategies ?? [cmpStrat]} onChange={setCmpStrat} />
         <Select label="TF" value={cmpTf} opts={opt?.timeframes ?? [cmpTf]} onChange={setCmpTf} />
       </div>
-      {cmp && !cmp.error && (
+      {cmp && !cmp.error && cmp.a && cmp.b && (
         <div className="tablewrap" style={{ marginTop: 8 }}>
           <table className="data-table">
             <thead><tr><th>Config</th><th>Trades</th><th>Win%</th><th>PF</th><th>Net R</th><th>Max DD</th><th></th></tr></thead>
