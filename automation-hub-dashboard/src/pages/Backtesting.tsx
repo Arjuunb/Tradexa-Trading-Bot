@@ -123,6 +123,7 @@ function ExecutionRealism() {
       </div>}>
       {!d ? <div className="dim ta-center" style={{ padding: 12 }}>Re-price a real run with realistic execution friction.</div>
         : d.available === false ? <p className="neg"><Icon name="warning" size={13} /> {d.error}</p>
+        : !d.ideal || !d.realistic ? <div className="dim ta-center" style={{ padding: 12 }}>No realism data for this run yet.</div>
         : (
         <>
           <div className="row-actions" style={{ justifyContent: "space-between" }}>

@@ -171,9 +171,9 @@ function TradingCoach() {
       </div>}>
       {!rev ? (
         <div className="dim ta-center" style={{ padding: 16 }}>Pick a strategy + symbol and let the coach review a real replay.</div>
-      ) : rev.available === false ? (
+      ) : rev.available === false || !rev.why_won || !rev.attribution ? (
         <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
-          <Icon name="warning" size={14} className="amber" /> {rev.error || "No data."} {rev.needs_download && "Download Binance history first."}
+          <Icon name="warning" size={14} className="amber" /> {rev.error || "No review data for this run yet."} {rev.needs_download && "Download Binance history first."}
         </div>
       ) : (
         <>
@@ -239,7 +239,7 @@ function TradingCoach() {
           <div className="card-subtitle">Leaderboard — which strategy / symbol makes money</div>
           <button className="btn btn-soft" disabled={busyB} onClick={leaderboard}><Icon name="chart" size={13} /> {busyB ? "Running…" : "Run leaderboard"}</button>
         </div>
-        {board && (
+        {board && board.by_strategy && board.by_symbol && (
           <div className="grid-2-eq" style={{ marginTop: 8 }}>
             {attrTable("By strategy (net R)", board.by_strategy.map((b) => ({ key: b.key, net_r: b.net_r, trades: 0, win_rate: 0 })) as any)}
             {attrTable("By symbol (net R)", board.by_symbol.map((b) => ({ key: b.key, net_r: b.net_r, trades: 0, win_rate: 0 })) as any)}

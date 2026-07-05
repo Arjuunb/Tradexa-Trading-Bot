@@ -122,11 +122,11 @@ function OpportunityScanner({ symbols }: { symbols: string }) {
       </div>}>
       {!data ? (
         <div className="dim ta-center" style={{ padding: 16 }}>Run a scan to rank live setups across your symbols.</div>
-      ) : data.count === 0 ? (
-        <div className="dim ta-center" style={{ padding: 16 }}>No setups firing right now ({data.symbols.filter((s) => s.available).length} symbols scanned). Try another timeframe.</div>
+      ) : (data.opportunities?.length ?? 0) === 0 ? (
+        <div className="dim ta-center" style={{ padding: 16 }}>No setups firing right now ({(data.symbols ?? []).filter((s) => s.available).length} symbols scanned). Try another timeframe.</div>
       ) : (
         <div className="scan-grid">
-          {data.opportunities.slice(0, 12).map((o, i) => (
+          {(data.opportunities ?? []).slice(0, 12).map((o, i) => (
             <div className="scan-card" key={i} style={{ ["--sc-accent" as any]: strColor(o.strength) }}>
               <div className="row-actions" style={{ justifyContent: "space-between" }}>
                 <b>{o.symbol?.replace("USDT", "")}</b>

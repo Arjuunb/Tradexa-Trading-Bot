@@ -236,7 +236,7 @@ function CorrelationMatrix() {
                   <tr key={a}>
                     <td><b>{a.replace("USDT", "")}</b></td>
                     {(data?.symbols ?? []).map((b) => {
-                      const c = data.matrix[a]?.[b] ?? null; const st = cell(c);
+                      const c = data.matrix?.[a]?.[b] ?? null; const st = cell(c);
                       return <td key={b} style={{ background: st.bg, color: st.txt, fontWeight: 600 }}>{c === null ? "—" : c.toFixed(2)}</td>;
                     })}
                   </tr>
@@ -244,7 +244,7 @@ function CorrelationMatrix() {
               </tbody>
             </table>
           </div>
-          {data.pairs[0] && Math.abs(data.pairs[0].correlation) >= 0.8 && (
+          {data.pairs?.[0] && Math.abs(data.pairs[0].correlation) >= 0.8 && (
             <div className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
               <Icon name="warning" size={13} className="amber" /> {data.pairs[0].a.replace("USDT", "")}/{data.pairs[0].b.replace("USDT", "")} are {data.pairs[0].correlation.toFixed(2)} correlated — avoid opening both at once.
             </div>
@@ -335,7 +335,7 @@ function StrategyHealthCard() {
           {(card.reasons?.length ?? 0) > 0 && (
             <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>{card.reasons!.slice(0, 2).join(" · ")}</p>
           )}
-          {card.warnings.length > 0 && card.warnings.map((w, i) => (
+          {(card.warnings?.length ?? 0) > 0 && card.warnings!.map((w, i) => (
             <p key={i} className={w.severity === "critical" ? "neg" : "amber"} style={{ marginTop: 4, fontSize: 12 }}><Icon name="warning" size={12} /> {w.detail}</p>
           ))}
         </>

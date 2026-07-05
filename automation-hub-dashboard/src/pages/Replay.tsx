@@ -191,7 +191,7 @@ export default function ReplayPage() {
           <p className="dim" style={{ marginTop: 8 }}>
             <b style={{ color: data.meta.data_is_real ? "#22c55e" : "#f59e0b" }}>{data.meta.data_source_label}</b> ·{" "}
             {(data.meta.start ?? "").slice(0, 16).replace("T", " ")} → {(data.meta.end ?? "").slice(0, 16).replace("T", " ")} ·
-            HTF: {Object.entries(data.meta.htf_available).map(([k, v]) => `${k} ${v ? "✓" : "n/a"}`).join(" · ")}
+            HTF: {Object.entries(data.meta.htf_available ?? {}).map(([k, v]) => `${k} ${v ? "✓" : "n/a"}`).join(" · ")}
           </p>
         )}
         {data?.meta?.data_warning && (
