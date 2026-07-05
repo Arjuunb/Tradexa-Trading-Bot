@@ -22,6 +22,7 @@ import PortfolioPage from "./pages/Portfolio";
 import AnalyticsPage from "./pages/Analytics";
 import AIAssistantPage from "./pages/AIAssistant";
 import SafetyCenterPage from "./pages/SafetyCenter";
+import JournalPage from "./pages/Journal";
 import { AppContext, parseHash, slug } from "./app-context";
 
 export default function App() {
@@ -62,6 +63,7 @@ export default function App() {
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
+      case "Journal": return <JournalPage />;
       case "Logs": return <LogsPage />;
       case "Settings": return <SettingsPage />;
       case "Safety Center": return <SafetyCenterPage />;

@@ -102,10 +102,10 @@ pipeline.counterfactual = counterfactual
 # Decision journal: the full explainable record of every bot trade — entry
 # reasoning, rule checklist, market snapshot, risk check, exit, review and
 # evolution notes, all from REAL decision data.
-from data.journal_store import JournalStore  # noqa: E402
+from data.journal_store import JournalStore as DecisionJournalStore  # noqa: E402
 from services.decision_journal import DecisionJournal  # noqa: E402
-journal_store = JournalStore(settings.journal_db)
-pipeline.journal = DecisionJournal(journal_store)
+decision_journal_store = DecisionJournalStore(settings.journal_db)
+pipeline.journal = DecisionJournal(decision_journal_store)
 
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
@@ -1168,8 +1168,8 @@ def journal_trades(limit: int = 100, mode: Optional[str] = None,
     """List trades that have a decision journal (newest first), with summary +
     grade. Filter by mode / symbol / result. The full journal is at
     GET /journal/{trade_id}."""
-    return {"trades": journal_store.list(limit=max(1, min(limit, 500)), mode=mode,
-                                         symbol=symbol, result=result)}
+    return {"trades": decision_journal_store.list(limit=max(1, min(limit, 500)), mode=mode,
+                                                  symbol=symbol, result=result)}
 
 
 @router.get("/journal/evolution")
@@ -1177,7 +1177,7 @@ def journal_evolution():
     """Aggregated evolution memory per setup (strategy·regime·side) with the
     early-signal / building / evidence staging that governs how much a pattern
     can be trusted. Never auto-changes risk."""
-    return {"setups": journal_store.evolution()}
+    return {"setups": decision_journal_store.evolution()}
 
 
 @router.get("/journal/{trade_id}")
@@ -1185,7 +1185,7 @@ def journal_trade(trade_id: str):
     """The full decision journal for one trade: summary, entry decision, rule
     checklist, market snapshot, risk check, timeline, exit decision, post-trade
     review and evolution note."""
-    j = journal_store.get(trade_id)
+    j = decision_journal_store.get(trade_id)
     if j is None:
         raise HTTPException(404, "No journal for that trade id")
     return j
