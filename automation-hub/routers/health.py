@@ -313,3 +313,46 @@ def validation_paper():
         skipped_total=_wa.skipped_store.total(),
         skipped_by_category=_wa.skipped_store.categories(),
         readiness=readiness)
+
+
+@router.get("/validation/daily-report")
+def validation_daily_report(day_index: Optional[int] = None):
+    """Daily paper-validation digest — closed-trade summary, new skip reasons,
+    risk events, health errors, and whether validation is improving or
+    weakening. All from real stored data; live trading stays LOCKED."""
+    from services.strategy_health import StrategyHealthMonitor
+    from services.validation_report import build_daily_report
+
+    validation = validation_paper()   # same real-data verdict as /validation/paper
+
+    hist = [{**t, "r": (t.get("rr") if t.get("rr") is not None else 0.0)}
+            for t in _wa.paper.history()]
+    health = StrategyHealthMonitor().evaluate(hist).to_dict()
+
+    # risk events = recent skips in the risk/safety categories (real failed gates)
+    risk_events = [
+        {"ts": s["ts"], "symbol": s["symbol"], "category": s["category"],
+         "stage": s["stage"], "reason": s["reason"]}
+        for s in _wa.skipped_store.list(limit=50)
+        if s.get("category") in ("risk", "safety")
+    ][:10]
+
+    # health errors = recent error/critical log lines
+    health_errors = []
+    try:
+        for row in _wa.ledger.get_logs(200):
+            if str(row.get("level", "")).lower() in ("error", "critical"):
+                health_errors.append({"ts": row.get("ts"), "stage": row.get("stage"),
+                                      "message": row.get("message")})
+                if len(health_errors) >= 8:
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+
+    return build_daily_report(
+        validation=validation,
+        recent=health.get("recent", {}),
+        previous=health.get("previous", {}),
+        risk_events=risk_events,
+        health_errors=health_errors,
+        day_index=day_index)
