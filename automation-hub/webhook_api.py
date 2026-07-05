@@ -107,6 +107,11 @@ from services.decision_journal import DecisionJournal  # noqa: E402
 decision_journal_store = DecisionJournalStore(settings.journal_db)
 pipeline.journal = DecisionJournal(decision_journal_store)
 
+# Live-trading readiness gate: an enforced checklist between paper and live.
+# Live stays locked by default; this only reports real state, never fakes it.
+from services.safety_gate import SafetyState  # noqa: E402
+safety_state = SafetyState(settings.safety_state_path)
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -967,6 +972,60 @@ def production_readiness():
     return readiness(api_ok=True, db_ok=db_ok, db_detail=db_detail, coverage=coverage,
                      strategy_errors=strat_err, order_errors=order_err,
                      uptime_s=round(time.time() - _BOOT, 0), engine_running=st.get("running", False))
+
+
+def _broker_live_connected() -> bool:
+    """True only if a real (non-paper) venue is actually connected."""
+    try:
+        return any(b.kind != "paper" and b.connected()
+                   for b in broker_registry.brokers.values())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@router.get("/safety/live-readiness")
+def safety_live_readiness():
+    """The enforced live-trading checklist. Every item is computed from real
+    state; ``live_allowed`` is only True when all pass and the build's hard lock
+    is off (it is always on here — paper mode only)."""
+    from services.safety_gate import build_live_readiness
+    try:
+        closed = sum(1 for t in ledger.get_paper_trades()
+                     if str(t.get("status")) == "closed")
+    except Exception:  # noqa: BLE001
+        closed = 0
+    return build_live_readiness(
+        hard_locked=broker_registry.live_locked(),
+        closed_paper_trades=closed,
+        max_daily_loss_pct=float(getattr(settings, "max_daily_loss_pct", 0) or 0),
+        max_drawdown_pct=float(getattr(settings, "max_drawdown_pct", 0) or 0),
+        broker_connected=_broker_live_connected(),
+        decision_logging=getattr(pipeline, "journal", None) is not None,
+        emergency_stop_tested_at=safety_state.emergency_stop_tested_at(),
+    )
+
+
+@router.post("/safety/test-emergency-stop")
+def safety_test_emergency_stop(x_webhook_secret: Optional[str] = Header(default=None)):
+    """Verify the kill switch really halts trading, then restore the prior state
+    and record the test. This actually exercises stop_all — it does not fake it."""
+    _check_secret(x_webhook_secret)
+    prior = controls.state
+    controls.stop_all()
+    verified = controls.state == "Stopped"
+    # restore whatever the operator had before the drill
+    if prior == "Active":
+        controls.resume()
+    elif prior == "Paused":
+        controls.resume()
+        controls.pause_all()
+    # if prior was "Stopped", leave it stopped
+    tested_at = safety_state.mark_emergency_stop_tested() if verified else None
+    ledger.log(level="info" if verified else "error", stage="safety",
+               message=f"Emergency-stop test: {'verified' if verified else 'FAILED'} "
+                       f"(restored to {prior})")
+    return {"ok": verified, "verified": verified, "prior_state": prior,
+            "state_after": controls.state, "tested_at": tested_at}
 
 
 @router.get("/econ/protection")
