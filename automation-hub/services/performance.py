@@ -7,7 +7,35 @@ but from the real executed trades in the ledger, not a backtest. This is what a
 """
 from __future__ import annotations
 
+from math import sqrt
 from typing import Optional
+
+
+def _risk_adjusted(rr_returns: list[float]) -> dict:
+    """Sharpe & Sortino on a per-trade R basis, from real trade R-multiples.
+
+    These are per-trade ratios (mean R over the standard / downside deviation of
+    R), NOT annualised — annualising honestly would need a risk-free rate and a
+    real trade frequency we don't assume. Reported basis is stated explicitly so
+    the number is never mistaken for an annualised Sharpe.
+    """
+    n = len(rr_returns)
+    if n < 2:
+        return {"sharpe_ratio": 0.0, "sortino_ratio": 0.0, "sample": n,
+                "basis": "per-trade R", "note": "needs ≥ 2 closed trades"}
+    mean = sum(rr_returns) / n
+    var = sum((r - mean) ** 2 for r in rr_returns) / n
+    std = sqrt(var)
+    downside = [r for r in rr_returns if r < 0]
+    dvar = (sum(r ** 2 for r in downside) / n) if downside else 0.0
+    dstd = sqrt(dvar)
+    return {
+        "sharpe_ratio": round(mean / std, 2) if std > 0 else 0.0,
+        "sortino_ratio": round(mean / dstd, 2) if dstd > 0 else 0.0,
+        "sample": n,
+        "basis": "per-trade R",
+        "note": "per-trade ratios (not annualised)",
+    }
 
 
 def summarize(trades: list[dict], starting_balance: float, recent: int = 25) -> dict:
@@ -39,6 +67,8 @@ def summarize(trades: list[dict], starting_balance: float, recent: int = 25) -> 
     realized = sum(pnls)
     gross_win = sum(wins)
     gross_loss = -sum(losses)
+    rr_returns = [float(t["rr"]) for t in closed if t.get("rr") is not None]
+    risk_adj = _risk_adjusted(rr_returns)
 
     def _safe(v: Optional[float]) -> float:
         return round(v, 2) if v is not None else 0.0
@@ -63,6 +93,9 @@ def summarize(trades: list[dict], starting_balance: float, recent: int = 25) -> 
         "max_drawdown_abs": round(max_dd_abs, 2),
         "max_drawdown_pct": round(max_dd_pct * 100, 2),
         "longest_losing_streak": worst_streak,
+        "sharpe_ratio": risk_adj["sharpe_ratio"],
+        "sortino_ratio": risk_adj["sortino_ratio"],
+        "risk_adjusted": risk_adj,
         "equity_curve": curve,
         "recent": list(reversed(closed[-recent:])),
     }

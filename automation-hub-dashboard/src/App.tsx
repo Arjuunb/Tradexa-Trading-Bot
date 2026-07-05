@@ -24,6 +24,7 @@ import AIAssistantPage from "./pages/AIAssistant";
 import SafetyCenterPage from "./pages/SafetyCenter";
 import JournalPage from "./pages/Journal";
 import BotHealthPage from "./pages/BotHealth";
+import StrategyProofPage from "./pages/StrategyProof";
 import { AppContext, parseHash, slug } from "./app-context";
 
 export default function App() {
@@ -61,6 +62,7 @@ export default function App() {
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;
       case "Analytics": return <AnalyticsPage />;
+      case "Strategy Proof": return <StrategyProofPage />;
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;

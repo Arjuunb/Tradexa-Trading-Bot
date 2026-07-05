@@ -34,3 +34,25 @@ def test_summarize_empty():
     s = summarize([], 10_000)
     assert s["trades"] == 0 and s["balance"] == 10_000
     assert s["equity_curve"] == [{"t": None, "equity": 10_000}]
+    # risk-adjusted ratios are honestly zero with no sample
+    assert s["sharpe_ratio"] == 0.0 and s["sortino_ratio"] == 0.0
+
+
+def _tr(pnl, rr, closed_at):
+    return {"pnl": pnl, "rr": rr, "closed_at": closed_at, "symbol": "BTCUSDT", "side": "long"}
+
+
+def test_sharpe_sortino_from_real_r_multiples():
+    trades = [_tr(100, 2.0, "1"), _tr(-50, -1.0, "2"), _tr(150, 3.0, "3"), _tr(-50, -1.0, "4")]
+    s = summarize(trades, 10_000)
+    # per-trade Sharpe = mean(R)/std(R); Sortino = mean(R)/downside-dev(R)
+    assert s["sharpe_ratio"] > 0 and s["sortino_ratio"] > 0
+    # Sortino > Sharpe here (upside vol doesn't penalise Sortino)
+    assert s["sortino_ratio"] > s["sharpe_ratio"]
+    assert s["risk_adjusted"]["basis"] == "per-trade R"
+    assert s["risk_adjusted"]["sample"] == 4
+
+
+def test_risk_adjusted_needs_two_trades():
+    s = summarize([_tr(100, 2.0, "1")], 10_000)
+    assert s["sharpe_ratio"] == 0.0 and s["risk_adjusted"]["sample"] == 1

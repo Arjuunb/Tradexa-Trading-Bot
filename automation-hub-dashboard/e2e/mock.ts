@@ -32,9 +32,33 @@ const RISK = {
 };
 
 const PERF = {
-  win_rate: 0, profit_factor: 0, trades: 0, wins: 0, losses: 0, breakeven: 0,
-  net_r: 0, equity_curve: [], max_drawdown_pct: 0, realized_pnl: 0,
-  expectancy: 0, best: 0, worst: 0,
+  strategy: "Decision Brain", mode: "replay",
+  win_rate: 58, profit_factor: 1.7, trades: 24, wins: 14, losses: 10, breakeven: 0,
+  net_r: 12, equity_curve: [{ t: null, equity: 10000 }, { t: "2026-07-05T09:00:00Z", equity: 10300 }],
+  max_drawdown_pct: 8.2, realized_pnl: 300, expectancy: 12.5, best: 150, worst: -80,
+  avg_win: 60, avg_loss: -35, gross_win: 840, gross_loss: 540, longest_losing_streak: 3,
+  sharpe_ratio: 0.42, sortino_ratio: 1.06,
+  risk_adjusted: { sharpe_ratio: 0.42, sortino_ratio: 1.06, sample: 24, basis: "per-trade R", note: "per-trade ratios (not annualised)" },
+  starting_balance: 10000, balance: 10300, recent: [],
+};
+const STRAT_HEALTH = {
+  strategy: "Decision Brain",
+  // scorecard fields (used by the Risk Manager health card)
+  classification: "Healthy", health_score: 72, drawdown_score: 80, reasons: [],
+  health: { status: "Healthy", recent: { n: 24, win_rate: 58, profit_factor: 1.7, expectancy: 12.5, avg_rr: 1.4, max_drawdown: 8.2, consecutive_losses: 3 },
+    previous: { n: 20, win_rate: 55, profit_factor: 1.5, expectancy: 10, avg_rr: 1.3, max_drawdown: 9, consecutive_losses: 2 }, warnings: [] },
+  brain: { blocked: 12, taken: 24, total: 36, block_rate: 33.3, top_reasons: {} },
+  breakdown: {
+    by_symbol: [{ name: "BTCUSDT", trades: 14, win_rate: 60, net_pnl: 200, blocked: 5 },
+                { name: "ETHUSDT", trades: 10, win_rate: 55, net_pnl: 100, blocked: 7 }],
+    by_session: [{ name: "London", trades: 12, win_rate: 62, net_pnl: 180 },
+                 { name: "New York", trades: 12, win_rate: 54, net_pnl: 120 }],
+  },
+};
+const WALK_FORWARD = {
+  available: true, oos_net_r: 6.4, positive_folds: 3, total_folds: 4,
+  folds: [{ train_net_r: 8, test_net_r: 2 }, { train_net_r: 6, test_net_r: 1.5 },
+          { train_net_r: 7, test_net_r: 3 }, { train_net_r: 5, test_net_r: -0.1 }],
 };
 
 const JOURNAL_FULL = {
@@ -100,7 +124,7 @@ const SHAPES: [string, unknown][] = [
   ["/execution/realism", { available: true, edge_survives: true, rejected: 0, partial_fills: 0, slippage_cost_r: 0,
     ideal: { net_r: 10, profit_factor: 1.8, win_rate: 55, expectancy_r: 0.3 },
     realistic: { net_r: 8, profit_factor: 1.6, win_rate: 53, expectancy_r: 0.25 } }],
-  ["/strategy/health", { classification: "—", health_score: 0, drawdown_score: 0, reasons: [], breakdown: { by_symbol: [], by_session: [] } }],
+  ["/strategy/health", STRAT_HEALTH],
   ["/risk/portfolio", { available: false, positions: [], allocations: [], correlations: [], concentration: [] }],
   ["/production/readiness", { checks: [] }],
   ["/safety/live-readiness", { live_allowed: false, hard_locked: true,
@@ -149,6 +173,7 @@ const SHAPES: [string, unknown][] = [
   ["/risk/portfolio", { available: false }],
   ["/risk/recovery", { available: false }],
   ["/strategy/performance", PERF],
+  ["/lab/walk-forward", WALK_FORWARD],
   ["/paper/account", { balance: 10000, realized_pnl: 0, equity: 10000 }],
   ["/auth/status", { authenticated: true, user: "admin", signup_open: false }],
   ["/notifications/status", { notify_trades: true, notify_risk: true, configured: false }],
