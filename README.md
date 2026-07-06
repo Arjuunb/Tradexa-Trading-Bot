@@ -111,6 +111,20 @@ bot/
 The strategy talks to a generic `Broker` interface, so to add a new venue
 you only implement one subclass.
 
+### Decision-driven trading (Automation Hub)
+
+The Automation Hub engine is **decision-driven**: every entry signal is scored
+by the TradeBrain (0–100, with hard blocks) and turned into a **unified
+decision object** — symbol, timeframe, strategy, market regime, HTF bias,
+setup-quality / volume / risk-reward scores, confidence, passed & failed
+rules, accept/reject and a plain-English reason. The decision is **persisted
+first** (accepted *and* rejected, `decisions.db` under `HUB_DATA_DIR`) and
+**no paper trade is placed unless it is accepted**. Accepted decisions still
+have to clear the risk pipeline (daily-loss limit, cooldown after loss,
+exposure, drawdown breaker, …). The dashboard reads `GET /decisions/latest`,
+`/decisions/rejected` and `/decisions/state`. Full flow:
+[ARCHITECTURE.md](ARCHITECTURE.md). Live trading stays locked by default.
+
 ---
 
 ## Strategy: Support/Resistance + Strong Rejection
