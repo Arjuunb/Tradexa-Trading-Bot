@@ -115,6 +115,7 @@ export interface PaperAccount {
   last_updated: string | null;
   open_positions: number;
   persistent: boolean;
+  storage?: "supabase" | "disk" | "ephemeral";
   warning: string | null;
   // legacy keys (kept for back-compat)
   starting_balance: number;

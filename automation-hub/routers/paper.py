@@ -19,15 +19,21 @@ router = APIRouter()
 
 
 def _persistence_status() -> dict:
-    """Is the data dir on a persistent disk? (Real check, reused from ops.)"""
-    on_cloud = bool(_wa._os.environ.get("RENDER") or _wa._os.environ.get("DYNO"))
-    data_dir_set = bool(_wa._os.environ.get("HUB_DATA_DIR"))
-    persistent = data_dir_set or not on_cloud
+    """Is account/trade state actually persistent? True when either a persistent
+    disk (HUB_DATA_DIR) OR a free external DB (Supabase) is configured, or we are
+    not on an ephemeral cloud host."""
+    env = _wa._os.environ.get
+    on_cloud = bool(env("RENDER") or env("DYNO"))
+    data_dir_set = bool(env("HUB_DATA_DIR"))
+    supabase = bool(env("SUPABASE_URL") and env("SUPABASE_KEY"))
+    persistent = data_dir_set or supabase or not on_cloud
     warning = None
     if not persistent:
-        warning = ("No persistent disk (HUB_DATA_DIR not set on a cloud host) — "
-                   "capital, trades and validation data may reset on redeploy.")
-    return {"persistent": persistent, "warning": warning}
+        warning = ("No persistent storage configured — capital and trades may "
+                   "reset on redeploy. Free fix: set SUPABASE_URL + SUPABASE_KEY "
+                   "(free Supabase Postgres), or attach a disk and set HUB_DATA_DIR.")
+    return {"persistent": persistent, "supabase": supabase,
+            "data_dir": data_dir_set, "warning": warning}
 
 
 @router.get("/paper/account")
@@ -51,6 +57,7 @@ def paper_account():
         "last_updated": acct.get("last_updated"),
         "open_positions": len(_wa.paper.positions()),
         "persistent": persist["persistent"],
+        "storage": ("supabase" if persist["supabase"] else "disk" if persist["data_dir"] else "ephemeral"),
         "warning": persist["warning"],
         # legacy keys (unchanged) so existing callers keep working
         "starting_balance": initial,
