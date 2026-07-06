@@ -100,25 +100,84 @@ def test_account_endpoint_shape_and_no_reset():
     assert client.get("/paper/account").json()["initial_capital"] == 20_000
 
 
-def test_supabase_counts_as_persistent(monkeypatch):
-    """Free Supabase (SUPABASE_URL+KEY) must read as persistent — otherwise the
-    UI would falsely warn even when the free external DB is configured."""
+def test_supabase_persistence_is_based_on_real_connection(monkeypatch):
+    """Supabase counts as persistent only when the boot probe actually
+    CONNECTED — env vars alone are not proof. Configured-but-broken shows the
+    real error (this is exactly the failed-deploy scenario)."""
     pytest.importorskip("fastapi")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     import webhook_api
+    from data import ledger as ledger_mod
     app = FastAPI(); app.include_router(webhook_api.router)
     client = TestClient(app)
 
     monkeypatch.setenv("RENDER", "1")
     monkeypatch.delenv("HUB_DATA_DIR", raising=False)
-    monkeypatch.delenv("SUPABASE_URL", raising=False)
-    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+
+    # nothing configured -> ephemeral + free-fix hint
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "configured", False)
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "connected", False)
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "error", None)
     a = client.get("/paper/account").json()
     assert a["persistent"] is False and a["storage"] == "ephemeral"
     assert "SUPABASE" in (a["warning"] or "")
 
+    # configured but the probe FAILED (schema not run / bad key) -> honest error
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "configured", True)
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "error",
+                        'APIError: relation "paper_trades" does not exist')
+    b = client.get("/paper/account").json()
+    assert b["persistent"] is False and b["storage"] == "ephemeral"
+    assert "NOT connected" in b["warning"] and "ledger_schema.sql" in b["warning"]
+
+    # configured AND connected -> persistent, no warning
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "connected", True)
+    monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, "error", None)
+    c = client.get("/paper/account").json()
+    assert c["persistent"] is True and c["storage"] == "supabase" and c["warning"] is None
+
+
+def test_broken_supabase_falls_back_to_sqlite_instead_of_crashing(monkeypatch):
+    """The failed-deploy fix: a Supabase that raises must never crash boot —
+    get_ledger() falls back to SQLite and records the error."""
+    from data import ledger as ledger_mod
+
+    class ExplodingLedger:
+        def __init__(self, url, key):
+            raise RuntimeError("bad key / schema missing")
+
     monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "svc-key")
-    b = client.get("/paper/account").json()
-    assert b["persistent"] is True and b["storage"] == "supabase" and b["warning"] is None
+    monkeypatch.setattr(ledger_mod, "SupabaseLedger", ExplodingLedger)
+    # snapshot-restore the shared status dict
+    for k, v in list(ledger_mod.SUPABASE_STATUS.items()):
+        monkeypatch.setitem(ledger_mod.SUPABASE_STATUS, k, v)
+
+    led = ledger_mod.get_ledger(":memory:")
+    assert type(led).__name__ == "SqliteLedger"          # fell back, no crash
+    assert ledger_mod.SUPABASE_STATUS["configured"] is True
+    assert ledger_mod.SUPABASE_STATUS["connected"] is False
+    assert "bad key" in ledger_mod.SUPABASE_STATUS["error"]
+
+    # probe failure (client builds, first query raises) also falls back
+    class ProbeFailLedger:
+        def __init__(self, url, key): ...
+        def get_paper_trades(self):
+            raise RuntimeError('relation "paper_trades" does not exist')
+
+    monkeypatch.setattr(ledger_mod, "SupabaseLedger", ProbeFailLedger)
+    led2 = ledger_mod.get_ledger(":memory:")
+    assert type(led2).__name__ == "SqliteLedger"
+    assert "does not exist" in ledger_mod.SUPABASE_STATUS["error"]
+
+    # healthy Supabase is used and reported connected
+    class HealthyLedger:
+        def __init__(self, url, key): ...
+        def get_paper_trades(self):
+            return []
+
+    monkeypatch.setattr(ledger_mod, "SupabaseLedger", HealthyLedger)
+    led3 = ledger_mod.get_ledger(":memory:")
+    assert type(led3).__name__ == "HealthyLedger"
+    assert ledger_mod.SUPABASE_STATUS["connected"] is True

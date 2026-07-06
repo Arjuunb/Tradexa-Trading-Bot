@@ -273,9 +273,34 @@ class SupabaseLedger:
         return self._t("alerts").select("*").order("ts", desc=True).limit(limit).execute().data
 
 
+# Honest Supabase health: get_ledger() records whether Supabase was configured
+# and whether it actually ANSWERED, so the UI reports real persistence instead
+# of trusting env vars alone — and a broken config never crashes the boot.
+SUPABASE_STATUS: dict = {"configured": False, "connected": False, "error": None}
+
+
 def get_ledger(sqlite_path: str = ":memory:") -> Ledger:
-    """Supabase when configured, else local SQLite (dev/offline)."""
+    """Supabase when configured AND reachable, else local SQLite.
+
+    A misconfigured Supabase (bad URL/key, or the schema was never run) used to
+    crash the app on boot — the startup event writes to the ledger — which made
+    the whole deploy fail. Now we probe it once and fall back to SQLite with a
+    loud log line instead; /paper/account surfaces the same error in the UI.
+    """
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
-    if url and key:  # pragma: no cover - needs creds
-        return SupabaseLedger(url, key)
+    SUPABASE_STATUS.update({"configured": bool(url and key),
+                            "connected": False, "error": None})
+    if url and key:
+        try:
+            led = SupabaseLedger(url, key)
+            led.get_paper_trades()   # probe: fails fast on bad creds / missing schema
+            SUPABASE_STATUS["connected"] = True
+            return led
+        except Exception as e:  # noqa: BLE001 — fall back, never crash the boot
+            SUPABASE_STATUS["error"] = f"{type(e).__name__}: {e}"
+            print(f"[ledger] Supabase configured but UNUSABLE — falling back to local "
+                  f"SQLite. Error: {e}\n[ledger] Fix: run automation-hub/data/"
+                  f"ledger_schema.sql in the Supabase SQL editor and verify "
+                  f"SUPABASE_URL / SUPABASE_KEY (service_role), then redeploy.",
+                  flush=True)
     return SqliteLedger(sqlite_path)
