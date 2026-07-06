@@ -121,6 +121,9 @@ class Settings:
     # Persistent paper-account state (initial capital + current equity snapshot)
     account_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_ACCOUNT_DB", str(DATA_DIR / "account.db")))
+    # Unified decision store (every accepted AND rejected trade decision)
+    decisions_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_DECISIONS_DB", str(DATA_DIR / "decisions.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))
