@@ -90,3 +90,50 @@ def journal_trade(trade_id: str):
     if j is None:
         raise _wa.HTTPException(404, "No journal for that trade id")
     return j
+
+
+@router.get("/decisions/latest")
+def decisions_latest(limit: int = 50, symbol: Optional[str] = None):
+    """The most recent trade decisions — accepted AND rejected — with the full
+    unified decision object (scores, rules, reason, executed)."""
+    return {"decisions": _wa.decision_store.list(limit=max(1, min(limit, 200)),
+                                                 symbol=symbol)}
+
+
+@router.get("/decisions/rejected")
+def decisions_rejected(limit: int = 50, symbol: Optional[str] = None):
+    """Only the rejected signals, newest first — why the bot said no."""
+    return {"decisions": _wa.decision_store.list(limit=max(1, min(limit, 200)),
+                                                 decision="rejected", symbol=symbol)}
+
+
+@router.get("/decisions/state")
+def decisions_state():
+    """One-call dashboard state: current bot state, risk status, active
+    positions and the latest decisions — all real, nothing fabricated."""
+    st = _wa.engine.status()
+    positions = _wa.paper.positions()
+    equity = _wa.paper.balance()
+    notional = sum((p["size"] * p["entry"]) for p in positions)
+    return {
+        "bot": {
+            "running": st.get("running", False),
+            "mode": st.get("mode"),
+            "strategy": st.get("strategy"),
+            "timeframe": st.get("timeframe"),
+            "feed_status": st.get("feed_status"),
+            "trading_state": _wa.controls.state,
+            "bars": st.get("bars", 0), "signals": st.get("signals", 0),
+            "trades": st.get("trades", 0), "rejections": st.get("rejections", 0),
+        },
+        "risk": {
+            "equity": equity,
+            "exposure_pct": (notional / equity) if equity > 0 else 0.0,
+            "open_positions": len(positions),
+            "max_open_positions": _wa.settings.max_open_positions,
+            "auto_halted": _wa.pipeline.halted,
+            "halt_reason": _wa.pipeline.halt_reason,
+        },
+        "positions": positions,
+        "latest_decisions": _wa.decision_store.list(limit=10),
+    }

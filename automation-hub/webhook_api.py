@@ -118,6 +118,11 @@ from data.skipped_store import SkippedTradeStore  # noqa: E402
 skipped_store = SkippedTradeStore(settings.skipped_db)
 pipeline.skipped = skipped_store
 
+# Unified decision store: every evaluated signal becomes a persisted decision
+# object (accepted or rejected) BEFORE any trade is placed.
+from data.decision_store import DecisionStore  # noqa: E402
+decision_store = DecisionStore(settings.decisions_db)
+
 # Persistent paper-account state: capital / equity survive logout, refresh and
 # restart (with HUB_DATA_DIR). initial_capital is seeded once from the configured
 # starting cash; the SAVED value wins over the default on every restart.
@@ -191,6 +196,7 @@ engine = AutoStrategyEngine(
     fetcher=ws_feed.make_fetcher(_default_fetcher) if settings.use_live_data else None,
 )
 engine.counterfactual = counterfactual   # resolve vetoed trades on live bars
+engine.decisions = decision_store        # persist every accept/reject decision
 
 # Watchdog: alerts (ledger + Telegram) when the feed stalls, the engine thread
 # dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
