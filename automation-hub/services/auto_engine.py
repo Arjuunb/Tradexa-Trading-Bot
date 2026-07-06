@@ -130,6 +130,7 @@ class AutoStrategyEngine:
         self.last_bar_ts: Optional[str] = None      # timestamp of the last bar acted on
         self.last_activity: Optional[str] = None    # wall-clock of the last processed bar
         self.last_source: Optional[str] = None       # data source ("live (ccxt)" / "bundled sample" / …)
+        self._warned_fallback: set = set()           # symbols already warned (no per-poll spam)
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> bool:
@@ -173,7 +174,26 @@ class AutoStrategyEngine:
         self.start()
         return self.status()
 
+    def feed_status(self) -> tuple[str, Optional[str]]:
+        """(status, error) describing the data feed honestly:
+        connected | waiting-for-candle | fallback | failed | replay."""
+        err = None
+        try:
+            from data.live_data import last_error
+            err = last_error()
+        except Exception:  # noqa: BLE001
+            pass
+        if not self.live:
+            return "replay", err
+        src = self.last_source or ""
+        if src.startswith("live"):
+            return ("connected" if self.stats["bars"] > 0 else "waiting-for-candle"), None
+        if src:
+            return "fallback", err          # live wanted, static source delivered
+        return ("failed" if err else "waiting-for-candle"), err
+
     def status(self) -> dict:
+        feed, feed_err = self.feed_status()
         return {
             "running": self.running,
             "symbols": self.symbols,
@@ -185,6 +205,8 @@ class AutoStrategyEngine:
             "last_bar_ts": self.last_bar_ts,
             "last_activity": self.last_activity,
             "data_source": self.last_source,
+            "feed_status": feed,             # connected | waiting-for-candle | fallback | failed | replay
+            "feed_error": feed_err,          # last real fetch error, if any
             "entry_mode": self.entry_mode,
             "pending_orders": len(self._pending),
             "missed_entries": self.stats_missed_entries,
@@ -259,12 +281,28 @@ class AutoStrategyEngine:
                     bars, src = self._fetcher(sym, self.timeframe, max(self.warmup + 5, 60))
                     self.last_source = src
                     # Live mode but the feed isn't actually live -> it will never
-                    # deliver a NEW candle, so warn loudly instead of going quiet.
+                    # deliver a NEW candle, so warn loudly (once per symbol, with
+                    # the REAL fetch error) instead of going quiet or spamming.
                     if self.live and not (src or "").startswith("live"):
-                        self.ledger.log(level="warning", stage="engine", symbol=sym,
-                                        message=(f"{sym}: live feed unavailable — using '{src}'. "
-                                                 f"No new {self.timeframe} candles will arrive; "
-                                                 f"no trades will fire. Use replay mode or a reachable feed."))
+                        if sym not in self._warned_fallback:
+                            self._warned_fallback.add(sym)
+                            err = None
+                            try:
+                                from data.live_data import last_error
+                                err = last_error(sym)
+                            except Exception:  # noqa: BLE001
+                                pass
+                            why = f" Live fetch error: {err}." if err else ""
+                            self.ledger.log(level="warning", stage="engine", symbol=sym,
+                                            message=(f"{sym}: live feed unavailable — using '{src}'.{why} "
+                                                     f"No new {self.timeframe} candles will arrive; "
+                                                     f"no trades will fire. Fix the feed (try HUB_EXCHANGE="
+                                                     f"kraken/coinbase — Binance blocks many cloud IPs) or "
+                                                     f"unset HUB_USE_LIVE_DATA for replay mode."))
+                    elif (src or "").startswith("live") and sym in self._warned_fallback:
+                        self._warned_fallback.discard(sym)
+                        self.ledger.log(level="info", stage="engine", symbol=sym,
+                                        message=f"{sym}: live feed recovered ({src}).")
                 except Exception as e:  # noqa: BLE001 — a fetch hiccup shouldn't stop the engine
                     self.ledger.log(level="warning", stage="engine", symbol=sym,
                                     message=f"{sym}: live fetch failed ({e})")
@@ -565,7 +603,8 @@ _TF_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
 
 def explain_inactivity(*, running: bool, trading_state: str, mode: str, timeframe: str,
                        bars: int, signals: int, trades: int, rejections: int,
-                       data_source: Optional[str], last_activity_age_s: Optional[float]) -> dict:
+                       data_source: Optional[str], last_activity_age_s: Optional[float],
+                       feed_error: Optional[str] = None) -> dict:
     """Plain-English answer to 'why isn't the bot trading?'. Pure + testable.
 
     Returns {status, headline, detail, severity}. ``status`` is a stable code the
@@ -580,18 +619,31 @@ def explain_inactivity(*, running: bool, trading_state: str, mode: str, timefram
     if trading_state and trading_state.lower() != "active":
         return out("halted", f"Trading is {trading_state}.",
                    "New entries are blocked. Resume from Risk Manager / Safety Center.", "warning")
-    if bars == 0:
-        return out("no_data", "No market data has been processed yet.",
-                   "The data feed may be unavailable, or the engine just started warming up.", "warning")
 
     tf_s = _TF_SECONDS.get(timeframe, 3600)
-    if mode == "live" and data_source and data_source != "live (ccxt)":
-        return out("stale_feed", "Live mode is on, but the live feed is unavailable on this host.",
-                   (f"It fell back to '{data_source}' (static historical data). Exchanges like "
-                    f"Binance often block cloud/datacenter IPs, so no NEW {timeframe} candle ever "
-                    f"arrives — which is why no trades fire and the balance never changes. "
-                    f"Switch to replay mode (unset HUB_USE_LIVE_DATA) for a live demo, or point at a "
-                    f"reachable data source."), "critical")
+    # The precise feed diagnosis must come BEFORE the generic bars==0 message —
+    # a fallen-back live feed keeps bars at 0 forever, and hiding that behind
+    # "just started warming up" is exactly how it goes unnoticed.
+    if mode == "live" and data_source and not str(data_source).startswith("live"):
+        err = f" Last fetch error: {feed_error}." if feed_error else ""
+        return out("stale_feed", "Running — data feed FAILED (static fallback active).",
+                   (f"Live data is enabled but every fetch failed, so it fell back to "
+                    f"'{data_source}' (static historical data).{err} Exchanges like Binance "
+                    f"block many cloud/datacenter IPs (HTTP 451), so no NEW {timeframe} candle "
+                    f"will ever arrive — bars stay 0 and no trades can fire. Fix: set "
+                    f"HUB_EXCHANGE=kraken (or coinbase) and redeploy, or unset "
+                    f"HUB_USE_LIVE_DATA to run replay mode instead."), "critical")
+    if bars == 0:
+        if mode == "live" and str(data_source or "").startswith("live"):
+            hrs = tf_s / 3600
+            wait = (f"up to {hrs:.0f} hours" if tf_s >= 3600
+                    else f"up to {tf_s // 60} minutes")
+            return out("waiting_first_candle", "Running — data feed connected, waiting for the first candle.",
+                       (f"The live feed is healthy; the engine acts only when a {timeframe} candle "
+                        f"CLOSES, which can take {wait} from now. For faster activity during "
+                        f"testing, set HUB_AUTO_TIMEFRAME=5m or 15m and redeploy."), "info")
+        return out("no_data", "No market data has been processed yet.",
+                   "The data feed may be unavailable, or the engine just started warming up.", "warning")
     if mode == "live" and last_activity_age_s is not None and last_activity_age_s > 1.5 * tf_s:
         hrs = last_activity_age_s / 3600
         return out("waiting_candles", f"Waiting for the next {timeframe} candle.",
