@@ -111,6 +111,7 @@ def engine_diagnostics():
         bars=st.get("bars", 0), signals=st.get("signals", 0),
         trades=st.get("trades", 0), rejections=st.get("rejections", 0),
         data_source=st.get("data_source"), last_activity_age_s=age,
+        feed_error=st.get("feed_error"),
     )
     return {
         **verdict,
@@ -118,6 +119,8 @@ def engine_diagnostics():
         "mode": st.get("mode"),
         "timeframe": st.get("timeframe"),
         "data_source": st.get("data_source"),
+        "feed_status": st.get("feed_status"),
+        "feed_error": st.get("feed_error"),
         "bars": st.get("bars", 0), "signals": st.get("signals", 0),
         "trades": st.get("trades", 0), "rejections": st.get("rejections", 0),
         "last_bar_ts": st.get("last_bar_ts"),
