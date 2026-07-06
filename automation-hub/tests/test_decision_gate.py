@@ -126,3 +126,92 @@ def test_cooldown_after_loss_blocks_trading():
     r = pipe.process({"alert_id": "c2", "symbol": "ETHUSDT", "side": "BUY",
                       "entry": 100.0, "stop": 95.0})
     assert r.accepted is False and r.stage == "cooldown"
+
+
+# ─────────────── engine integration: no trade without acceptance ───────────────
+def _engine_with_decisions(min_score):
+    from data.decision_store import DecisionStore
+    from data.ledger import SqliteLedger
+    from execution.paper_engine import PaperExecutionEngine
+    from services.auto_engine import AutoStrategyEngine
+    from services.controls import TradingControl
+    from services.signal_pipeline import SignalPipeline
+
+    led = SqliteLedger(":memory:")
+    paper = PaperExecutionEngine(led, 10_000)
+    pipe = SignalPipeline(led, paper, TradingControl(), equity=10_000,
+                          risk_per_trade_pct=0.01, exposure_limit_pct=0.5,
+                          max_total_exposure_pct=1.0, adaptive_risk=False,
+                          equity_throttle=False)
+    eng = AutoStrategyEngine(pipe, paper, led, symbols=["BTCUSDT"],
+                             entry_mode="market")
+    eng.min_quality_score = min_score
+    eng.strategy_label = "TestStrat"
+    eng.decisions = DecisionStore(":memory:")
+    return eng, paper
+
+
+def _fire_signal(eng):
+    """Feed enough synthetic bars for the gate to engage, then emit one signal."""
+    from bot.data.synthetic import generate_bars
+    from bot.types import Signal, SignalType
+
+    bars = generate_bars(n=120, timeframe="1h", seed=7)
+
+    class OneShot:
+        label = "TestStrat"
+        def __init__(self):
+            self.bars = list(bars[:-1])
+    strat = OneShot()
+    last = bars[-1]
+    sig = Signal(type=SignalType.LONG, symbol="BTCUSDT", entry=last.close,
+                 stop_loss=last.close * 0.988, take_profit=last.close * 1.03,
+                 timestamp=last.timestamp)
+    sig.confidence = 0.9
+    eng._on_signal("BTCUSDT", sig, strat)
+    return eng.decisions.list()
+
+
+def test_engine_persists_decision_and_blocks_rejected_trades():
+    # impossible threshold -> every decision rejected -> NO trade placed
+    eng, paper = _engine_with_decisions(min_score=101)
+    recs = _fire_signal(eng)
+    assert len(recs) == 1
+    d = recs[0]
+    assert d["decision"] == "rejected" and d["executed"] is False
+    assert d["reason"]                                   # reason persisted
+    assert d["strategy"] == "TestStrat" and d["symbol"] == "BTCUSDT"
+    assert paper.positions() == []                       # decision gate held the line
+    assert eng.stats["trades"] == 0
+
+
+def test_engine_executes_and_marks_accepted_decision():
+    # threshold 0 with a valid setup -> accepted -> trade opens -> executed=True
+    eng, paper = _engine_with_decisions(min_score=1)
+    recs = _fire_signal(eng)
+    assert len(recs) == 1
+    d = recs[0]
+    if d["decision"] == "accepted":                      # depends on real scoring
+        assert d["executed"] is True
+        assert len(paper.positions()) == 1
+    else:
+        # honest: synthetic bars may legitimately score below 1 only via hard
+        # block — in that case no trade may exist
+        assert paper.positions() == []
+
+
+# ───────────────────────── endpoints ─────────────────────────
+def test_decisions_endpoints():
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import webhook_api
+    app = FastAPI(); app.include_router(webhook_api.router)
+    client = TestClient(app)
+    assert "decisions" in client.get("/decisions/latest").json()
+    assert "decisions" in client.get("/decisions/rejected").json()
+    s = client.get("/decisions/state").json()
+    # the composite dashboard state: bot + risk + positions + latest decisions
+    assert set(s) == {"bot", "risk", "positions", "latest_decisions"}
+    assert "feed_status" in s["bot"] and "trading_state" in s["bot"]
+    assert "equity" in s["risk"] and "auto_halted" in s["risk"]

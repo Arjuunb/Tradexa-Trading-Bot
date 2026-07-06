@@ -124,6 +124,9 @@ class AutoStrategyEngine:
         # Counterfactual tracker (shared with the pipeline): resolves vetoed
         # and missed entries against the same bars the engine trades.
         self.counterfactual = None
+        # Unified decision store: EVERY evaluated signal is persisted as a
+        # decision object (accepted or rejected) BEFORE any trade is placed.
+        self.decisions = None
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -408,6 +411,11 @@ class AutoStrategyEngine:
             return
         f = res.fill or {}
         if res.accepted and f.get("action") == "opened":
+            if po.get("decision_id") is not None and self.decisions is not None:
+                try:
+                    self.decisions.mark_executed(po["decision_id"])
+                except Exception:  # noqa: BLE001
+                    pass
             self.stats["trades"] += 1
             self._targets[sym] = po["target"]
             entry, stop = f.get("price") or fill, po["payload"].get("stop")
@@ -492,10 +500,11 @@ class AutoStrategyEngine:
             return
         self.stats["signals"] += 1
         side = "BUY" if signal.type == SignalType.LONG else "SELL"
-        # quality gate (parity with every backtest): score the setup with the
-        # same TradeBrain and threshold the simulators use. Vetoes are logged
-        # AND tracked counterfactually, so this gate is graded like the rest.
+        # Decision Brain gate (parity with every backtest): score the setup with
+        # the same TradeBrain the simulators use, build the unified decision
+        # object, and persist it — accepted OR rejected — BEFORE any trade.
         bars = list(getattr(strategy, "bars", []) or [])
+        v = None
         if (self.min_quality_score > 0 and signal.stop_loss and pos is None
                 and len(bars) >= 60):
             v = self._quality_brain.evaluate(
@@ -503,23 +512,37 @@ class AutoStrategyEngine:
                 side="long" if signal.type == SignalType.LONG else "short",
                 entry=signal.entry, stop=signal.stop_loss,
                 target=signal.take_profit)
-            if not v.allowed or v.score < self.min_quality_score:
-                self.stats["rejections"] += 1
-                why = (v.blocks[0] if v.blocks
-                       else f"quality score {v.score} < {self.min_quality_score}")
-                self.ledger.log(level="info", stage="brain", symbol=sym,
-                                message=f"{sym} {side} blocked by quality gate: {why}")
-                if self.counterfactual is not None:
-                    try:
-                        self.counterfactual.record_veto(
-                            symbol=sym,
-                            side="long" if signal.type == SignalType.LONG else "short",
-                            entry=signal.entry, stop=signal.stop_loss,
-                            target=signal.take_profit, rule="quality-score",
-                            detail=why, time=signal.timestamp.isoformat())
-                    except Exception:  # noqa: BLE001
-                        pass
-                return
+        decision = None
+        decision_id = None
+        if pos is None:                      # entries only; flips/closes pass through
+            from services.decision_gate import build_decision
+            decision = build_decision(
+                symbol=sym, timeframe=self.timeframe, strategy=self.strategy_label,
+                side="long" if signal.type == SignalType.LONG else "short",
+                confidence=getattr(signal, "confidence", None), verdict=v,
+                min_score=self.min_quality_score,
+                regime_hint=getattr(signal, "regime", ""))
+            if self.decisions is not None:
+                try:
+                    decision_id = self.decisions.record(decision)
+                except Exception:  # noqa: BLE001 — persistence must never block trading
+                    pass
+        if decision is not None and decision["decision"] == "rejected":
+            self.stats["rejections"] += 1
+            why = decision["reason"]
+            self.ledger.log(level="info", stage="brain", symbol=sym,
+                            message=f"{sym} {side} blocked by decision gate: {why}")
+            if self.counterfactual is not None:
+                try:
+                    self.counterfactual.record_veto(
+                        symbol=sym,
+                        side="long" if signal.type == SignalType.LONG else "short",
+                        entry=signal.entry, stop=signal.stop_loss,
+                        target=signal.take_profit, rule="quality-score",
+                        detail=why, time=signal.timestamp.isoformat())
+                except Exception:  # noqa: BLE001
+                    pass
+            return
         # context gate: never long an altcoin against BTC's own trend
         # (cross-asset modifier; OFF unless validated + enabled)
         ctx_why = self.context.gate(sym, "long" if signal.type == SignalType.LONG else "short")
@@ -563,13 +586,19 @@ class AutoStrategyEngine:
         if self.entry_mode == "limit" and pos is None and signal.stop_loss:
             self._pending[sym] = {"side": side, "price": signal.entry,
                                   "target": signal.take_profit,
-                                  "ttl": self.limit_ttl_bars, "payload": payload}
+                                  "ttl": self.limit_ttl_bars, "payload": payload,
+                                  "decision_id": decision_id}
             return
         res = self._route(payload)
         if res is None:
             return
         fill = res.fill or {}
         if res.accepted and fill.get("action") == "opened":
+            if decision_id is not None and self.decisions is not None:
+                try:
+                    self.decisions.mark_executed(decision_id)
+                except Exception:  # noqa: BLE001
+                    pass
             self.stats["trades"] += 1
             self._targets[sym] = signal.take_profit
             entry, stop = fill.get("price") or signal.entry, signal.stop_loss
