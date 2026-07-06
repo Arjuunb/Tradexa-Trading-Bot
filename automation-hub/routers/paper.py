@@ -19,20 +19,30 @@ router = APIRouter()
 
 
 def _persistence_status() -> dict:
-    """Is account/trade state actually persistent? True when either a persistent
-    disk (HUB_DATA_DIR) OR a free external DB (Supabase) is configured, or we are
-    not on an ephemeral cloud host."""
+    """Is account/trade state actually persistent? Supabase counts only when it
+    really CONNECTED at boot (probe passed) — configured-but-broken shows the
+    exact error instead of silently claiming persistence."""
+    from data import ledger as _ledger_mod
     env = _wa._os.environ.get
     on_cloud = bool(env("RENDER") or env("DYNO"))
     data_dir_set = bool(env("HUB_DATA_DIR"))
-    supabase = bool(env("SUPABASE_URL") and env("SUPABASE_KEY"))
-    persistent = data_dir_set or supabase or not on_cloud
+    sb = _ledger_mod.SUPABASE_STATUS
+    supabase_ok = bool(sb.get("connected"))
+    persistent = data_dir_set or supabase_ok or not on_cloud
     warning = None
-    if not persistent:
+    if sb.get("configured") and not supabase_ok:
+        warning = ("Supabase is configured but NOT connected "
+                   f"({sb.get('error') or 'unknown error'}) — using local SQLite. "
+                   "Run automation-hub/data/ledger_schema.sql in the Supabase SQL "
+                   "editor and verify SUPABASE_URL / SUPABASE_KEY (service_role), "
+                   "then redeploy.")
+        if not persistent:
+            warning += " Until fixed, capital and trades may reset on redeploy."
+    elif not persistent:
         warning = ("No persistent storage configured — capital and trades may "
                    "reset on redeploy. Free fix: set SUPABASE_URL + SUPABASE_KEY "
                    "(free Supabase Postgres), or attach a disk and set HUB_DATA_DIR.")
-    return {"persistent": persistent, "supabase": supabase,
+    return {"persistent": persistent, "supabase": supabase_ok,
             "data_dir": data_dir_set, "warning": warning}
 
 
