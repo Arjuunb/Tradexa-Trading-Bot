@@ -12,10 +12,15 @@ services:
     envVars:
       - key: HUB_AUTO_ENGINE
         value: "1"
-      # Paper-trade the validated DecisionBrain on real Binance candles instead
-      # of synthetic data, so the trade journal reflects real market decisions.
+      # Paper-trade the validated DecisionBrain on real candles instead of
+      # synthetic data, so the trade journal reflects real market decisions.
       - key: HUB_USE_LIVE_DATA
         value: "1"
+      # Data venue: Binance answers HTTP 451 to many cloud/datacenter IPs
+      # (including Render's), so default to Kraken which serves them. Existing
+      # services must add this env var manually — blueprint sync is not retroactive.
+      - key: HUB_EXCHANGE
+        value: "kraken"
       # Set a real secret here and use the SAME value for VITE_WEBHOOK_SECRET on
       # Vercel so the Pause/Stop/Start controls work from the deployed UI.
       - key: HUB_WEBHOOK_SECRET
