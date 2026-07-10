@@ -183,3 +183,22 @@ test("Paper capital — Current Equity and Initial Capital shown separately", as
   await expect(page.locator("aside.sidebar").getByText("Current Equity")).toBeVisible();
   await expect(page.locator("aside.sidebar").getByText(/Initial capital/)).toBeVisible();
 });
+
+test("Settings — engine timeframe chips switch the candle interval", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/settings");
+  await page.waitForTimeout(700);
+  const card = page.locator(".card", { hasText: "Engine Timeframe" });
+  await expect(card).toBeVisible();
+  // all six options offered; current (4h from mock) highlighted
+  for (const tf of ["1m", "5m", "15m", "1h", "4h", "1d"])
+    await expect(card.getByRole("button", { name: tf, exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "4h", exact: true })).toHaveClass(/active/);
+  // clicking 15m POSTs the switch
+  const [req] = await Promise.all([
+    page.waitForRequest((r) => r.url().includes("/engine/timeframe?timeframe=15m") && r.method() === "POST"),
+    card.getByRole("button", { name: "15m", exact: true }).click(),
+  ]);
+  expect(req).toBeTruthy();
+  await expect(page.locator(".toast.success")).toBeVisible();
+});

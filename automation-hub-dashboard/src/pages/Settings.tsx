@@ -175,6 +175,26 @@ export default function SettingsPage() {
           <p className="dim" style={{ marginTop: 8 }}>Sets which symbols the engine trades (paper). Restart-to-persist via HUB_AUTO_SYMBOLS.</p>
         </Card>
 
+        <Card title="Engine Timeframe" subtitle="editable · restarts the engine · persists across redeploys">
+          <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap" }}>
+            {(["1m", "5m", "15m", "1h", "4h", "1d"] as const).map((tf) => (
+              <button key={tf} className={`chip-btn ${engine.data?.timeframe === tf ? "active" : ""}`}
+                onClick={async () => {
+                  try {
+                    await apiPost(`/engine/timeframe?timeframe=${tf}`);
+                    app.toast(`Timeframe set to ${tf} — engine restarted`, "success");
+                    engine.refetch();
+                  } catch { app.toast("Change needs the webhook secret", "error"); }
+                }}>{tf}</button>
+            ))}
+          </div>
+          <p className="dim" style={{ marginTop: 8 }}>
+            Candle interval the bot trades on. <b>4h</b> is the walk-forward-validated config;
+            lower timeframes (1m–1h) give much faster signals/trades for testing and count as
+            their own experiment. Bars appear after the first candle of the new timeframe closes.
+          </p>
+        </Card>
+
         <Card title="Allowed Trading Days (UTC)" subtitle="editable · entries only on enabled days">
           <div className="row-actions" style={{ justifyContent: "flex-start", gap: 6, flexWrap: "wrap" }}>
             {DAY_NAMES.map((d, i) => (
