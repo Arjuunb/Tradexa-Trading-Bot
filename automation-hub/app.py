@@ -62,6 +62,21 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# Iframe embedding (e.g. inside the Tradexa app): set HUB_FRAME_ANCESTORS to the
+# embedding origin(s) — e.g. "https://tradexa.app" or "'self' https://tradexa.app"
+# — and browsers will allow ONLY those sites to frame the dashboard (clickjacking
+# stays blocked everywhere else). Unset = header not sent (default behavior).
+import os as _mw_os  # noqa: E402
+
+
+@app.middleware("http")
+async def _frame_ancestors(request, call_next):
+    resp = await call_next(request)
+    ancestors = _mw_os.environ.get("HUB_FRAME_ANCESTORS", "").strip()
+    if ancestors:
+        resp.headers["Content-Security-Policy"] = f"frame-ancestors {ancestors}"
+    return resp
+
 # API protection: every data/control endpoint requires a signed-in session
 # (cookie) or the webhook secret (header). Exempt: the auth flow itself, the
 # TradingView webhook (it authenticates with the secret in its own handler),
@@ -126,6 +141,22 @@ hub_events = HubEventHub()
 _sessions: dict[str, str] = {}
 COOKIE = "hub_session"
 SESSION_DAYS = 7
+
+
+def _cookie_kwargs() -> dict:
+    """Session-cookie attributes. Default SameSite=Lax (same-origin dashboard).
+    Set HUB_COOKIE_SAMESITE=none to allow the dashboard to be embedded in an
+    iframe on another site (e.g. the Tradexa app) — SameSite=None requires
+    Secure, so it only works over HTTPS (which Render provides)."""
+    import os
+    samesite = os.environ.get("HUB_COOKIE_SAMESITE", "lax").lower()
+    if samesite not in ("lax", "none", "strict"):
+        samesite = "lax"
+    kw = {"httponly": True, "samesite": samesite,
+          "max_age": SESSION_DAYS * 86400}
+    if samesite == "none":
+        kw["secure"] = True
+    return kw
 
 
 # --------------------------------------------------------------- auth helpers
@@ -205,8 +236,7 @@ def login(username: str = Form(...), password: str = Form(...)):
     # verify against hashed credentials; signed cookie survives restarts
     if store.authenticate(username, password) is not None:
         resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(COOKIE, _sign_session(username), httponly=True,
-                        samesite="lax", max_age=SESSION_DAYS * 86400)
+        resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
         return resp
     return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
 
@@ -256,8 +286,7 @@ def signup(username: str = Form(...), password: str = Form(...), confirm: str = 
     if err:
         return RedirectResponse(f"/signup?error={err.replace(' ', '+')}", status_code=303)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE, _sign_session(user), httponly=True,
-                    samesite="lax", max_age=SESSION_DAYS * 86400)
+    resp.set_cookie(COOKIE, _sign_session(user), **_cookie_kwargs())
     return resp
 
 
