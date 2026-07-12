@@ -14,13 +14,17 @@ EDITABLE = ("risk_per_trade_pct", "exposure_limit_pct", "max_drawdown_pct",
             "max_open_positions", "dedup_window_s", "max_daily_loss_pct",
             "session_start", "session_end", "max_weekly_loss_pct",
             "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
-            "trading_days_mask", "notify_trades", "notify_risk")
+            "trading_days_mask", "notify_trades", "notify_risk",
+            "engine_timeframe")
 _INT_KEYS = {"max_open_positions", "dedup_window_s", "session_start", "session_end",
              "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
              "trading_days_mask", "notify_trades", "notify_risk"}
+_STR_KEYS = {"engine_timeframe"}
 
 
 def _cast(key, value):
+    if key in _STR_KEYS:
+        return str(value)
     return int(value) if key in _INT_KEYS else float(value)
 
 

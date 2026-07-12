@@ -131,3 +131,31 @@ def engine_diagnostics():
 @router.get("/controls/state")
 def control_state():
     return {"state": _wa.controls.state}
+
+
+# Timeframes the data layer supports end-to-end (live fetch, synthetic, engine).
+_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
+
+
+@router.post("/engine/timeframe")
+def engine_set_timeframe(timeframe: str,
+                         x_webhook_secret: Optional[str] = Header(default=None)):
+    """Switch the engine's candle timeframe (1m/5m/15m/1h/4h/1d) and restart it.
+
+    The choice is persisted so it survives restarts/redeploys. 4h remains the
+    walk-forward-validated config; lower timeframes give faster activity and
+    count as their own experiment. Paper only — live stays locked."""
+    _wa._check_secret(x_webhook_secret)
+    tf = (timeframe or "").strip().lower()
+    if tf not in _TIMEFRAMES:
+        raise HTTPException(400, f"Unsupported timeframe '{timeframe}'. "
+                                 f"Choose one of: {', '.join(_TIMEFRAMES)}.")
+    _wa.engine.reconfigure(symbols=_wa.engine.symbols, timeframe=tf,
+                           strategy_factory=_wa.engine.strategy_factory,
+                           label=_wa.engine.strategy_label)
+    # persist alongside the other runtime settings (applied again at boot)
+    _wa.save_overrides(_wa.settings.settings_path, _wa._settings_snapshot())
+    _wa.ledger.log(level="info", stage="audit",
+                   message=f"Engine timeframe set to {tf} (engine restarted)")
+    return {"applied": True, "timeframe": _wa.engine.timeframe,
+            "options": list(_TIMEFRAMES)}

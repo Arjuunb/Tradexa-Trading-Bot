@@ -266,6 +266,10 @@ def _apply_setting(key: str, value) -> None:
         daily_tasks.hour = int(value)
     elif key == "min_quality_score":
         engine.min_quality_score = int(value)
+    elif key == "engine_timeframe":
+        # applied before the startup event starts the engine, so a persisted
+        # timeframe choice survives restarts/redeploys
+        engine.timeframe = str(value)
     elif key in ("max_open_positions", "session_start", "session_end",
                  "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
                  "trading_days_mask"):
@@ -276,6 +280,7 @@ def _apply_setting(key: str, value) -> None:
 
 def _settings_snapshot() -> dict:
     return {
+        "engine_timeframe": engine.timeframe,
         "risk_per_trade_pct": pipeline.risk_per_trade_pct,
         "exposure_limit_pct": pipeline.exposure_limit_pct,
         "max_drawdown_pct": pipeline.max_drawdown_pct,
