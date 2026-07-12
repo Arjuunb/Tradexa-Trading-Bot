@@ -634,6 +634,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     linear-gradient(180deg, var(--card-elevated), var(--card-1));
   box-shadow: var(--shadow);
   position: relative; overflow: hidden;
+  /* Never let a flex parent compress the banner (it clips to a sliver behind
+     the metric cards). Belt-and-suspenders alongside `.content > *`. */
+  flex-shrink: 0; min-height: fit-content;
 }
 .dash-hero::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
