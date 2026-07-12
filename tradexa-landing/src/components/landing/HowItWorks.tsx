@@ -1,0 +1,55 @@
+import { Link2, SlidersHorizontal, Play, LineChart, type LucideIcon } from "lucide-react";
+import { Reveal, SectionHeading } from "@/components/Reveal";
+
+interface Step {
+  n: string;
+  icon: LucideIcon;
+  title: string;
+  body: string;
+}
+
+const STEPS: Step[] = [
+  { n: "01", icon: Link2, title: "Connect Exchange", body: "Link Binance, Bybit or OKX with read + trade API keys — never withdrawals." },
+  { n: "02", icon: SlidersHorizontal, title: "Configure Strategy", body: "Pick a strategy, set your risk limits, choose symbols and timeframe." },
+  { n: "03", icon: Play, title: "Start Bot", body: "Go live in paper or connected mode. The engine watches the market for you." },
+  { n: "04", icon: LineChart, title: "Monitor Performance", body: "Track every trade, decision and metric in real time — full transparency." },
+];
+
+export function HowItWorks() {
+  return (
+    <section id="how" className="section">
+      <div className="container-x">
+        <SectionHeading
+          eyebrow="Workflow"
+          title="Live in four steps"
+          subtitle="From connecting an exchange to watching performance — no code, no guesswork."
+        />
+
+        <div className="relative mt-16">
+          {/* connecting line (desktop) */}
+          <div className="absolute left-0 right-0 top-[2.75rem] hidden h-px bg-gradient-to-r from-transparent via-line-strong to-transparent lg:block" />
+
+          <div className="grid gap-8 lg:grid-cols-4">
+            {STEPS.map((s, i) => (
+              <Reveal key={s.n} delay={i * 0.1}>
+                <div className="relative flex flex-col items-center text-center lg:items-start lg:text-left">
+                  <div className="relative z-10 flex h-[5.5rem] w-[5.5rem] items-center justify-center">
+                    <div className="absolute inset-0 rounded-2xl border border-line bg-ink-700" />
+                    <div className="absolute inset-0 rounded-2xl bg-gold/[0.05]" />
+                    <s.icon className="relative h-7 w-7 text-gold" />
+                    <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-gold-sheen text-[11px] font-bold text-ink">
+                      {i + 1}
+                    </span>
+                  </div>
+                  <p className="mt-5 font-mono text-xs text-gold/60">{s.n}</p>
+                  <h3 className="mt-1 text-lg font-semibold text-white">{s.title}</h3>
+                  <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">{s.body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
