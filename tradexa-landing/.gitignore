@@ -6,3 +6,6 @@ dist-ssr
 .env.*
 !.env.example
 .DS_Store
+
+# TS incremental build cache
+*.tsbuildinfo

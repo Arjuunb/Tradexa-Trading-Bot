@@ -8,8 +8,8 @@ import { cn, APP_URL } from "@/lib/utils";
 
 const LINKS = [
   { label: "Features", href: "#features" },
+  { label: "Engine", href: "#engine" },
   { label: "How it works", href: "#how" },
-  { label: "Performance", href: "#performance" },
   { label: "Security", href: "#security" },
 ];
 

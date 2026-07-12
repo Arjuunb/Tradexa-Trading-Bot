@@ -62,6 +62,21 @@ export function DashboardPreview() {
           </Badge>
         </div>
 
+        {/* engine control line */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-line bg-ink-800/50 px-3 py-2 font-mono text-[11px]">
+          <span className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
+            <span className="text-emerald-soft">ENGINE RUNNING</span>
+          </span>
+          <span className="text-white/30">·</span>
+          <span className="text-gold-soft">PAPER</span>
+          <span className="text-white/30">·</span>
+          <span className="text-white/50">BTC · ETH · SOL</span>
+          <span className="text-white/30">·</span>
+          <span className="text-white/50">4h</span>
+          <span className="ml-auto text-white/35">brain v3</span>
+        </div>
+
         {/* equity curve */}
         <div className="surface p-4">
           <div className="mb-2 flex items-center justify-between">
