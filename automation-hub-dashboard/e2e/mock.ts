@@ -108,12 +108,71 @@ const JOURNAL_EVOLUTION = { setups: [{
   setup_key: "Brain|Trending|long", strategy: "Decision Brain", regime: "Trending", side: "long",
   trades: 3, wins: 2, net_r: 4, stage: "early-signal", note: "Early signal — needs 30+ trades." }] };
 
+// --- permanent trade memory (all 8 categories, honesty markers preserved) ---
+const MEM_SECTIONS = {
+  trade_information: { trade_id: "T1", date: "2026-07-05", time_utc: "09:00:00 UTC", exchange: "kraken",
+    symbol: "BTCUSDT", direction: "Long", entry: 100, exit: 115, stop_loss: 95, take_profit: 115,
+    position_size: 2, risk_pct: 0.1, planned_rr: 3, actual_rr: 3,
+    fees: "0.00 (paper — fees not modeled)", duration: "2h 0m" },
+  market_context: { trend: "trend", market_structure: "Not checked", session: "London", volatility: 0.8,
+    atr: "not captured", volume: "not captured", liquidity: "not captured", support: "not captured",
+    resistance: "not captured", funding_rate: "not captured", fear_greed_index: "not captured",
+    btc_dominance: "not captured" },
+  technical_analysis: { ema_fast: 101, ema_slow: 99, rsi: 61, macd: "Not checked", vwap: "Not checked",
+    bollinger_bands: "Not checked", order_blocks: "Not checked", fair_value_gaps: "Not checked",
+    supply_demand: "Not checked", break_of_structure: "Not checked", change_of_character: "Not checked" },
+  strategy: { name: "Decision Brain", version: "not captured", timeframe: "15m", setup_grade: "A",
+    confidence_score: 70, brain_score: 72, regime: "trend", htf_bias: "not captured" },
+  execution: { why_opened: "EMA crossover long", why_closed: "take-profit",
+    conditions_passed: ["EMA fast over slow"], conditions_failed: ["None — all evaluated gates passed."] },
+  emotion_journal: { manual_notes: "" },
+  trade_outcome: { result: "win", profit: 30, loss: 0, pnl: 30, actual_rr: 3,
+    mistakes: "None — trade followed the plan.", lessons_learned: "Aligned trend longs pay in this regime",
+    improvement_notes: "Repeat the disciplined process." },
+  ai_reflection: { what_went_well: "Disciplined A-grade win — the plan was followed and it paid (3R).",
+    what_went_wrong: "Nothing mechanical — the stop did its job; the setup simply failed.",
+    what_to_repeat: "Repeat the disciplined process. This setup is worth taking again within existing risk limits.",
+    what_to_never_do_again: "No hard rule was broken; keep the same discipline.",
+    basis: "Composed from the trade's real review + evolution memory (no invented insight)." },
+};
+const MEM_ROW = { trade_id: "T1", closed_at: "2026-07-05T11:00:00Z", symbol: "BTCUSDT", side: "long",
+  strategy: "Decision Brain", timeframe: "15m", result: "win", grade: "A", pnl: 30, actual_rr: 3,
+  session: "London", weekday: "Friday", notes: "", sections: MEM_SECTIONS };
+const MEM_INSIGHTS = {
+  sample: 8, overall: { trades: 8, win_rate: 62.5, expectancy: 12.5, avg_rr: 1.4, pnl: 100 },
+  sharpe_ratio: 0.5, sortino_ratio: 1.1, max_drawdown_abs: 40, avg_hold_seconds: 7200,
+  by_symbol: [{ symbol: "BTCUSDT", trades: 8, win_rate: 62.5, expectancy: 12.5, avg_rr: 1.4, pnl: 100 }],
+  by_strategy: [{ strategy: "Decision Brain", trades: 8, win_rate: 62.5, expectancy: 12.5, avg_rr: 1.4, pnl: 100 }],
+  by_session: [{ session: "London", trades: 6, win_rate: 66.7, expectancy: 15, avg_rr: 1.5, pnl: 90 }],
+  by_weekday: [{ weekday: "Friday", trades: 5, win_rate: 60, expectancy: 10, avg_rr: 1.3, pnl: 50 }],
+  by_setup_grade: [{ grade: "A", trades: 5, win_rate: 80, expectancy: 20, avg_rr: 1.8, pnl: 100 }],
+  mistakes: [{ mistake: "Chased the entry after the move started.", count: 2, loss_attributed: -35, repeated: true }],
+  winning_patterns: [{ grade: "A", trades: 5, win_rate: 80, expectancy: 20, avg_rr: 1.8, pnl: 100 }],
+  evidence_note: "8 closed trades. Early sample — treat breakdowns as signals, not proof.",
+  coaching: [{ statement: "You perform 27% better during the London session (+15.000R vs +12.500R overall, 6 trades).",
+    stage: "early-signal", metric: null }],
+};
+const MEM_REVIEWS = { reviews: [{ period: "nightly", period_key: "2026-07-05",
+  created_at: "2026-07-05T23:59:00Z",
+  report: { overall: { trades: 3, win_rate: 66.7, expectancy: 14 }, sharpe_ratio: 0.5, max_drawdown_abs: 20 } }] };
+const MEM_SIMILAR = { similar: [{ trade_id: "T2", symbol: "ETHUSDT", side: "long", result: "win", similarity: 0.92 }] };
+const MEM_ASK = { query: "show all losing BTC trades", kind: "filter",
+  answer: "Found 1 loss BTCUSDT trades.", trades: [MEM_ROW] };
+
 // exact shapes keyed by pathname substring (first match wins)
 const SHAPES: [string, unknown][] = [
   // journal: /trades and /evolution must precede the single-journal fallback
   ["/journal/trades", JOURNAL_TRADES],
   ["/journal/evolution", JOURNAL_EVOLUTION],
   ["/journal/t1234567abcdef", JOURNAL_FULL],
+  // trade memory: specific paths precede the single-memory fallback (/{id})
+  ["/trade-memory/trades", { trades: [MEM_ROW], total: 8 }],
+  ["/trade-memory/ask", MEM_ASK],
+  ["/trade-memory/insights", MEM_INSIGHTS],
+  ["/trade-memory/mistakes", { mistakes: MEM_INSIGHTS.mistakes }],
+  ["/trade-memory/reviews", MEM_REVIEWS],
+  ["/trade-memory/similar/", MEM_SIMILAR],
+  ["/trade-memory/T1", MEM_ROW],
   ["/settings", SETTINGS],
   ["/replay/run", { meta: { bars: 0, data_warning: "" }, candles: [], trades: [], frames: [], events: [] }],
   ["/strategies/registry", { strategies: [] }],
