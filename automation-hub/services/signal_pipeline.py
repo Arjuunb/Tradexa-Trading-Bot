@@ -140,6 +140,8 @@ class SignalPipeline:
         self.journal = None
         # Skipped-trade log: every rejected setup with its failed gate + snapshot.
         self.skipped = None
+        # Permanent trade memory: composes the closed trade into a forever record.
+        self.trade_memory = None
         self._halted = False
         self._halt_reason = ""
         # Drawdown is measured from this baseline; a manual Resume rebaselines to
@@ -237,6 +239,12 @@ class SignalPipeline:
                         or ("opposite-signal" if side not in _CLOSE_SIDES else "manual-close"))
                 except Exception:  # noqa: BLE001 — journaling must never block trading
                     pass
+                # commit the now-closed trade to permanent memory (never blocks)
+                if self.trade_memory is not None:
+                    try:
+                        self.trade_memory.remember(_open_tid)
+                    except Exception:  # noqa: BLE001 — memory must never block trading
+                        pass
             self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
                                               entry=entry, stop=stop, payload=payload, status="accepted")
             self.ledger.log(level="info", stage="execution",

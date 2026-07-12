@@ -4,7 +4,7 @@ import { mockApi } from "./mock";
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Bot Health", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
 
@@ -92,6 +92,45 @@ test("Journal page — lists journaled trades and expands the full decision jour
   // evolution memory table shows the staged setup
   await expect(page.getByText(/Evolution Memory/i)).toBeVisible();
   await expect(page.locator("table.data-table").last()).toContainText("early-signal");
+});
+
+test("Memory — remembers trades, coaches from real data, and keeps honesty markers", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/memory");
+  await page.waitForTimeout(700);
+  await expect(page.locator("h1.pagehead-title", { hasText: "Memory" })).toBeVisible();
+  // knowledge base coaching statement (sample-gated, real numbers)
+  await expect(page.getByText(/London session/)).toBeVisible();
+  await expect(page.getByText(/early-signal/).first()).toBeVisible();
+  // mistake library shows a repeated mistake
+  await expect(page.getByText(/Chased the entry/)).toBeVisible();
+  await expect(page.getByText("repeated").first()).toBeVisible();
+  // trade timeline row + expand the full 8-category memory
+  await expect(page.locator("table.data-table").filter({ hasText: "BTCUSDT" }).first()).toBeVisible();
+  await page.getByRole("button", { name: /View/ }).first().click();
+  await page.waitForTimeout(300);
+  // honesty markers survive — uncaptured/unchecked fields are never faked
+  await expect(page.getByText(/Not checked/).first()).toBeVisible();
+  await expect(page.getByText(/not captured/).first()).toBeVisible();
+  // AI reflection is present
+  await expect(page.getByText(/A-grade win/)).toBeVisible();
+  // notes field for the manual journal entry
+  await expect(page.getByPlaceholder(/FOMO/)).toBeVisible();
+});
+
+test("Memory — natural-language ask routes through the query endpoint", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/memory");
+  await page.waitForTimeout(600);
+  const [req] = await Promise.all([
+    page.waitForRequest((r) => r.url().includes("/trade-memory/ask?q=") && r.method() === "GET"),
+    (async () => {
+      await page.getByLabel("Search memory").fill("show all losing BTC trades");
+      await page.getByRole("button", { name: /Search/ }).click();
+    })(),
+  ]);
+  expect(req).toBeTruthy();
+  await expect(page.getByText(/Found 1 loss BTCUSDT trades/)).toBeVisible();
 });
 
 test("Safety Center — live readiness is locked and the kill-switch test verifies", async ({ page }) => {

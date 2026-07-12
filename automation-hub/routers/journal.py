@@ -107,6 +107,103 @@ def decisions_rejected(limit: int = 50, symbol: Optional[str] = None):
                                                  decision="rejected", symbol=symbol)}
 
 
+# ----------------------------------------------------- permanent trade memory
+# The AI's long-term memory of every trade. Composed from REAL captured data;
+# uncaptured fields are marked honestly. Remembered forever unless deleted.
+@router.get("/trade-memory/trades")
+def trade_memory_trades(limit: int = 200, q: Optional[str] = None,
+                        symbol: Optional[str] = None, result: Optional[str] = None,
+                        strategy: Optional[str] = None, session: Optional[str] = None):
+    """The trade timeline. Full-text search via ``q``; exact facet filters for
+    symbol / result / strategy / session."""
+    rows = _wa.trade_memory_store.list(limit=max(1, min(limit, 1000)), q=q,
+                                       symbol=symbol, result=result,
+                                       strategy=strategy, session=session)
+    return {"trades": rows, "total": _wa.trade_memory_store.count()}
+
+
+@router.get("/trade-memory/ask")
+def trade_memory_ask(q: str, limit: int = 50):
+    """Natural-language query over the memory ('show all losing BTC trades',
+    'which setup has the highest expectancy?', 'why am I losing on Mondays?')."""
+    return _wa.trade_memory.ask(q, limit=max(1, min(limit, 200)))
+
+
+@router.get("/trade-memory/insights")
+def trade_memory_insights():
+    """Pattern recognition + data-driven coaching over the whole memory:
+    win rate by weekday/symbol/strategy/session, best/worst setups, mistake
+    library, winning patterns, Sharpe/Sortino/expectancy/max-drawdown. All
+    computed from real trades; coaching is sample-gated."""
+    return _wa.trade_memory.insights()
+
+
+@router.get("/trade-memory/mistakes")
+def trade_memory_mistakes():
+    """The mistake library — recorded mistakes ranked by frequency, with the
+    loss attributed and whether the mistake repeats."""
+    return {"mistakes": _wa.trade_memory.insights().get("mistakes", [])}
+
+
+@router.get("/trade-memory/reviews")
+def trade_memory_reviews(period: Optional[str] = None, limit: int = 12):
+    """Persisted weekly/monthly/yearly (and nightly) reviews. ``period`` one of
+    nightly | weekly | monthly | yearly."""
+    if period and period not in ("nightly", "weekly", "monthly", "yearly"):
+        raise HTTPException(400, "period must be nightly|weekly|monthly|yearly")
+    return {"reviews": _wa.trade_memory.reviews(period, max(1, min(limit, 60)))}
+
+
+@router.get("/trade-memory/similar/{trade_id}")
+def trade_memory_similar(trade_id: str, limit: int = 5):
+    """Trades most similar to this one (cosine over a numeric feature vector —
+    honest local retrieval, not an LLM embedding)."""
+    if _wa.trade_memory_store.get(trade_id) is None:
+        raise HTTPException(404, "No memory for that trade id")
+    return {"similar": _wa.trade_memory.similar(trade_id, max(1, min(limit, 25)))}
+
+
+@router.get("/trade-memory/{trade_id}")
+def trade_memory_get(trade_id: str):
+    """The full 8-category memory for one trade."""
+    m = _wa.trade_memory_store.get(trade_id)
+    if m is None:
+        raise HTTPException(404, "No memory for that trade id")
+    return m
+
+
+@router.patch("/trade-memory/{trade_id}/notes")
+def trade_memory_notes(trade_id: str, body: Dict = Body(...),
+                       x_webhook_secret: Optional[str] = Header(default=None)):
+    """Attach the trader's manual journal note (e.g. 'FOMO', 'entered early')."""
+    _wa._check_secret(x_webhook_secret)
+    if not _wa.trade_memory.set_notes(trade_id, str(body.get("notes", ""))):
+        raise HTTPException(404, "No memory for that trade id")
+    return _wa.trade_memory_store.get(trade_id)
+
+
+@router.delete("/trade-memory/{trade_id}")
+def trade_memory_delete(trade_id: str,
+                        x_webhook_secret: Optional[str] = Header(default=None)):
+    """Permanently forget one trade — the ONLY way a memory is ever removed."""
+    _wa._check_secret(x_webhook_secret)
+    return {"deleted": _wa.trade_memory.delete(trade_id)}
+
+
+@router.post("/trade-memory/backfill")
+def trade_memory_backfill(x_webhook_secret: Optional[str] = Header(default=None)):
+    """Import already-closed journal trades that aren't in memory yet."""
+    _wa._check_secret(x_webhook_secret)
+    return _wa.trade_memory.backfill()
+
+
+@router.post("/trade-memory/reviews/run")
+def trade_memory_run_reviews(x_webhook_secret: Optional[str] = Header(default=None)):
+    """Run the nightly/weekly/monthly/yearly reviews now (on-demand)."""
+    _wa._check_secret(x_webhook_secret)
+    return _wa.trade_memory.run_reviews()
+
+
 @router.get("/decisions/state")
 def decisions_state():
     """One-call dashboard state: current bot state, risk status, active

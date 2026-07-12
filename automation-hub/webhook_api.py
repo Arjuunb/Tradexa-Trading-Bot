@@ -135,6 +135,23 @@ paper.account_store = account_store
 # reconcile the snapshot from the ledger's real closed trades on boot
 paper._persist_account_snapshot()
 
+# Permanent Trading Memory: every CLOSED trade is composed into an 8-category
+# memory (trade info, market context, technicals, strategy, execution, emotion,
+# outcome, AI reflection) and remembered forever unless explicitly deleted.
+# Composed from REAL captured data — the decision journal, the decision object
+# and the ledger; uncaptured fields are marked honestly, never invented.
+from data.trade_memory_store import TradeMemoryStore  # noqa: E402
+from services.trade_memory_manager import TradeMemoryManager  # noqa: E402
+trade_memory_store = TradeMemoryStore(settings.trade_memory_db)
+trade_memory = TradeMemoryManager(
+    trade_memory_store, decision_journal_store, decision_store,
+    exchange=_os.environ.get("HUB_EXCHANGE", "paper"),
+    starting_balance=account_store.initial_capital())
+# the pipeline calls this after the decision journal closes a trade
+pipeline.trade_memory = trade_memory
+# import already-closed journal trades so the memory isn't empty on first boot
+trade_memory.backfill()
+
 # Broker layer (#14) — one interface, paper executable, live locked.
 from services.broker import BrokerRegistry  # noqa: E402
 broker_registry = BrokerRegistry()
@@ -241,12 +258,26 @@ def _auto_retune_check() -> None:
                    message=f"Auto-retune: {res.get('verdict')} — {res.get('detail', '')[:160]}")
 
 
+def _memory_review() -> None:
+    """Nightly pattern recognition over the permanent trade memory (also rolls
+    up weekly/monthly/yearly reviews). Real stats only; never blocks."""
+    try:
+        res = trade_memory.run_reviews()
+        ledger.log(level="info", stage="research",
+                   message=f"Trade-memory review: {res.get('memories', 0)} memories, "
+                           f"{len(res.get('ran', []))} periods refreshed")
+    except Exception as e:  # noqa: BLE001
+        ledger.log(level="warning", stage="research",
+                   message=f"Trade-memory review failed: {type(e).__name__}")
+
+
 daily_tasks = DailyTasks(
     notifier.send_async, _daily_report_data,
     hour=int(_os.environ.get("HUB_DAILY_REPORT_HOUR", "8")),
     extra=[lambda: ledger.log(level="info", stage="ops",
                               message=f"Nightly backup: {_backup_now(str(_config.DATA_DIR))['snapshot']}"),
-           _auto_retune_check])
+           _auto_retune_check,
+           _memory_review])
 daily_tasks.start()
 
 # Apply persisted runtime overrides on top of env defaults.

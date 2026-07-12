@@ -124,6 +124,9 @@ class Settings:
     # Unified decision store (every accepted AND rejected trade decision)
     decisions_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_DECISIONS_DB", str(DATA_DIR / "decisions.db")))
+    # Permanent trade-memory store (remembers every trade forever unless deleted)
+    trade_memory_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_TRADE_MEMORY_DB", str(DATA_DIR / "trade_memory.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))

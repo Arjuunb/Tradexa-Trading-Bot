@@ -23,6 +23,7 @@ import AnalyticsPage from "./pages/Analytics";
 import AIAssistantPage from "./pages/AIAssistant";
 import SafetyCenterPage from "./pages/SafetyCenter";
 import JournalPage from "./pages/Journal";
+import MemoryPage from "./pages/Memory";
 import BotHealthPage from "./pages/BotHealth";
 import StrategyProofPage from "./pages/StrategyProof";
 import { AppContext, parseHash, slug } from "./app-context";
@@ -67,6 +68,7 @@ export default function App() {
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
       case "Journal": return <JournalPage />;
+      case "Memory": return <MemoryPage />;
       case "Bot Health": return <BotHealthPage />;
       case "Logs": return <LogsPage />;
       case "Settings": return <SettingsPage />;

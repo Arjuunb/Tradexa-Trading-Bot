@@ -65,3 +65,56 @@ CREATE TABLE IF NOT EXISTS alerts (
     detail   TEXT,
     read     INTEGER NOT NULL DEFAULT 0
 );
+
+-- ---------------------------------------------------------------------------
+-- Permanent Trading Memory (optional Postgres mirror of the SQLite primary).
+-- The bot's long-term memory of every trade — one row per closed trade,
+-- composed from REAL captured data. Primary storage is SQLite under
+-- HUB_DATA_DIR; these tables let you mirror the memory into Supabase/Postgres
+-- for durable, queryable history. Uncaptured fields are stored as honest
+-- markers in the JSON payload, never fabricated.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trade_memories (
+    trade_id     TEXT PRIMARY KEY,
+    created_at   TEXT,
+    closed_at    TEXT,
+    mode         TEXT,
+    symbol       TEXT,
+    side         TEXT,
+    strategy     TEXT,
+    timeframe    TEXT,
+    entry        REAL,
+    exit         REAL,
+    stop         REAL,
+    target       REAL,
+    size         REAL,
+    risk_amount  REAL,
+    planned_rr   REAL,
+    actual_rr    REAL,
+    pnl          REAL,
+    result       TEXT,                 -- win | loss | breakeven
+    grade        TEXT,                 -- A..F process+outcome grade
+    confidence   REAL,
+    brain_score  REAL,
+    regime       TEXT,
+    session      TEXT,                 -- Tokyo | London | New York | ...
+    weekday      TEXT,
+    duration_s   REAL,
+    sections     TEXT,                 -- JSON: the 8 memory categories
+    features     TEXT,                 -- JSON: numeric feature vector (similarity)
+    notes        TEXT,                 -- manual emotion/journal note
+    updated_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_trade_memories_symbol  ON trade_memories(symbol);
+CREATE INDEX IF NOT EXISTS ix_trade_memories_result  ON trade_memories(result);
+CREATE INDEX IF NOT EXISTS ix_trade_memories_session ON trade_memories(session);
+CREATE INDEX IF NOT EXISTS ix_trade_memories_closed  ON trade_memories(closed_at);
+
+CREATE TABLE IF NOT EXISTS memory_reviews (
+    id          SERIAL PRIMARY KEY,
+    period      TEXT NOT NULL,         -- nightly | weekly | monthly | yearly
+    period_key  TEXT NOT NULL,         -- 2026-07-12 / 2026-W28 / 2026-07 / 2026
+    created_at  TEXT,
+    report      TEXT,                  -- JSON: pattern-recognition report
+    UNIQUE(period, period_key)
+);

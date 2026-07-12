@@ -46,6 +46,16 @@ export async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiPatchJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "X-Webhook-Secret": SECRET, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 export interface BotSettings {
   editable: {
     risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number;
