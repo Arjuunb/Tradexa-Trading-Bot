@@ -21,6 +21,14 @@ services:
       # services must add this env var manually — blueprint sync is not retroactive.
       - key: HUB_EXCHANGE
         value: "kraken"
+      # --- embed the dashboard inside the Tradexa app (iframe) ---
+      # SameSite=None lets the session cookie work inside a cross-site iframe
+      # (HTTPS only); HUB_FRAME_ANCESTORS restricts WHO may frame the dashboard.
+      # Fill in your Tradexa origin, e.g. "https://tradexa.vercel.app".
+      - key: HUB_COOKIE_SAMESITE
+        value: "none"
+      - key: HUB_FRAME_ANCESTORS
+        sync: false
       # Set a real secret here and use the SAME value for VITE_WEBHOOK_SECRET on
       # Vercel so the Pause/Stop/Start controls work from the deployed UI.
       - key: HUB_WEBHOOK_SECRET
