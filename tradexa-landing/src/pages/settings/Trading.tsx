@@ -1,10 +1,13 @@
 import { useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { SettingsHeader, Section, SettingRow } from "@/components/settings/primitives";
+import { EngineSyncBanner, LocalTag } from "@/components/settings/EngineSync";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { useSettings } from "@/settings/store";
+import { useEngineSettings, hubFetch } from "@/lib/hub";
+import { useToast } from "@/lib/toast";
 import type { Settings } from "@/settings/schema";
 
 type TradingKey = keyof Settings["trading"];
@@ -117,7 +120,12 @@ function PairsInput({
 
 export default function Trading() {
   const { settings, update } = useSettings();
+  const { toast } = useToast();
+  const { signedIn, engine, error, reload, push } = useEngineSettings((ok, msg) =>
+    toast(msg, ok ? "success" : "error"),
+  );
   const t = settings.trading;
+  const live = signedIn && engine !== null;
   const set = (patch: Partial<Settings["trading"]>) => update("trading", patch);
   const num = (k: TradingKey, suffix?: string, step = 1, max?: number) => (
     <Num
@@ -129,16 +137,69 @@ export default function Trading() {
     />
   );
 
+  // Engine-backed values (fall back to local when signed out).
+  const pairs = live ? engine.readonly.symbols : t.pairs;
+  const timeframe = live ? engine.readonly.timeframe : t.defaultTimeframe;
+  const maxTrades = live ? engine.editable.max_open_positions : t.maxSimultaneousTrades;
+  const orderType = live && engine.editable.entry_mode !== t.orderType && t.orderType !== "stop_limit"
+    ? engine.editable.entry_mode
+    : t.orderType;
+
+  const setPairs = async (next: string[]) => {
+    set({ pairs: next });
+    if (!live) return;
+    if (next.length === 0) {
+      toast("The engine needs at least one symbol.", "error");
+      return;
+    }
+    try {
+      await hubFetch("/market/symbols", { method: "POST", body: JSON.stringify({ symbols: next }) });
+      toast(`Engine watchlist applied: ${next.join(", ")}`, "success");
+      reload();
+    } catch {
+      toast("Engine rejected the watchlist change.", "error");
+      reload();
+    }
+  };
+
+  const setTimeframe = async (tf: string) => {
+    set({ defaultTimeframe: tf });
+    if (!live) return;
+    try {
+      await hubFetch(`/engine/timeframe?timeframe=${tf}`, { method: "POST" });
+      toast(`Engine timeframe set to ${tf} (engine restarted).`, "success");
+      reload();
+    } catch {
+      toast("Engine rejected that timeframe.", "error");
+      reload();
+    }
+  };
+
+  const setOrderType = (v: Settings["trading"]["orderType"]) => {
+    set({ orderType: v });
+    if (!live) return;
+    if (v === "stop_limit") {
+      toast("Stop-limit entries aren't supported by the engine yet — saved locally.", "info");
+      return;
+    }
+    push({ entry_mode: v });
+  };
+
   return (
     <>
       <SettingsHeader
         title="Trading Preferences"
-        description="Defaults the engine applies to new strategies and orders. Autosaves."
+        description="Defaults the engine applies to new strategies and orders."
       />
+
+      <EngineSyncBanner signedIn={signedIn} error={error} />
 
       <div className="space-y-5">
         <Section title="Market & venue" description="Where and what Tradexa trades by default.">
-          <SettingRow label="Preferred exchange" description="Primary venue for new positions.">
+          <SettingRow
+            label="Preferred exchange"
+            description={<>Data venue is set by HUB_EXCHANGE on the server.{live && <LocalTag />}</>}
+          >
             <Select
               options={EXCHANGES.map((e) => ({ value: e.toLowerCase(), label: e }))}
               value={t.preferredExchange}
@@ -147,22 +208,25 @@ export default function Trading() {
           </SettingRow>
           <SettingRow
             label="Preferred trading pairs"
-            description="Symbols the scanner watches. Add or remove as you like."
+            description={live ? "The engine's LIVE watchlist — changes restart the scanner." : "Symbols the scanner watches."}
             stacked
           >
-            <PairsInput pairs={t.pairs} onChange={(pairs) => set({ pairs })} />
+            <PairsInput pairs={pairs} onChange={(p) => void setPairs(p)} />
           </SettingRow>
-          <SettingRow label="Default timeframe" description="Candle interval strategies use by default.">
+          <SettingRow
+            label="Default timeframe"
+            description={live ? "The engine's LIVE candle interval — switching restarts it." : "Candle interval strategies use by default."}
+          >
             <Select
               options={TIMEFRAMES.map((tf) => ({ value: tf, label: tf }))}
-              value={t.defaultTimeframe}
-              onChange={(e) => set({ defaultTimeframe: e.target.value })}
+              value={timeframe}
+              onChange={(e) => void setTimeframe(e.target.value)}
             />
           </SettingRow>
         </Section>
 
         <Section title="Sizing & risk profile" description="How positions are sized and how aggressive the engine is.">
-          <SettingRow label="Risk mode" description="Overall appetite applied across strategies.">
+          <SettingRow label="Risk mode" description={<>Overall appetite applied across strategies.{live && <LocalTag />}</>}>
             <SegmentedControl<Settings["trading"]["riskMode"]>
               value={t.riskMode}
               onChange={(v) => set({ riskMode: v })}
@@ -173,7 +237,7 @@ export default function Trading() {
               ]}
             />
           </SettingRow>
-          <SettingRow label="Position sizing" description="Method used to size each entry.">
+          <SettingRow label="Position sizing" description={<>Method used to size each entry.{live && <LocalTag />}</>}>
             <Select
               options={[
                 { value: "fixed", label: "Fixed" },
@@ -187,19 +251,33 @@ export default function Trading() {
               }
             />
           </SettingRow>
-          <SettingRow label="Default leverage" description="Applied when a strategy sets none. Capped by Risk limits.">
+          <SettingRow label="Default leverage" description={<>Applied when a strategy sets none.{live && <LocalTag />}</>}>
             {num("defaultLeverage", "×", 1, 125)}
           </SettingRow>
-          <SettingRow label="Maximum simultaneous trades" description="Open positions allowed at once.">
-            {num("maxSimultaneousTrades", undefined, 1, 50)}
+          <SettingRow
+            label="Maximum simultaneous trades"
+            description={live ? "The engine's LIVE max open positions." : "Open positions allowed at once."}
+          >
+            <Num
+              value={maxTrades}
+              min={1}
+              max={50}
+              onChange={(n) => {
+                set({ maxSimultaneousTrades: n });
+                if (live && n >= 1 && n <= 50) push({ max_open_positions: Math.round(n) });
+              }}
+            />
           </SettingRow>
         </Section>
 
         <Section title="Order execution" description="How orders are routed and priced.">
-          <SettingRow label="Order type" description="Default order used for entries.">
+          <SettingRow
+            label="Order type"
+            description={live ? "The engine's LIVE entry mode (market / limit)." : "Default order used for entries."}
+          >
             <SegmentedControl<Settings["trading"]["orderType"]>
-              value={t.orderType}
-              onChange={(v) => set({ orderType: v })}
+              value={orderType}
+              onChange={setOrderType}
               options={[
                 { value: "market", label: "Market" },
                 { value: "limit", label: "Limit" },
@@ -207,13 +285,13 @@ export default function Trading() {
               ]}
             />
           </SettingRow>
-          <SettingRow label="Slippage tolerance" description="Maximum price drift accepted on fills.">
+          <SettingRow label="Slippage tolerance" description={<>Maximum price drift accepted on fills.{live && <LocalTag />}</>}>
             {num("slippageTolerance", "%", 0.05, 5)}
           </SettingRow>
-          <SettingRow label="Commission" description="Assumed taker fee for backtests and sizing.">
+          <SettingRow label="Commission" description={<>Assumed taker fee for backtests and sizing.{live && <LocalTag />}</>}>
             {num("commission", "%", 0.01, 2)}
           </SettingRow>
-          <SettingRow label="Spread" description="Assumed bid/ask spread for modelling.">
+          <SettingRow label="Spread" description={<>Assumed bid/ask spread for modelling.{live && <LocalTag />}</>}>
             {num("spread", "%", 0.01, 2)}
           </SettingRow>
         </Section>
