@@ -1,8 +1,11 @@
 import { SettingsHeader, Section, SettingRow } from "@/components/settings/primitives";
+import { EngineSyncBanner, LocalTag } from "@/components/settings/EngineSync";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { useSettings } from "@/settings/store";
+import { useEngineSettings } from "@/lib/hub";
+import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { Settings } from "@/settings/schema";
 
@@ -31,27 +34,35 @@ const FEATURES: { key: AIBoolKey; label: string; desc: string }[] = [
 
 export default function AI() {
   const { settings, update } = useSettings();
+  const { toast } = useToast();
+  const { signedIn, engine, error, push } = useEngineSettings((ok, msg) =>
+    toast(msg, ok ? "success" : "error"),
+  );
   const ai = settings.ai;
+  const live = signedIn && engine !== null;
   const set = (patch: Partial<Settings["ai"]>) => update("ai", patch);
   const enabled = ai.enabled;
+  const threshold = live ? engine.editable.min_quality_score : ai.confidenceThreshold;
 
   return (
     <>
       <SettingsHeader
         title="AI Configuration"
-        description="Tune the Decision Brain that scores, filters and explains every trade. Changes save automatically."
+        description="Tune the Decision Brain that scores, filters and explains every trade."
       />
+
+      <EngineSyncBanner signedIn={signedIn} error={error} />
 
       <div className="space-y-5">
         <Section title="Engine" description="The core model and how confident it must be to act.">
-          <SettingRow label="Enable AI" description="Route signals through the Decision Brain. When off, raw strategy output is used unaltered.">
+          <SettingRow label="Enable AI" description={<>Route signals through the Decision Brain.{live && <LocalTag />}</>}>
             <Switch label="Enable AI" checked={enabled} onChange={(v) => set({ enabled: v })} />
           </SettingRow>
 
           <SettingRow
             label="Model"
             htmlFor="ai-model"
-            description="Which decision engine evaluates signals."
+            description={<>Which decision engine evaluates signals — switch it under Settings → Strategies.{live && <LocalTag />}</>}
           >
             <div className={cn("transition-opacity", !enabled && "pointer-events-none opacity-40")}>
               <Select
@@ -68,7 +79,11 @@ export default function AI() {
           <SettingRow
             label="AI confidence threshold"
             htmlFor="ai-confidence"
-            description="Trades scoring below this confidence are skipped."
+            description={
+              live
+                ? "The engine's LIVE minimum quality score — setups scoring below this are rejected. 0 disables the gate."
+                : "Trades scoring below this confidence are skipped."
+            }
           >
             <div className={cn("flex items-center gap-2 transition-opacity sm:justify-end", !enabled && "opacity-40")}>
               <div className="relative w-32">
@@ -78,9 +93,13 @@ export default function AI() {
                   min={0}
                   max={100}
                   step={1}
-                  value={String(ai.confidenceThreshold)}
+                  value={String(threshold)}
                   disabled={!enabled}
-                  onChange={(e) => set({ confidenceThreshold: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    set({ confidenceThreshold: n });
+                    if (live && n >= 0 && n <= 100) push({ min_quality_score: Math.round(n) });
+                  }}
                   className="pr-8 text-right"
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">
@@ -96,7 +115,7 @@ export default function AI() {
             <SettingRow
               key={f.key}
               label={f.label}
-              description={f.desc}
+              description={<>{f.desc}{live && <LocalTag />}</>}
             >
               <div className={cn("transition-opacity", !enabled && "opacity-40")}>
                 <Switch

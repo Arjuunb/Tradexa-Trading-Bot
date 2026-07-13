@@ -6,21 +6,24 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Switch";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { hubConfig } from "@/lib/hub";
 import { useToast } from "@/lib/toast";
 
 export default function Security() {
   const { toast } = useToast();
+  const signedIn = hubConfig() !== null;
 
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const [twoFactor, setTwoFactor] = useState(false);
   const [securityAlerts, setSecurityAlerts] = useState(true);
 
   const [logoutOpen, setLogoutOpen] = useState(false);
 
-  const changePassword = () => {
+  const changePassword = async () => {
     if (!current || !next || !confirm) {
       toast("Fill in all password fields.", "error");
       return;
@@ -29,10 +32,36 @@ export default function Security() {
       toast("New passwords do not match.", "error");
       return;
     }
-    setCurrent("");
-    setNext("");
-    setConfirm("");
-    toast("Password changed.", "success");
+    if (next.length < 8) {
+      toast("New password must be at least 8 characters.", "error");
+      return;
+    }
+    if (!signedIn) {
+      toast("Sign in first — your password is managed by the hub account.", "error");
+      return;
+    }
+    // Real change against the hub account (session-cookie authenticated).
+    setBusy(true);
+    try {
+      const res = await fetch("/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current, new: next }),
+      });
+      const body = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !body.ok) {
+        toast(body.error || "Password change failed.", "error");
+        return;
+      }
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      toast("Password changed.", "success");
+    } catch {
+      toast("Password change failed — backend unreachable.", "error");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -77,8 +106,15 @@ export default function Security() {
               />
             </Field>
           </FieldStack>
-          <div className="flex justify-end pb-3">
-            <Button onClick={changePassword}>Update password</Button>
+          <div className="flex items-center justify-end gap-3 pb-3">
+            {!signedIn && (
+              <span className="text-[13px] text-white/40">
+                Sign in to change your hub password.
+              </span>
+            )}
+            <Button onClick={() => void changePassword()} loading={busy} disabled={!signedIn}>
+              Update password
+            </Button>
           </div>
         </Section>
 

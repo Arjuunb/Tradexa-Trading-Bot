@@ -1,7 +1,18 @@
+import { useCallback, useEffect, useState } from "react";
 import { Mail, Smartphone, Monitor, MessageSquare, Send, Hash, Webhook } from "lucide-react";
 import { SettingsHeader, Section, SettingRow } from "@/components/settings/primitives";
 import { Switch } from "@/components/ui/Switch";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { useSettings } from "@/settings/store";
+import { hubConfig, hubFetch } from "@/lib/hub";
+import { useToast } from "@/lib/toast";
+
+interface NotifStatus {
+  telegram_configured: boolean;
+  notify_trades: boolean;
+  notify_risk: boolean;
+}
 
 const CHANNELS: { key: keyof ReturnType<typeof channelKeys>; label: string; desc: string; icon: typeof Mail; soon?: boolean }[] = [
   { key: "email", label: "Email", desc: "Trade and system alerts to your inbox.", icon: Mail },
@@ -39,13 +50,73 @@ function eventKeys() {
 
 export default function Notifications() {
   const { settings, update } = useSettings();
+  const { toast } = useToast();
   const n = settings.notifications;
+  const signedIn = hubConfig() !== null;
+  const [engine, setEngine] = useState<NotifStatus | null>(null);
+
+  const load = useCallback(() => {
+    if (!hubConfig()) return;
+    hubFetch<NotifStatus>("/notifications/status")
+      .then(setEngine)
+      .catch(() => setEngine(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const pushEngine = async (patch: { notify_trades?: boolean; notify_risk?: boolean }) => {
+    setEngine((e) => (e ? { ...e, ...patch } : e));
+    try {
+      await hubFetch("/notifications", { method: "POST", body: JSON.stringify(patch) });
+      toast("Engine notification settings updated.", "success");
+    } catch {
+      toast("Engine rejected the change.", "error");
+      load();
+    }
+  };
+
+  const sendTest = async () => {
+    try {
+      const r = await hubFetch<{ sent: boolean; configured: boolean }>("/notifications/test", { method: "POST" });
+      toast(
+        r.sent ? "Test notification sent ✅" : r.configured ? "Send failed (network?)" : "Telegram is not configured on the server.",
+        r.sent ? "success" : "error",
+      );
+    } catch {
+      toast("Test failed — engine unreachable.", "error");
+    }
+  };
 
   return (
     <>
       <SettingsHeader title="Notifications" description="Choose how and when Tradexa reaches you. Changes save automatically." />
 
       <div className="space-y-5">
+        {signedIn && engine && (
+          <Section
+            title="Engine alerts (Telegram)"
+            description="The bot's REAL alert channel — these switches control what the engine sends."
+            action={
+              <div className="flex items-center gap-2">
+                <Badge tone={engine.telegram_configured ? "emerald" : "neutral"}>
+                  {engine.telegram_configured ? "Telegram configured" : "Telegram not configured"}
+                </Badge>
+                <Button size="sm" variant="outline" onClick={() => void sendTest()}>
+                  <Send className="h-3.5 w-3.5" /> Send test
+                </Button>
+              </div>
+            }
+          >
+            <SettingRow label="Trade alerts" description="Notify on every open and close the engine executes.">
+              <Switch label="Trade alerts" checked={engine.notify_trades} onChange={(v) => void pushEngine({ notify_trades: v })} />
+            </SettingRow>
+            <SettingRow label="Risk alerts" description="Notify on halts, breaker trips and risk-gate events.">
+              <Switch label="Risk alerts" checked={engine.notify_risk} onChange={(v) => void pushEngine({ notify_risk: v })} />
+            </SettingRow>
+          </Section>
+        )}
         <Section title="Channels" description="Where notifications are delivered.">
           {CHANNELS.map((c) => (
             <SettingRow
