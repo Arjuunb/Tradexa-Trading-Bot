@@ -63,6 +63,16 @@ Supabase dashboard to activate those buttons.
 
 ## Deploy
 
-Static SPA — deploy `dist/` anywhere. `vercel.json` includes the SPA rewrite so
-deep links to `/auth/*` resolve to `index.html`. Point `VITE_APP_URL` at the
-running Automation Hub dashboard so **Launch Bot** and post-login land there.
+**Single-origin (recommended).** The repo `Dockerfile` bundles this site *and*
+the trading dashboard behind the backend on one origin (e.g. Render):
+
+- this landing/auth/settings SPA is served at **`/`**, `/auth/*`, `/settings/*`
+- the session-gated dashboard is served at **`/app`** (built with `DASHBOARD_BASE=/app/`)
+
+`VITE_APP_URL` defaults to `/app` and the dashboard's brand links back to `/`, so
+`Launch Bot` and the "Automation Hub" logo move between the two with no extra
+config. Just deploy the image and everything is on the bot's URL.
+
+**Standalone.** You can also deploy `dist/` to any static host. `vercel.json`
+includes the SPA rewrite so deep links to `/auth/*` and `/settings/*` resolve to
+`index.html`; set `VITE_APP_URL` to the dashboard's URL.
