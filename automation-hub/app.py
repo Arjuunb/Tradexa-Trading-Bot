@@ -24,6 +24,7 @@ from pathlib import Path
 # whether launched via uvicorn from this dir or imported by the test suite.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from typing import Optional  # noqa: E402
 from fastapi import FastAPI, Form, Request  # noqa: E402
 from fastapi.responses import (  # noqa: E402
     HTMLResponse, RedirectResponse, StreamingResponse,
@@ -134,8 +135,18 @@ def _serve_react() -> HTMLResponse:
     return HTMLResponse(html.replace("<head>", "<head>" + cfg, 1))
 
 
-def _serve_landing() -> HTMLResponse:
-    return HTMLResponse((_LANDING / "index.html").read_text(encoding="utf-8"))
+def _serve_landing(request: Optional[Request] = None) -> HTMLResponse:
+    """The landing/settings SPA is public and never carries the control secret —
+    EXCEPT for a signed-in operator, whose Settings pages (e.g. the live
+    strategy switcher) drive the engine and need the same runtime config the
+    dashboard gets. Anonymous visitors always receive the bare page."""
+    html = (_LANDING / "index.html").read_text(encoding="utf-8")
+    if request is not None and _user(request):
+        cfg = ('<script>window.__HUB_CONFIG__='
+               + _json.dumps({"apiBase": "", "secret": settings.webhook_secret})
+               + '</script>')
+        html = html.replace("<head>", "<head>" + cfg, 1)
+    return HTMLResponse(html)
 
 
 # Single-origin routing (only when the landing build is bundled): the public
@@ -145,11 +156,11 @@ if _LANDING_READY:
     _LANDING_AUTH = ("login", "register", "forgot-password", "reset-password",
                      "verify-email", "two-factor", "session-expired")
 
-    def _landing_page() -> HTMLResponse:
-        return _serve_landing()
+    def _landing_page(request: Request) -> HTMLResponse:
+        return _serve_landing(request)
 
-    def _landing_sub(path: str = "") -> HTMLResponse:  # noqa: ARG001 — path is the SPA route
-        return _serve_landing()
+    def _landing_sub(request: Request, path: str = "") -> HTMLResponse:  # noqa: ARG001 — path is the SPA route
+        return _serve_landing(request)
 
     for _p in _LANDING_AUTH:
         app.add_api_route(f"/auth/{_p}", _landing_page, response_class=HTMLResponse, methods=["GET"])
@@ -387,7 +398,7 @@ def overview(request: Request):
     # With the landing bundled, "/" is the PUBLIC marketing front door (it carries
     # no control secret). The dashboard lives at "/app" and stays sign-in gated.
     if _LANDING_READY:
-        return _serve_landing()
+        return _serve_landing(request)
     # ALL dashboards require sign-in — the served page carries the control
     # secret, so an anonymous visitor must never receive it.
     u = _require(request)
@@ -930,7 +941,7 @@ def notifications_page(request: Request):
 def settings_page(request: Request):
     # The bundled landing owns the full Settings Center at /settings/*.
     if _LANDING_READY:
-        return _serve_landing()
+        return _serve_landing(request)
     u = _user(request)
     me = store.get_user(u) if u else None
     role = me.role if me else "operator"
