@@ -88,7 +88,13 @@ _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
 @app.middleware("http")
 async def _require_auth(request: Request, call_next):
     path = request.url.path
-    if (path == "/" or any(path.startswith(p) for p in _AUTH_EXEMPT)
+    exempt = _AUTH_EXEMPT
+    # With the landing bundled, its public SPA routes bypass the API auth wall.
+    # "/app" is exempt here but self-gates in its own handler (it carries the
+    # control secret, so anonymous visitors are redirected to /login there).
+    if _LANDING_READY:
+        exempt = exempt + ("/settings", "/app")
+    if (path == "/" or any(path.startswith(p) for p in exempt)
             or _user(request)
             or request.headers.get("x-webhook-secret") == settings.webhook_secret):
         return await call_next(request)
@@ -104,8 +110,20 @@ import json as _json  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 _WEBUI = Path(__file__).resolve().parent / "webui"
 _WEBUI_READY = (_WEBUI / "index.html").exists()
+
+# Optional standalone landing / auth / settings SPA (tradexa-landing), bundled by
+# the Docker image into ./landing. When present it becomes the PUBLIC front door
+# at "/", and the session-gated dashboard moves under "/app". When absent (tests
+# / local without the landing build) the dashboard keeps "/" exactly as before.
+_LANDING = Path(__file__).resolve().parent / "landing"
+_LANDING_READY = (_LANDING / "index.html").exists()
+
 if _WEBUI_READY and (_WEBUI / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(_WEBUI / "assets")), name="assets")
+    # dashboard assets move to /app/assets when the landing owns /assets
+    _DASH_ASSETS = "/app/assets" if _LANDING_READY else "/assets"
+    app.mount(_DASH_ASSETS, StaticFiles(directory=str(_WEBUI / "assets")), name="assets")
+if _LANDING_READY and (_LANDING / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(_LANDING / "assets")), name="landing-assets")
 
 
 def _serve_react() -> HTMLResponse:
@@ -114,6 +132,36 @@ def _serve_react() -> HTMLResponse:
            + _json.dumps({"apiBase": "", "secret": settings.webhook_secret})
            + '</script>')
     return HTMLResponse(html.replace("<head>", "<head>" + cfg, 1))
+
+
+def _serve_landing() -> HTMLResponse:
+    return HTMLResponse((_LANDING / "index.html").read_text(encoding="utf-8"))
+
+
+# Single-origin routing (only when the landing build is bundled): the public
+# landing SPA owns "/", "/auth/*" and "/settings/*"; the dashboard lives at "/app"
+# and stays session-gated. BrowserRouter paths need a real HTML response per route.
+if _LANDING_READY:
+    _LANDING_AUTH = ("login", "register", "forgot-password", "reset-password",
+                     "verify-email", "two-factor", "session-expired")
+
+    def _landing_page() -> HTMLResponse:
+        return _serve_landing()
+
+    def _landing_sub(path: str = "") -> HTMLResponse:  # noqa: ARG001 — path is the SPA route
+        return _serve_landing()
+
+    for _p in _LANDING_AUTH:
+        app.add_api_route(f"/auth/{_p}", _landing_page, response_class=HTMLResponse, methods=["GET"])
+    app.add_api_route("/settings/{path:path}", _landing_sub, response_class=HTMLResponse, methods=["GET"])
+
+    @app.get("/app", response_class=HTMLResponse)
+    @app.get("/app/{path:path}", response_class=HTMLResponse)
+    def _dashboard_app(request: Request, path: str = ""):  # noqa: ARG001
+        u = _require(request)
+        if isinstance(u, RedirectResponse):
+            return u
+        return _serve_react() if _WEBUI_READY else HTMLResponse(render_overview(manager, user=u))
 
 
 
@@ -336,6 +384,10 @@ async def auth_change_password(request: Request):
 # ------------------------------------------------------------------- dashboard
 @app.get("/", response_class=HTMLResponse)
 def overview(request: Request):
+    # With the landing bundled, "/" is the PUBLIC marketing front door (it carries
+    # no control secret). The dashboard lives at "/app" and stays sign-in gated.
+    if _LANDING_READY:
+        return _serve_landing()
     # ALL dashboards require sign-in — the served page carries the control
     # secret, so an anonymous visitor must never receive it.
     u = _require(request)
@@ -876,6 +928,9 @@ def notifications_page(request: Request):
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
+    # The bundled landing owns the full Settings Center at /settings/*.
+    if _LANDING_READY:
+        return _serve_landing()
     u = _user(request)
     me = store.get_user(u) if u else None
     role = me.role if me else "operator"

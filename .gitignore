@@ -19,8 +19,9 @@ dist/
 *.db
 automation-hub/logs/*.json
 
-# React build bundled into the backend image (built in Docker, never committed)
+# React builds bundled into the backend image (built in Docker, never committed)
 automation-hub/webui/
+automation-hub/landing/
 
 # trading_bot UI runtime
 trading_bot/ui_prefs.db

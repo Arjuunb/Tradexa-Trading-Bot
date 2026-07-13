@@ -45,10 +45,14 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      <div className="brand">
+      <a
+        className="brand"
+        href={(import.meta.env.VITE_LANDING_URL as string | undefined) || "/"}
+        title="Back to Tradexa home"
+      >
         <span className="brand-mark"><Logo size={30} /></span>
         <span className="brand-name">Automation Hub</span>
-      </div>
+      </a>
 
       <nav className="nav">
         {NAV_LABELS.map((item) => {
