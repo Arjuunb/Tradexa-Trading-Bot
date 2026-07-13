@@ -91,6 +91,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   flex-direction: column;
   gap: 14px;
 }
+/* Direct children must keep their natural height. Without this, the flex
+   column shrinks them to fit the viewport (squishing the dashboard hero to a
+   sliver behind the metric cards) instead of letting .content scroll. */
+.content > * { flex-shrink: 0; }
 .content::-webkit-scrollbar { width: 8px; }
 .content::-webkit-scrollbar-thumb { background: #2a2a2f; border-radius: 8px; }
 .content::-webkit-scrollbar-thumb:hover { background: #37373d; }
@@ -630,6 +634,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
     linear-gradient(180deg, var(--card-elevated), var(--card-1));
   box-shadow: var(--shadow);
   position: relative; overflow: hidden;
+  /* Never let a flex parent compress the banner (it clips to a sliver behind
+     the metric cards). Belt-and-suspenders alongside `.content > *`. */
+  flex-shrink: 0; min-height: fit-content;
 }
 .dash-hero::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;

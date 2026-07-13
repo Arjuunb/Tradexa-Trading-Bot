@@ -34,3 +34,6 @@ automation-hub/**/market_data.db
 
 logs/providers.json
 automation-hub/logs/providers.json
+
+# Stray Playwright output (tests run from repo root by mistake)
+/test-results/

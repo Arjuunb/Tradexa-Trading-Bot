@@ -26,7 +26,7 @@ export default function DashboardHero() {
         <span className="hero-eyebrow">PAPER ACCOUNT · SIMULATION</span>
         <div className="hero-equity">{usd(a?.balance ?? 0)}</div>
         <div className="hero-row">
-          <Badge text={`${pnl >= 0 ? "+" : ""}${money(pnl)} realized`} tone={pnl >= 0 ? "green" : "red"} />
+          <Badge text={`${money(pnl)} realized`} tone={pnl >= 0 ? "green" : "red"} />
           <span className="hero-dot" />
           <span className={e?.running ? "pos" : "neg"} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
             <span className={`dot ${e?.running ? "online" : "offline"}`} /> Engine {e?.running ? "running" : "stopped"}
