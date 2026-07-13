@@ -51,7 +51,10 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
         title="Back to Tradexa home"
       >
         <span className="brand-mark"><Logo size={30} /></span>
-        <span className="brand-name">Automation Hub</span>
+        <span className="brand-name">
+          Tradexa
+          <span className="brand-sub">Trading Bot</span>
+        </span>
       </a>
 
       <nav className="nav">
