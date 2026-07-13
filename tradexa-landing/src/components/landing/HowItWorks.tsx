@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { Link2, SlidersHorizontal, Play, LineChart, type LucideIcon } from "lucide-react";
 import { Reveal, SectionHeading } from "@/components/Reveal";
 
@@ -26,8 +27,15 @@ export function HowItWorks() {
         />
 
         <div className="relative mt-16">
-          {/* connecting line (desktop) */}
-          <div className="absolute left-0 right-0 top-[2.75rem] hidden h-px bg-gradient-to-r from-transparent via-line-strong to-transparent lg:block" />
+          {/* connecting line (desktop) with a traveling signal pulse */}
+          <div className="absolute left-0 right-0 top-[2.75rem] hidden h-px bg-gradient-to-r from-transparent via-line-strong to-transparent lg:block">
+            <motion.span
+              aria-hidden
+              className="absolute -top-[2.5px] h-1.5 w-10 rounded-full bg-gradient-to-r from-transparent via-gold to-transparent"
+              animate={{ left: ["-4%", "104%"] }}
+              transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
+            />
+          </div>
 
           <div className="grid gap-8 lg:grid-cols-4">
             {STEPS.map((s, i) => (
