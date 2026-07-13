@@ -117,7 +117,8 @@ a.brand:hover { opacity: 0.85; }
   display: grid; place-items: center;
   filter: drop-shadow(0 4px 12px rgba(234, 181, 79, 0.45));
 }
-.brand-name { font-weight: 700; font-size: 14.5px; letter-spacing: 0.2px; white-space: nowrap; }
+.brand-name { display: flex; flex-direction: column; line-height: 1.05; font-weight: 700; font-size: 14.5px; letter-spacing: 0.2px; white-space: nowrap; }
+.brand-sub { font-size: 9px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: rgba(200, 169, 75, 0.75); }
 .sidebar.collapsed .brand-name { display: none; }
 
 .nav { display: flex; flex-direction: column; gap: 3px; }
