@@ -53,6 +53,7 @@ export interface EngineEditable {
   entry_mode: "limit" | "market";
   daily_report_hour: number;
   min_quality_score: number;
+  streak_risk_scaling: boolean;
 }
 
 export interface EngineReadonly {

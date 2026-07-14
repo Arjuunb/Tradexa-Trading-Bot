@@ -136,6 +136,18 @@ export default function Risk() {
         </Section>
 
         <Section title="Automatic protection" description="The drawdown circuit breaker is built into the pipeline and always armed.">
+          {live && (
+            <SettingRow
+              label="Losing-streak risk scaling"
+              description="Anti-martingale: risk halves after 2 consecutive losses, quarters after 4; a win restores full size. Only ever reduces risk."
+            >
+              <Switch
+                label="Losing-streak risk scaling"
+                checked={engine.editable.streak_risk_scaling}
+                onChange={(v) => push({ streak_risk_scaling: v })}
+              />
+            </SettingRow>
+          )}
           <SettingRow label="Circuit breaker" description={localMark("Halt trading when drawdown/loss limits trip.")}>
             <Switch label="Circuit breaker" checked={r.circuitBreaker} onChange={(v) => set({ circuitBreaker: v })} />
           </SettingRow>

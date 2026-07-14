@@ -190,6 +190,7 @@ def get_settings():
             "entry_mode": _wa.engine.entry_mode,
             "daily_report_hour": _wa.daily_tasks.hour,
             "min_quality_score": _wa.engine.min_quality_score,
+            "streak_risk_scaling": _wa.pipeline.streak_risk_scaling,
         },
         "readonly": {
             "strategy": _wa.engine.strategy_label,
@@ -282,6 +283,9 @@ def update_settings(body: _wa.SettingsUpdate, x_webhook_secret: _wa.Optional[str
             raise _wa.HTTPException(400, "min_quality_score must be in [0, 100] (0 disables)")
         _wa.engine.min_quality_score = int(body.min_quality_score)
         changed["min_quality_score"] = int(body.min_quality_score)
+    if body.streak_risk_scaling is not None:
+        _wa.pipeline.streak_risk_scaling = bool(body.streak_risk_scaling)
+        changed["streak_risk_scaling"] = bool(body.streak_risk_scaling)
 
     snap = _wa._settings_snapshot()
     _wa.save_overrides(_wa.settings.settings_path, snap)

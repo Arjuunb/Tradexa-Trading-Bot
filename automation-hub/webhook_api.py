@@ -297,6 +297,8 @@ def _apply_setting(key: str, value) -> None:
         daily_tasks.hour = int(value)
     elif key == "min_quality_score":
         engine.min_quality_score = int(value)
+    elif key == "streak_risk_scaling":
+        pipeline.streak_risk_scaling = bool(int(value))
     elif key == "engine_timeframe":
         # applied before the startup event starts the engine, so a persisted
         # timeframe choice survives restarts/redeploys
@@ -331,6 +333,7 @@ def _settings_snapshot() -> dict:
         "entry_mode": engine.entry_mode,
         "daily_report_hour": daily_tasks.hour,
         "min_quality_score": engine.min_quality_score,
+        "streak_risk_scaling": 1 if pipeline.streak_risk_scaling else 0,
     }
 
 
@@ -357,6 +360,7 @@ class SettingsUpdate(BaseModel):
     entry_mode: Optional[str] = None
     daily_report_hour: Optional[int] = None
     min_quality_score: Optional[int] = None
+    streak_risk_scaling: Optional[bool] = None
 
 
 class WebhookPayload(BaseModel):
@@ -656,6 +660,15 @@ _STRATEGY_CATALOG = [
     {"key": "smc", "label": "SMC (Smart Money)",
      "desc": "Liquidity sweep + CHoCH/BOS + FVG in line with higher-timeframe bias"},
 ]
+
+# Reconcile the engine label with a persisted strategy choice: the overrides
+# loop (which restores auto_strategy across restarts) runs before this catalog
+# exists, so the label is corrected here — the factory itself already reads
+# settings.auto_strategy live.
+_persisted_strategy = next((s for s in _STRATEGY_CATALOG
+                            if s["key"] == settings.auto_strategy), None)
+if _persisted_strategy is not None:
+    engine.strategy_label = _persisted_strategy["label"]
 
 
 

@@ -112,6 +112,11 @@ class SignalPipeline:
         self.trading_days_mask = trading_days_mask
         # Kelly-capped adaptive sizing: risk less when the recent record is weak.
         self.adaptive_risk = adaptive_risk
+        # Anti-martingale streak scaling: half risk after 2 consecutive losses,
+        # quarter risk after 4; the next win restores full size. Reacts
+        # immediately (the Kelly guard needs a window of trades to move) and
+        # only ever REDUCES risk — it can never size up.
+        self.streak_risk_scaling = True
         # Portfolio-level risk: correlated same-direction positions look like
         # diversification but are one oversized bet; total notional is capped
         # across ALL open positions; the equity-curve throttle halves risk while
@@ -397,7 +402,8 @@ class SignalPipeline:
         if self.learning is not None and min(kf, ef, lf, econ_risk) >= 1.0:
             bf = self.learning.boost_multiplier(regime=payload.get("regime", ""),
                                                 confidence=confidence)
-        eff_risk *= kf * ef * lf * af * econ_risk * bf * xf * sfm
+        stf = self._streak_factor()
+        eff_risk *= kf * ef * lf * af * econ_risk * bf * xf * sfm * stf
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
@@ -409,9 +415,10 @@ class SignalPipeline:
         edge_note = f" × edge {bf:.2f}" if bf > 1.0 else ""
         ctx_note = f" × context {xf:.2f}" if xf < 1.0 else ""
         side_note = f" × side {sfm:.2f}" if sfm < 1.0 else ""
+        streak_note = f" × streak {stf:.2f}" if stf < 1.0 else ""
         steps.append(Step("risk", True,
                           f"conf {confidence:.2f}{kelly_note}{curve_note}{learned_note}"
-                          f"{alloc_note}{event_note}{edge_note}{ctx_note}{side_note}"
+                          f"{alloc_note}{event_note}{edge_note}{ctx_note}{side_note}{streak_note}"
                           f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)
@@ -546,6 +553,19 @@ class SignalPipeline:
             else:
                 break
         return n
+
+    def _streak_factor(self) -> float:
+        """Anti-martingale risk scaling: ×0.5 after 2 consecutive losses,
+        ×0.25 after 4. The next winning trade restores full size. This can
+        only REDUCE risk — never increase it."""
+        if not self.streak_risk_scaling:
+            return 1.0
+        streak = self._consecutive_losses()
+        if streak >= 4:
+            return 0.25
+        if streak >= 2:
+            return 0.5
+        return 1.0
 
     def _since_last_loss(self) -> Optional[float]:
         """Seconds since the most recent losing trade closed, or None."""
