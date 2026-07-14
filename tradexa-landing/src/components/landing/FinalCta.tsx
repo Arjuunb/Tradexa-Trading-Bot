@@ -28,7 +28,8 @@ export function FinalCta() {
               </h2>
               <p className="mt-4 max-w-md text-white/55">
                 The Decision Engine scores every setup before a cent moves. Weak setups are
-                skipped, strong ones execute — and either way, you see exactly why.
+                skipped, strong ones execute — and either way it’s remembered, so the next
+                decision starts smarter.
               </p>
 
               <ul className="mt-6 space-y-2.5">

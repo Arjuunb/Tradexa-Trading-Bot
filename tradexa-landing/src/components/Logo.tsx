@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Tradexa wordmark — an abstract upward "T/candlestick" mark in brushed gold.
- * Deliberately institutional: no cartoon robot, no generic crypto coin.
+ * Deliberately understated: no cartoon robot, no generic crypto coin.
  */
 export function LogoMark({ className }: { className?: string }) {
   return (

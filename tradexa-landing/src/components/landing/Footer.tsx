@@ -40,8 +40,8 @@ export function Footer() {
           <div>
             <Logo />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/50">
-              Automated Trading. Human Intelligence. Institutional-grade automation with complete
-              transparency over every trade.
+              It remembers every trade, learns from every mistake, and builds a trading
+              intelligence that’s yours alone — with full transparency over every decision.
             </p>
             <div className="mt-5 flex gap-2">
               <a
