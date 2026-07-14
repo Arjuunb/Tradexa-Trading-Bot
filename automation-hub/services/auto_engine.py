@@ -127,6 +127,8 @@ class AutoStrategyEngine:
         # Unified decision store: EVERY evaluated signal is persisted as a
         # decision object (accepted or rejected) BEFORE any trade is placed.
         self.decisions = None
+        # Explainable Trading: per-cycle Decision Report store (data.cycle_store)
+        self.reports = None
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -365,8 +367,25 @@ class AutoStrategyEngine:
         self._check_exit(sym, bar)
         # 3. strategy decision on the new bar.
         signal: Optional[Signal] = strategy.on_bar(bar)
+        outcome: Optional[dict] = None
         if signal is not None:
-            self._on_signal(sym, signal, strategy)
+            outcome = self._on_signal(sym, signal, strategy)
+        # 4. Explainable Trading: one complete Decision Report per cycle —
+        #    including WAIT candles — so the bot never acts (or holds back)
+        #    silently. Reporting must never affect trading.
+        if self.reports is not None:
+            try:
+                from services.explain import build_cycle_report
+                report = build_cycle_report(
+                    symbol=sym, timeframe=self.timeframe,
+                    bars=list(getattr(strategy, "bars", []) or []),
+                    signal=signal, outcome=outcome,
+                    position=self.paper.open_position(sym),
+                    session=(self.pipeline.session_start, self.pipeline.session_end,
+                             self.pipeline.trading_days_mask))
+                self.reports.record(report)
+            except Exception as e:  # noqa: BLE001 — never block the engine
+                print(f"[explain] cycle report failed for {sym}: {type(e).__name__}: {e}")
 
     def _check_pending(self, sym: str, bar) -> None:
         po = self._pending.get(sym)
@@ -427,6 +446,16 @@ class AutoStrategyEngine:
         elif not res.accepted:
             self.stats["rejections"] += 1
 
+    @staticmethod
+    def _mfe_mae_r(mt) -> tuple:
+        """Lifecycle telemetry in R for a managed trade (None when untracked)."""
+        if mt is None or not getattr(mt, "risk", 0):
+            return None, None
+        sign = 1.0 if mt.side == "long" else -1.0
+        mfe_r = round((mt.mfe - mt.entry) * sign / mt.risk, 3)
+        mae_r = round((mt.entry - mt.mae) * sign / mt.risk, 3)
+        return mfe_r, mae_r
+
     def _check_exit(self, sym: str, bar) -> None:
         pos = self.paper.open_position(sym)
         if pos is None:
@@ -463,10 +492,12 @@ class AutoStrategyEngine:
                 elif target and bar.low <= target:
                     exit_price, why = target, "take-profit"
         if exit_price is not None:
+            mfe_r, mae_r = self._mfe_mae_r(mt)
             res = self._route({
                 "alert_id": f"auto-{sym}-x{next(self._seq)}", "symbol": sym,
                 "side": "CLOSE", "entry": exit_price, "stop": None,
                 "exit_reason": why,          # real exit cause for the journal
+                "mfe_r": mfe_r, "mae_r": mae_r,   # lifecycle telemetry
                 "timestamp": bar.timestamp.isoformat(),
             })
             if res is not None and res.accepted:
@@ -490,14 +521,14 @@ class AutoStrategyEngine:
         self._managed[sym] = mt
         return mt
 
-    def _on_signal(self, sym: str, signal: Signal, strategy=None) -> None:
+    def _on_signal(self, sym: str, signal: Signal, strategy=None) -> Optional[dict]:
         # The brain re-asserts its view every bar; only act when it CHANGES the
         # position (open from flat, or flip/close an opposite). Holding the same
         # direction is a no-op, so the decision log stays signal — not spam.
         desired = "long" if signal.type == SignalType.LONG else "short"
         pos = self.paper.open_position(sym)
         if pos is not None and pos["side"] == desired:
-            return
+            return {"kind": "hold"}
         self.stats["signals"] += 1
         side = "BUY" if signal.type == SignalType.LONG else "SELL"
         # Decision Brain gate (parity with every backtest): score the setup with
@@ -542,7 +573,8 @@ class AutoStrategyEngine:
                         detail=why, time=signal.timestamp.isoformat())
                 except Exception:  # noqa: BLE001
                     pass
-            return
+            return {"kind": "rejected", "stage": "brain", "reason": why,
+                    "decision": decision, "verdict": v}
         # context gate: never long an altcoin against BTC's own trend
         # (cross-asset modifier; OFF unless validated + enabled)
         ctx_why = self.context.gate(sym, "long" if signal.type == SignalType.LONG else "short")
@@ -560,7 +592,8 @@ class AutoStrategyEngine:
                         detail=ctx_why, time=signal.timestamp.isoformat())
                 except Exception:  # noqa: BLE001
                     pass
-            return
+            return {"kind": "rejected", "stage": "context", "reason": ctx_why,
+                    "decision": decision, "verdict": v}
         payload = {
             "alert_id": f"auto-{sym}-{next(self._seq)}", "symbol": sym, "side": side,
             "entry": signal.entry, "stop": signal.stop_loss,
@@ -583,15 +616,18 @@ class AutoStrategyEngine:
         # Maker entry: when FLAT, park a resting limit instead of paying the
         # spread. Flips/closes (opposite side of an open position) stay
         # immediate — exits are never left resting.
+        if pos is not None:   # opposite side of an open position -> this routes as a close
+            _mfe, _mae = self._mfe_mae_r(self._managed.get(sym))
+            payload["mfe_r"], payload["mae_r"] = _mfe, _mae
         if self.entry_mode == "limit" and pos is None and signal.stop_loss:
             self._pending[sym] = {"side": side, "price": signal.entry,
                                   "target": signal.take_profit,
                                   "ttl": self.limit_ttl_bars, "payload": payload,
                                   "decision_id": decision_id}
-            return
+            return {"kind": "pending", "decision": decision, "verdict": v}
         res = self._route(payload)
         if res is None:
-            return
+            return {"kind": "error", "reason": "pipeline error (see engine log)"}
         fill = res.fill or {}
         if res.accepted and fill.get("action") == "opened":
             if decision_id is not None and self.decisions is not None:
@@ -608,12 +644,17 @@ class AutoStrategyEngine:
                     side="long" if signal.type == SignalType.LONG else "short",
                     entry=entry, stop=stop, target=signal.take_profit,
                     risk=abs(entry - stop))
+            return {"kind": "opened", "decision": decision, "verdict": v, "fill": fill}
         elif res.accepted and fill.get("action") == "closed":
             self.stats["trades"] += 1
             self._targets.pop(sym, None)
             self._managed.pop(sym, None)
+            return {"kind": "closed", "fill": fill}
         elif not res.accepted:
             self.stats["rejections"] += 1
+            return {"kind": "rejected", "stage": res.stage, "reason": res.reason,
+                    "decision": decision, "verdict": v}
+        return {"kind": "noop", "decision": decision, "verdict": v}
 
     def _route(self, payload: dict):
         try:

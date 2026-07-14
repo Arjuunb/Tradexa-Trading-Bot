@@ -162,6 +162,33 @@ const MEM_ASK = { query: "show all losing BTC trades", kind: "filter",
 // exact shapes keyed by pathname substring (first match wins)
 const SHAPES: [string, unknown][] = [
   // journal: /trades and /evolution must precede the single-journal fallback
+  // Explainable Trading cycle reports: /1 must precede the list fragment
+  ["/engine/cycles/1", { id: 1, ts: "2026-07-05T09:00:00Z", symbol: "BTCUSDT",
+    timeframe: "5m", price: 100.2, decision: "SKIP", score: 54,
+    report: {
+      ts: "2026-07-05T09:00:00Z", symbol: "BTCUSDT", timeframe: "5m", price: 100.2,
+      decision: "SKIP", side: "long", score: 54,
+      market_analysis: { available: true, bias: "Neutral",
+        trend: { ema8_vs_ema33: "above", swing_highs: "Higher High", swing_lows: "Higher Low" },
+        structure: { state: "consolidation", break_of_structure: "none", change_of_character: false },
+        volume: { label: "below average" }, volatility: { label: "medium" },
+        liquidity: { sweep: "none detected" }, last_candle: "no notable pattern" },
+      checklist: [
+        { name: "EMA alignment", status: "PASS", explanation: "EMA8 above EMA33 for a long setup" },
+        { name: "Risk:reward >= 2.0", status: "FAIL", explanation: "planned RR 1.40:1 — minimum is 2.0" },
+        { name: "Volume confirmation", status: "FAIL", explanation: "below average (x0.72 vs 20-bar avg)" },
+        { name: "Session allowed", status: "PASS", explanation: "UTC hour 9 in window 0-24" }],
+      scores: { available: true, trend: 16, structure: 8, supply_demand: 10,
+        volume: 6, risk: 14, total: 54, label: "skip-quality", engine_score: 48 },
+      reasons: ["Blocked at the brain gate: Score 48/100 below minimum 60",
+        "\u274c Risk:reward only 1.4 — minimum required is 2.0",
+        "\u274c Volume below average"],
+      recommendation: "Wait for a pullback toward the zone — a closer entry improves the RR." } }],
+  ["/engine/cycles", { total: 42, cycles: [
+    { id: 1, ts: "2026-07-05T09:00:00Z", symbol: "BTCUSDT", timeframe: "5m",
+      price: 100.2, decision: "SKIP", score: 54 },
+    { id: 2, ts: "2026-07-05T08:55:00Z", symbol: "ETHUSDT", timeframe: "5m",
+      price: 2001.4, decision: "WAIT", score: 41 }] }],
   ["/journal/trades", JOURNAL_TRADES],
   ["/journal/evolution", JOURNAL_EVOLUTION],
   ["/journal/t1234567abcdef", JOURNAL_FULL],

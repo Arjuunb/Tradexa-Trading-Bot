@@ -23,6 +23,7 @@ import AnalyticsPage from "./pages/Analytics";
 import AIAssistantPage from "./pages/AIAssistant";
 import SafetyCenterPage from "./pages/SafetyCenter";
 import JournalPage from "./pages/Journal";
+import DecisionsPage from "./pages/Decisions";
 import MemoryPage from "./pages/Memory";
 import BotHealthPage from "./pages/BotHealth";
 import StrategyProofPage from "./pages/StrategyProof";
@@ -68,6 +69,7 @@ export default function App() {
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
       case "Journal": return <JournalPage />;
+      case "Decisions": return <DecisionsPage />;
       case "Memory": return <MemoryPage />;
       case "Bot Health": return <BotHealthPage />;
       case "Logs": return <LogsPage />;

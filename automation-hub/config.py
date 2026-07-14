@@ -127,6 +127,9 @@ class Settings:
     # Permanent trade-memory store (remembers every trade forever unless deleted)
     trade_memory_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_TRADE_MEMORY_DB", str(DATA_DIR / "trade_memory.db")))
+    # Explainable Trading: per-cycle Decision Reports (bounded, pruned)
+    cycles_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_CYCLES_DB", str(DATA_DIR / "cycles.db")))
     # Market-context provider API keys (UI-settable, local JSON)
     providers_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_PROVIDERS_PATH", str(DATA_DIR / "providers.json")))

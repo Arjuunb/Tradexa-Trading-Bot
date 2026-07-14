@@ -1,0 +1,88 @@
+"""Durable store for per-cycle Decision Reports — every analysis cycle is
+recorded, INCLUDING the ones where nothing happened (WAIT). The bot never
+trades or skips silently; this is the paper trail that proves it.
+
+Bounded by ``keep``: old cycles are pruned so a 5m × 3-symbol engine
+(~860 cycles/day) can run forever on a small disk.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from pathlib import Path
+from typing import Optional
+
+
+class CycleStore:
+    def __init__(self, path: str = ":memory:", keep: int = 5000) -> None:
+        self.path = str(path)
+        self.keep = int(keep)
+        if self.path != ":memory:":
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._c = sqlite3.connect(self.path, check_same_thread=False)
+        self._c.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
+        with self._lock:
+            self._c.executescript("""
+            CREATE TABLE IF NOT EXISTS cycle_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                timeframe TEXT,
+                price REAL,
+                decision TEXT NOT NULL,     -- BUY | SELL | WAIT | SKIP
+                score INTEGER,
+                report_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS ix_cycles_ts ON cycle_reports(ts);
+            CREATE INDEX IF NOT EXISTS ix_cycles_symbol ON cycle_reports(symbol);
+            """)
+            self._c.commit()
+
+    def record(self, report: dict) -> int:
+        with self._lock:
+            cur = self._c.execute(
+                """INSERT INTO cycle_reports
+                   (ts, symbol, timeframe, price, decision, score, report_json)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (report.get("ts"), report.get("symbol"), report.get("timeframe"),
+                 report.get("price"), report.get("decision"), report.get("score"),
+                 json.dumps(report)))
+            # prune beyond the retention cap (cheap: only when we crossed it)
+            self._c.execute(
+                "DELETE FROM cycle_reports WHERE id <= "
+                "(SELECT MAX(id) FROM cycle_reports) - ?", (self.keep,))
+            self._c.commit()
+            return int(cur.lastrowid)
+
+    def _row(self, r: sqlite3.Row, full: bool) -> dict:
+        d = dict(r)
+        report = json.loads(d.pop("report_json") or "{}")
+        if full:
+            d["report"] = report
+        return d
+
+    def list(self, *, limit: int = 100, symbol: Optional[str] = None,
+             decision: Optional[str] = None) -> list[dict]:
+        sql = "SELECT * FROM cycle_reports"
+        cond, args = [], []
+        if symbol:
+            cond.append("symbol = ?"); args.append(symbol.upper())
+        if decision:
+            cond.append("decision = ?"); args.append(decision.upper())
+        if cond:
+            sql += " WHERE " + " AND ".join(cond)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(int(limit))
+        with self._lock:
+            return [self._row(r, full=False) for r in self._c.execute(sql, args)]
+
+    def get(self, cid: int) -> Optional[dict]:
+        with self._lock:
+            r = self._c.execute("SELECT * FROM cycle_reports WHERE id=?", (cid,)).fetchone()
+            return self._row(r, full=True) if r else None
+
+    def count(self) -> int:
+        with self._lock:
+            return int(self._c.execute("SELECT COUNT(*) c FROM cycle_reports").fetchone()["c"])

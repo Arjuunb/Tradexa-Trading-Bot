@@ -4,7 +4,7 @@ import { mockApi } from "./mock";
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
   "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
+  "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
 
@@ -131,6 +131,28 @@ test("Memory — natural-language ask routes through the query endpoint", async 
   ]);
   expect(req).toBeTruthy();
   await expect(page.getByText(/Found 1 loss BTCUSDT trades/)).toBeVisible();
+});
+
+test("Decisions — every cycle explained: checklist, scores, reasons, recommendation", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/decisions");
+  await page.waitForTimeout(700);
+  await expect(page.locator("h1.pagehead-title", { hasText: "Decisions" })).toBeVisible();
+  // cycle rows render with decision badges (SKIP + WAIT from the mock)
+  await expect(page.getByText("SKIP").first()).toBeVisible();
+  await expect(page.getByText("WAIT").first()).toBeVisible();
+  // expand the full report
+  await page.getByRole("button", { name: /View/ }).first().click();
+  await page.waitForTimeout(400);
+  // a skip is never silent: explicit reasons + recommendation
+  await expect(page.getByText(/Risk:reward only 1.4/)).toBeVisible();
+  await expect(page.getByText(/Wait for a pullback/)).toBeVisible();
+  // rule-by-rule checklist with PASS/FAIL
+  await expect(page.getByText("PASS").first()).toBeVisible();
+  await expect(page.getByText("FAIL").first()).toBeVisible();
+  // five-category confidence breakdown
+  await expect(page.getByText("Supply/Demand")).toBeVisible();
+  await expect(page.getByText(/Confidence 54\/100/)).toBeVisible();
 });
 
 test("Safety Center — live readiness is locked and the kill-switch test verifies", async ({ page }) => {

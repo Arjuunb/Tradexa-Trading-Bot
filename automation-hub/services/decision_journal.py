@@ -148,6 +148,37 @@ def build_evolution(setup_stage: dict) -> dict:
     }
 
 
+def build_coach(sections: dict, review: dict, result: str, actual_rr: float,
+                planned_rr: float, risk_ok: bool) -> dict:
+    """AI Coach note for one completed trade — composed ONLY from the reads the
+    bot actually recorded at entry plus the real outcome. Reads like a senior
+    trader debriefing a junior: strengths, weaknesses, one lesson, a rating."""
+    checklist = sections.get("checklist") or {}
+    reads = list(checklist.get("entry_reads") or [])
+    ok_reads = [r for r in reads if r.get("ok")]
+    bad_reads = [r for r in reads if not r.get("ok")]
+
+    strengths = [f"{r.get('rule', 'read')}: {r.get('detail', 'confirmed')}"
+                 for r in ok_reads[:3]]
+    if risk_ok:
+        strengths.append("Risk was respected — sized within limits, stop honored.")
+
+    weaknesses = [f"{r.get('rule', 'read')}: {r.get('detail', 'not confirmed')}"
+                  for r in bad_reads[:3]]
+    if result == "win" and planned_rr and actual_rr < planned_rr * 0.5:
+        weaknesses.append(f"Banked {actual_rr:.2f}R of a {planned_rr:.1f}R plan — "
+                          "the exit left reward on the table.")
+    if not weaknesses:
+        weaknesses.append("None recorded — the entry reads were clean; "
+                          "a losing outcome here is normal variance.")
+
+    lesson = review.get("improvement", "Repeat the disciplined process.")
+    grade = review.get("grade", "C")
+    rating = grade + ("+" if grade == "A" and actual_rr >= 2.0 else "")
+    return {"strengths": strengths, "weaknesses": weaknesses,
+            "lesson": lesson, "rating": rating}
+
+
 class DecisionJournal:
     """Orchestrator wired into the pipeline (entry) and close path (exit)."""
 
@@ -201,7 +232,9 @@ class DecisionJournal:
     # ---------------------------------------------------------------- exit
     def record_exit(self, *, trade_id: str, exit_price: float, pnl: float,
                     exit_reason: str, quality_score: Optional[float] = None,
-                    risk_ok: bool = True, followed_strategy: bool = True) -> Optional[dict]:
+                    risk_ok: bool = True, followed_strategy: bool = True,
+                    mfe_r: Optional[float] = None,
+                    mae_r: Optional[float] = None) -> Optional[dict]:
         j = self.store.get(trade_id)
         if j is None:
             return None
@@ -221,7 +254,13 @@ class DecisionJournal:
                                             j.get("regime"), side, actual_rr)
         evolution = build_evolution({**stage, "setup_key": setup_key})
         exit_decision = {"exit_reason": exit_reason, "exit_price": exit_price,
-                         "actual_rr": actual_rr, "pnl": round(pnl, 2), "result": result}
+                         "actual_rr": actual_rr, "pnl": round(pnl, 2), "result": result,
+                         # lifecycle telemetry (in R); honest "not tracked" for
+                         # positions adopted without management state
+                         "max_profit_r": mfe_r if mfe_r is not None else "not tracked",
+                         "max_drawdown_r": mae_r if mae_r is not None else "not tracked"}
+        review["coach"] = build_coach(j.get("sections", {}), review, result,
+                                      actual_rr, planned_rr, risk_ok)
         self.store.close_trade(trade_id, exit=exit_price, pnl=pnl, actual_rr=actual_rr,
                                result=result, grade=review["grade"],
                                extra_sections={"exit_decision": exit_decision,

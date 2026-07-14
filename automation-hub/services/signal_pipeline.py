@@ -241,7 +241,8 @@ class SignalPipeline:
                     self.journal.record_exit(
                         trade_id=_open_tid, exit_price=entry, pnl=fill.pnl,
                         exit_reason=payload.get("exit_reason")
-                        or ("opposite-signal" if side not in _CLOSE_SIDES else "manual-close"))
+                        or ("opposite-signal" if side not in _CLOSE_SIDES else "manual-close"),
+                        mfe_r=payload.get("mfe_r"), mae_r=payload.get("mae_r"))
                 except Exception:  # noqa: BLE001 — journaling must never block trading
                     pass
                 # commit the now-closed trade to permanent memory (never blocks)

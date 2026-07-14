@@ -51,10 +51,18 @@ class ManagedTrade:
     scaled: bool = False      # partial profit taken?
     best: float = field(default=0.0)  # most favorable price seen
     age: int = 0              # bars held (for the optional time stop)
+    # Lifecycle telemetry (reporting only — never drives management): the most
+    # favorable / adverse prices touched while the trade was open (MFE / MAE).
+    mfe: float = field(default=0.0)
+    mae: float = field(default=0.0)
 
     def __post_init__(self):
         if not self.best:
             self.best = self.entry
+        if not self.mfe:
+            self.mfe = self.entry
+        if not self.mae:
+            self.mae = self.entry
 
 
 @dataclass
@@ -93,6 +101,13 @@ class TradeManager:
         fav_px = high if t.side == "long" else low     # best price this bar
         adv_px = low if t.side == "long" else high     # worst price this bar
         t.age += 1
+        # lifecycle telemetry first, so MFE/MAE include the exit bar itself
+        # (t.best stays untouched here — it drives BE/trailing and its update
+        # point is part of the measured behavior)
+        if (fav_px - t.mfe) * sign > 0:
+            t.mfe = fav_px
+        if (adv_px - t.mae) * sign < 0:
+            t.mae = adv_px
 
         # 1. stop first, against the CURRENT stop (pessimistic intrabar rule)
         if (adv_px - t.stop) * sign <= 0:

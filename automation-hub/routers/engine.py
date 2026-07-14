@@ -133,6 +133,28 @@ def control_state():
     return {"state": _wa.controls.state}
 
 
+# ------------------------------------------------- Explainable Trading reports
+@router.get("/engine/cycles")
+def engine_cycles(limit: int = 100, symbol: Optional[str] = None,
+                  decision: Optional[str] = None):
+    """Per-cycle Decision Reports, newest first — EVERY analysis cycle is here,
+    including WAIT candles. Filter by symbol or decision (BUY/SELL/WAIT/SKIP)."""
+    return {"cycles": _wa.cycle_store.list(limit=max(1, min(limit, 500)),
+                                           symbol=symbol, decision=decision),
+            "total": _wa.cycle_store.count()}
+
+
+@router.get("/engine/cycles/{cid}")
+def engine_cycle(cid: int):
+    """The COMPLETE Decision Report for one cycle: narrated market analysis,
+    rule-by-rule checklist, five-category confidence score, decision, reasons
+    and recommendation."""
+    c = _wa.cycle_store.get(cid)
+    if c is None:
+        raise HTTPException(404, "No cycle report with that id")
+    return c
+
+
 # Timeframes the data layer supports end-to-end (live fetch, synthetic, engine).
 _TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
 
