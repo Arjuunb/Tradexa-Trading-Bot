@@ -15,11 +15,18 @@ EDITABLE = ("risk_per_trade_pct", "exposure_limit_pct", "max_drawdown_pct",
             "session_start", "session_end", "max_weekly_loss_pct",
             "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
             "trading_days_mask", "notify_trades", "notify_risk",
-            "engine_timeframe")
+            "engine_timeframe",
+            # Runtime-settable AND restart-surviving. These were written by
+            # _settings_snapshot but silently dropped on load until they joined
+            # this list — the strategy choice and quality gate reverted on
+            # every reboot.
+            "auto_strategy", "entry_mode", "daily_report_hour",
+            "min_quality_score", "streak_risk_scaling")
 _INT_KEYS = {"max_open_positions", "dedup_window_s", "session_start", "session_end",
              "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
-             "trading_days_mask", "notify_trades", "notify_risk"}
-_STR_KEYS = {"engine_timeframe"}
+             "trading_days_mask", "notify_trades", "notify_risk",
+             "daily_report_hour", "min_quality_score", "streak_risk_scaling"}
+_STR_KEYS = {"engine_timeframe", "auto_strategy", "entry_mode"}
 
 
 def _cast(key, value):

@@ -131,9 +131,10 @@ def test_kelly_factor_reduces_position_size_in_pipeline():
     from services.signal_pipeline import SignalPipeline
     led = SqliteLedger(":memory:")
     paper = PaperExecutionEngine(led)
-    # equity throttle off so ONLY the Kelly factor is under test here
+    # equity throttle + streak scaler off so ONLY the Kelly factor is under test
     pipe = SignalPipeline(led, paper, TradingControl(), equity=10_000,
                           risk_per_trade_pct=0.01, equity_throttle=False)
+    pipe.streak_risk_scaling = False
     _seed_trades(paper, [-1.0] * 20)                   # all losers -> quarter risk
     res = pipe.process({"alert_id": "k1", "symbol": "BTCUSDT", "side": "BUY",
                         "entry": 100.0, "stop": 95.0, "confidence": 1.0})
