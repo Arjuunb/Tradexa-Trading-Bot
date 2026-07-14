@@ -215,6 +215,12 @@ engine = AutoStrategyEngine(
 engine.counterfactual = counterfactual   # resolve vetoed trades on live bars
 engine.decisions = decision_store        # persist every accept/reject decision
 
+# Explainable Trading: one complete Decision Report per analysis cycle —
+# including WAIT candles — so the bot never trades or skips silently.
+from data.cycle_store import CycleStore  # noqa: E402
+cycle_store = CycleStore(settings.cycles_db)
+engine.reports = cycle_store
+
 # Watchdog: alerts (ledger + Telegram) when the feed stalls, the engine thread
 # dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
 from services.watchdog import Watchdog  # noqa: E402

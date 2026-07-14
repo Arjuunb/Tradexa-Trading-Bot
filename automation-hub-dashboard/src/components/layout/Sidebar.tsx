@@ -2,7 +2,7 @@ import Logo from "../common/Logo";
 import {
   LayoutDashboard, CandlestickChart, Layers, FlaskConical, RefreshCw, PlayCircle,
   NotebookPen, Rocket, Wallet, BarChart3, Bot, ShieldAlert, Brain, ScrollText,
-  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, type LucideIcon,
+  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, ListChecks, type LucideIcon,
 } from "lucide-react";
 import { NAV_LABELS } from "../../app-context";
 import { useLive, type RiskSummary, type PaperAccount } from "../../lib/api";
@@ -24,6 +24,7 @@ const NAV_LUCIDE: Record<string, LucideIcon> = {
   "Risk Manager": ShieldAlert,
   Evolution: Brain,
   Journal: BookOpen,
+  Decisions: ListChecks,
   Memory: BrainCircuit,
   "Bot Health": Activity,
   Logs: ScrollText,
