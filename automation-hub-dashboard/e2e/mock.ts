@@ -210,6 +210,10 @@ const SHAPES: [string, unknown][] = [
   ["/execution/realism", { available: true, edge_survives: true, rejected: 0, partial_fills: 0, slippage_cost_r: 0,
     ideal: { net_r: 10, profit_factor: 1.8, win_rate: 55, expectancy_r: 0.3 },
     realistic: { net_r: 8, profit_factor: 1.6, win_rate: 53, expectancy_r: 0.25 } }],
+  ["/strategy/list", { active: "brain", timeframe: "4h", strategies: [
+    { key: "brain", label: "Decision Brain", desc: "Multi-factor trend" },
+    { key: "supertrend", label: "Supertrend", desc: "ATR trend-following" },
+    { key: "smc", label: "SMC (Smart Money)", desc: "Liquidity + structure" }] }],
   ["/strategy/health", STRAT_HEALTH],
   ["/risk/portfolio", { available: false, positions: [], allocations: [], correlations: [], concentration: [] }],
   ["/production/readiness", { checks: [] }],

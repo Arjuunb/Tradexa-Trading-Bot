@@ -65,6 +65,7 @@ export interface BotSettings {
     max_consecutive_losses: number; cooldown_after_loss_min: number;
     trading_days_mask: number;
     entry_mode: string; daily_report_hour: number;
+    min_quality_score: number; streak_risk_scaling: boolean;
   };
   readonly: {
     strategy: string; strategy_key: string; timeframe: string; symbols: string[];

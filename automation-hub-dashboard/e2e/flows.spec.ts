@@ -133,6 +133,46 @@ test("Memory — natural-language ask routes through the query endpoint", async 
   await expect(page.getByText(/Found 1 loss BTCUSDT trades/)).toBeVisible();
 });
 
+test("Header control strip — timeframe, strategy and engine settings are interactive", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/overview");
+  await page.waitForTimeout(600);
+
+  // timeframe dropdown: current highlighted, picking one POSTs /engine/timeframe + toasts
+  await page.getByRole("button", { name: "Timeframe" }).click();
+  await expect(page.locator(".tf-btn.active", { hasText: "4h" })).toBeVisible();
+  const [tfReq] = await Promise.all([
+    page.waitForRequest((r) => r.url().includes("/engine/timeframe?timeframe=15m") && r.method() === "POST"),
+    page.locator(".tf-btn", { hasText: "15m" }).click(),
+  ]);
+  expect(tfReq).toBeTruthy();
+  await expect(page.locator(".toast.success", { hasText: "Engine switched to 15m" })).toBeVisible();
+
+  // strategy menu lists real strategies; active one is marked
+  await page.getByRole("button", { name: "Strategy menu" }).click();
+  await expect(page.locator(".hdr-item.active", { hasText: "Decision Brain" })).toBeVisible();
+  await expect(page.locator(".hdr-item", { hasText: "Supertrend" })).toBeVisible();
+  await page.keyboard.press("Escape");                      // Esc closes
+
+  // account menu shows balance + honest disabled Live Trading
+  await page.getByRole("button", { name: "Trading account" }).click();
+  await expect(page.getByRole("menu").getByText("$10,300")).toBeVisible();
+  await expect(page.locator(".hdr-item", { hasText: "Live Trading" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+
+  // gear opens engine settings; editing a field enables Save which POSTs /settings
+  await page.getByRole("button", { name: "Engine configuration" }).click();
+  await expect(page.getByText("Engine settings — Save applies")).toBeVisible();
+  const risk = page.locator(".hdr-settings input[type=number]").first();
+  await risk.fill("2");
+  const [saveReq] = await Promise.all([
+    page.waitForRequest((r) => r.url().includes("/settings") && r.method() === "POST"),
+    page.getByRole("button", { name: /^Save$/ }).click(),
+  ]);
+  expect(saveReq).toBeTruthy();
+  await expect(page.locator(".toast.success", { hasText: "Engine settings saved" })).toBeVisible();
+});
+
 test("Decisions — every cycle explained: checklist, scores, reasons, recommendation", async ({ page }) => {
   await mockApi(page);
   await page.goto("/#/decisions");
