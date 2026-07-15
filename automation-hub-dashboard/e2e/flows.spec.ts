@@ -307,3 +307,31 @@ test("Settings — engine timeframe chips switch the candle interval", async ({ 
   expect(req).toBeTruthy();
   await expect(page.locator(".toast.success")).toBeVisible();
 });
+
+test("Trading Mode & Approvals — modes render and a pending idea shows Approve/Reject", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/paper-trading");
+  await page.waitForTimeout(700);
+  await expect(page.getByText("Trading Mode & Approvals")).toBeVisible();
+  // the three modes are present; semi is active (mock)
+  await expect(page.locator(".mode-btn", { hasText: "Full Auto" })).toBeVisible();
+  await expect(page.locator(".mode-btn.active", { hasText: "Semi-Auto" })).toBeVisible();
+  await expect(page.locator(".mode-btn", { hasText: "Signal" })).toBeVisible();
+  // the pending approval card with real levels + actions
+  await expect(page.locator(".approval-card", { hasText: "BTCUSDT" })).toBeVisible();
+  await expect(page.getByText("3:1")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Approve/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Reject/ })).toBeVisible();
+});
+
+test("Risk Profile presets — Conservative/Balanced/Aggressive with active marker", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/risk-manager");
+  await page.waitForTimeout(700);
+  await expect(page.getByText("Risk Profile")).toBeVisible();
+  await expect(page.locator(".preset-btn", { hasText: "Conservative" })).toBeVisible();
+  await expect(page.locator(".preset-btn.active", { hasText: "Balanced" })).toBeVisible();
+  await expect(page.locator(".preset-btn", { hasText: "Aggressive" })).toBeVisible();
+  // headline risk-per-trade numbers render
+  await expect(page.getByText("0.5%", { exact: false }).first()).toBeVisible();
+});

@@ -787,3 +787,42 @@ a.brand:hover { opacity: 0.85; }
   .hdr-chip { padding: 6px 8px; }
   .hdr-pop { position: fixed; left: 10px !important; right: 10px !important; top: 58px; max-width: none; }
 }
+
+/* ── Trading Mode & Approvals (§7 + §11) ──────────────────────────────── */
+.section-label { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.mode-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mode-btn { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left;
+  padding: 11px 13px; border-radius: 12px; border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.02); color: var(--text); cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.mode-btn:hover:not(:disabled) { border-color: rgba(234,181,79,0.4); }
+.mode-btn.active { border-color: rgba(234,181,79,0.55); background: rgba(234,181,79,0.08);
+  box-shadow: 0 0 0 1px rgba(234,181,79,0.14) inset; }
+.mode-btn b { font-size: 13.5px; }
+.mode-btn .dim { font-size: 11.5px; line-height: 1.35; }
+.mode-btn.active b { color: var(--gold); }
+@media (max-width: 640px) { .mode-seg { grid-template-columns: 1fr; } }
+
+.approval-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.approval-card { border: 1px solid var(--card-border); border-radius: 12px; padding: 12px 13px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent); display: grid; gap: 8px; }
+.approval-head { display: flex; align-items: center; gap: 8px; }
+.approval-levels { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; }
+.approval-actions { display: flex; gap: 8px; margin-top: 2px; }
+.approval-actions .btn { flex: 1; justify-content: center; }
+
+/* ── Risk Profile presets (§9) ────────────────────────────────────────── */
+.preset-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.preset-btn { text-align: left; border: 1px solid var(--card-border); border-radius: 12px;
+  padding: 13px 14px; background: rgba(255,255,255,0.02); color: var(--text); cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.preset-btn:hover:not(:disabled):not(.preset-custom) { border-color: rgba(234,181,79,0.4); }
+.preset-btn.active { border-color: rgba(234,181,79,0.55); background: rgba(234,181,79,0.07);
+  box-shadow: 0 0 0 1px rgba(234,181,79,0.14) inset; }
+.preset-custom { cursor: default; }
+.preset-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.preset-head b { font-size: 14px; }
+.preset-risk { font-size: 24px; font-weight: 800; margin: 6px 0 8px; letter-spacing: -0.02em; }
+.preset-risk .dim { font-size: 12px; font-weight: 500; }
+.preset-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.preset-list li { display: flex; justify-content: space-between; }

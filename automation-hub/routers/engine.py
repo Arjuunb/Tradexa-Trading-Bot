@@ -18,6 +18,130 @@ globals().update({k: v for k, v in vars(_wa).items()
 router = APIRouter()
 
 
+# ─────────────────────── Trading modes + approvals (§7, §11) ───────────────
+_MODES = ("full", "semi", "signal")
+
+
+@router.get("/engine/mode")
+def get_mode():
+    """Current trading mode: full (auto-execute), semi (approve each entry),
+    signal (alert only). Exits always execute automatically in every mode."""
+    return {"mode": _wa.engine.trading_mode, "modes": list(_MODES),
+            "pending_approvals": _wa.approvals.counts()["pending"]}
+
+
+@router.post("/engine/mode")
+def set_mode(body: dict = Body(...), x_webhook_secret: Optional[str] = Header(default=None)):
+    _wa._check_secret(x_webhook_secret)
+    mode = str(body.get("mode", "")).lower()
+    if mode not in _MODES:
+        raise HTTPException(400, f"mode must be one of {_MODES}")
+    _wa.engine.trading_mode = mode
+    _wa.save_overrides(_wa.settings.settings_path, _wa._settings_snapshot())
+    _wa.ledger.log(level="info", stage="controls", message=f"Trading mode → {mode}")
+    return {"mode": mode}
+
+
+@router.get("/approvals")
+def list_approvals(limit: int = 50):
+    """Pending trade ideas awaiting approval (semi-auto) plus recent resolved
+    ideas (approved / rejected / expired / signalled) for the audit trail."""
+    return {"mode": _wa.engine.trading_mode,
+            "pending": _wa.approvals.list_pending(),
+            "recent": _wa.approvals.list_recent(max(1, min(limit, 200)))}
+
+
+@router.post("/approvals/{iid}/approve")
+def approve_idea(iid: int, x_webhook_secret: Optional[str] = Header(default=None)):
+    """Approve a queued idea — routes it through the SAME risk pipeline (all
+    gates still apply). 404 if the idea expired or was already resolved."""
+    _wa._check_secret(x_webhook_secret)
+    idea = _wa.approvals.approve(iid)
+    if idea is None:
+        raise HTTPException(404, "No pending idea with that id (it may have expired)")
+    result = _wa.engine.execute_approved(idea)
+    return {"approved": True, "id": iid, "result": result}
+
+
+@router.post("/approvals/{iid}/reject")
+def reject_idea(iid: int, body: dict = Body(default={}),
+                x_webhook_secret: Optional[str] = Header(default=None)):
+    _wa._check_secret(x_webhook_secret)
+    idea = _wa.approvals.reject(iid, str(body.get("reason", "")))
+    if idea is None:
+        raise HTTPException(404, "No pending idea with that id (it may have expired)")
+    # grade the rejection like any veto: was the trade we passed on a winner?
+    if _wa.counterfactual is not None:
+        try:
+            _wa.counterfactual.record_veto(
+                symbol=idea.get("symbol"),
+                side="long" if idea.get("side") == "BUY" else "short",
+                entry=idea.get("entry"), stop=idea.get("stop"),
+                target=idea.get("target"), rule="approval-reject",
+                detail=idea.get("reject_reason", "manual"))
+        except Exception:  # noqa: BLE001
+            pass
+    return {"rejected": True, "id": iid}
+
+
+# ─────────────────────────── Risk profile presets (§9) ─────────────────────
+# Each preset is a coherent bundle; the headline is risk-per-trade (0.5/1/2%),
+# with drawdown / daily-loss / exposure / max-positions scaled to match. All
+# values are FRACTIONS (0.01 = 1%), the same units POST /settings expects.
+RISK_PRESETS = {
+    "conservative": {"risk_per_trade_pct": 0.005, "max_open_positions": 2,
+                     "max_daily_loss_pct": 0.02, "max_drawdown_pct": 0.10,
+                     "exposure_limit_pct": 0.10},
+    "balanced": {"risk_per_trade_pct": 0.01, "max_open_positions": 3,
+                 "max_daily_loss_pct": 0.03, "max_drawdown_pct": 0.15,
+                 "exposure_limit_pct": 0.15},
+    "aggressive": {"risk_per_trade_pct": 0.02, "max_open_positions": 5,
+                   "max_daily_loss_pct": 0.05, "max_drawdown_pct": 0.25,
+                   "exposure_limit_pct": 0.30},
+}
+
+
+def _active_risk_preset() -> Optional[str]:
+    """Which preset (if any) the live risk config currently matches exactly."""
+    cur = {"risk_per_trade_pct": _wa.pipeline.risk_per_trade_pct,
+           "max_open_positions": _wa.pipeline.max_open_positions,
+           "max_daily_loss_pct": _wa.pipeline.max_daily_loss_pct,
+           "max_drawdown_pct": _wa.pipeline.max_drawdown_pct,
+           "exposure_limit_pct": _wa.pipeline.exposure_limit_pct}
+    for name, vals in RISK_PRESETS.items():
+        if all(abs(float(cur[k]) - float(v)) < 1e-9 for k, v in vals.items()):
+            return name
+    return None
+
+
+@router.get("/risk/presets")
+def risk_presets():
+    return {"presets": RISK_PRESETS, "active": _active_risk_preset()}
+
+
+@router.post("/risk/preset")
+def apply_risk_preset(body: dict = Body(...), x_webhook_secret: Optional[str] = Header(default=None)):
+    """Apply a named risk preset to the live engine (persisted). 'custom' is a
+    no-op marker — edit individual fields under Settings for custom profiles."""
+    _wa._check_secret(x_webhook_secret)
+    name = str(body.get("name", "")).lower()
+    if name == "custom":
+        return {"applied": "custom", "note": "edit individual risk fields under Settings"}
+    preset = RISK_PRESETS.get(name)
+    if preset is None:
+        raise HTTPException(400, f"Unknown preset {name!r}")
+    for k, val in preset.items():
+        if k == "max_open_positions":
+            _wa.pipeline.max_open_positions = int(val)
+        else:
+            setattr(_wa.pipeline, k, float(val))
+    _wa.save_overrides(_wa.settings.settings_path, _wa._settings_snapshot())
+    _wa.ledger.log(level="info", stage="audit", message=f"Risk preset applied: {name}")
+    return {"applied": name, "values": preset}
+
+
+
+
 # ------------------------------------------------------------------- webhook
 @router.post("/webhook/tradingview")
 def tradingview_webhook(payload: _wa.WebhookPayload,

@@ -3,6 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import DecisionJournalPanel from "../components/journal/DecisionJournalPanel";
+import ModeApprovals from "../components/trading/ModeApprovals";
 import { useApp } from "../app-context";
 import {
   apiPost, useLive, hhmmss, API_BASE,
@@ -97,6 +98,8 @@ export default function PaperTradingPage() {
           </p>
         )}
       </Card>
+
+      <ModeApprovals />
 
       <Card title="Open Positions">
         <div className="tablewrap">

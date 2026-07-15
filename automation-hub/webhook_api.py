@@ -221,6 +221,11 @@ from data.cycle_store import CycleStore  # noqa: E402
 cycle_store = CycleStore(settings.cycles_db)
 engine.reports = cycle_store
 
+# Semi-auto / signal trading modes: the human-approval queue for entries.
+from services.approvals import ApprovalStore  # noqa: E402
+approvals = ApprovalStore(ttl_s=int(_os.environ.get("HUB_APPROVAL_TTL_S", "900")))
+engine.approvals = approvals
+
 # Watchdog: alerts (ledger + Telegram) when the feed stalls, the engine thread
 # dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
 from services.watchdog import Watchdog  # noqa: E402
@@ -305,6 +310,8 @@ def _apply_setting(key: str, value) -> None:
         engine.min_quality_score = int(value)
     elif key == "streak_risk_scaling":
         pipeline.streak_risk_scaling = bool(int(value))
+    elif key == "trading_mode":
+        engine.trading_mode = str(value) if str(value) in ("full", "semi", "signal") else "full" 
     elif key == "engine_timeframe":
         # applied before the startup event starts the engine, so a persisted
         # timeframe choice survives restarts/redeploys
@@ -346,6 +353,7 @@ def _settings_snapshot() -> dict:
         "min_quality_score": engine.min_quality_score,
         "streak_risk_scaling": 1 if pipeline.streak_risk_scaling else 0,
         "engine_symbols": ",".join(engine.symbols),
+        "trading_mode": engine.trading_mode,
     }
 
 

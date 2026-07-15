@@ -161,6 +161,21 @@ const MEM_ASK = { query: "show all losing BTC trades", kind: "filter",
 
 // exact shapes keyed by pathname substring (first match wins)
 const SHAPES: [string, unknown][] = [
+  // Trading modes + approvals (§7, §11) — GET shapes (POSTs auto-echo 200)
+  ["/engine/mode", { mode: "semi", modes: ["full", "semi", "signal"], pending_approvals: 1 }],
+  ["/approvals", { mode: "semi",
+    pending: [{ id: 7, symbol: "BTCUSDT", side: "BUY", entry: 65000, stop: 63500,
+      target: 69500, confidence: 0.82, planned_rr: 3.0, brain_score: 78,
+      timeframe: "4h", strategy: "Decision Brain", status: "pending",
+      reason: "Trend + demand reclaim; structure shift confirmed on 4H." }],
+    recent: [{ id: 6, symbol: "ETHUSDT", side: "SELL", entry: 3200, stop: 3260,
+      target: 3080, confidence: 0.6, planned_rr: 2.0, brain_score: 64,
+      timeframe: "4h", strategy: "Decision Brain", status: "rejected",
+      reject_reason: "manual" }] }],
+  ["/risk/presets", { active: "balanced", presets: {
+    conservative: { risk_per_trade_pct: 0.005, max_open_positions: 2, max_daily_loss_pct: 0.02, max_drawdown_pct: 0.10, exposure_limit_pct: 0.10 },
+    balanced: { risk_per_trade_pct: 0.01, max_open_positions: 3, max_daily_loss_pct: 0.03, max_drawdown_pct: 0.15, exposure_limit_pct: 0.15 },
+    aggressive: { risk_per_trade_pct: 0.02, max_open_positions: 5, max_daily_loss_pct: 0.05, max_drawdown_pct: 0.25, exposure_limit_pct: 0.30 } } }],
   // journal: /trades and /evolution must precede the single-journal fallback
   // Explainable Trading cycle reports: /1 must precede the list fragment
   ["/engine/cycles/1", { id: 1, ts: "2026-07-05T09:00:00Z", symbol: "BTCUSDT",

@@ -3,6 +3,7 @@ import Card from "../components/common/Card";
 import ProgressBar from "../components/common/ProgressBar";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
+import RiskPresets from "../components/trading/RiskPresets";
 import { useApp } from "../app-context";
 import {
   apiPost, apiPostJson, apiGet, useLive, hhmmss,
@@ -35,6 +36,8 @@ export default function RiskCenterPage() {
   return (
     <>
       <PageHeader title="Risk Center" subtitle="Live risk usage across the engine · paper mode" />
+
+      <RiskPresets onApplied={() => risk.refetch()} />
 
       {risk.error && !r && (
         <div className="card" style={{ borderColor: "#ef4444" }}>
