@@ -40,6 +40,11 @@ export default function PaperTradingPage() {
     }
   };
 
+  // H-6: destructive controls confirm first (matches Safety Center + resets).
+  const confirmAct = (msg: string, path: string, toastMsg: string, refetch: () => void) => {
+    if (window.confirm(msg)) void act(path, toastMsg, refetch);
+  };
+
   const eng = engine.data;
   const acct = account.data;
   const state = control.data?.state;
@@ -52,7 +57,7 @@ export default function PaperTradingPage() {
         actions={
           <div className="row-actions">
             {eng?.running ? (
-              <button className="btn btn-warn" onClick={() => act("/engine/stop", "Engine stopped", engine.refetch)}><Icon name="pause" size={14} /> Stop Engine</button>
+              <button className="btn btn-warn" onClick={() => confirmAct("Stop the trading engine? No new signals will be processed until you start it again.", "/engine/stop", "Engine stopped", engine.refetch)}><Icon name="pause" size={14} /> Stop Engine</button>
             ) : (
               <button className="btn btn-primary" onClick={() => act("/engine/start", "Engine started", engine.refetch)}><Icon name="play" size={14} /> Start Engine</button>
             )}
@@ -88,8 +93,8 @@ export default function PaperTradingPage() {
 
       <Card title="Engine & Emergency Controls" subtitle={eng ? `${eng.symbols.join(", ")} · ${eng.timeframe} · ${eng.bars} bars processed` : "autonomous strategy engine"}>
         <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn btn-warn" onClick={() => act("/controls/pause-all", "Trading paused — entries blocked", control.refetch)}><Icon name="pause" size={14} /> Pause All</button>
-          <button className="btn btn-danger" onClick={() => act("/controls/stop-all", "Trading stopped", control.refetch)}><Icon name="close" size={14} /> Stop All</button>
+          <button className="btn btn-warn" onClick={() => confirmAct("Pause all trading? New entries from the engine and webhooks will be blocked until you resume.", "/controls/pause-all", "Trading paused — entries blocked", control.refetch)}><Icon name="pause" size={14} /> Pause All</button>
+          <button className="btn btn-danger" onClick={() => confirmAct("Stop all trading? This is a hard halt — resume to re-enable.", "/controls/stop-all", "Trading stopped", control.refetch)}><Icon name="close" size={14} /> Stop All</button>
           <button className="btn btn-primary" onClick={() => act("/controls/resume", "Trading resumed", control.refetch)}><Icon name="play" size={14} /> Resume</button>
         </div>
         {state && state !== "Active" && (

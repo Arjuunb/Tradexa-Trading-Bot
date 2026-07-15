@@ -46,6 +46,27 @@ store = SqliteStore(settings.db_path)
 store.seed_admin(settings.username, settings.password)
 manager = BotManager(store=store)
 
+# M-7: fail closed on insecure defaults in production. render.yaml generates a
+# strong HUB_SECRET, so a default here on a cloud host means misconfiguration —
+# and a default session-signing key makes cookie forgery trivial. A default
+# password is warned about loudly but not hard-blocked (so you're never locked
+# out of your own deploy).
+import os as _sec_os  # noqa: E402
+_ON_CLOUD = bool(_sec_os.environ.get("RENDER") or _sec_os.environ.get("DYNO"))
+_UNDER_TEST = "PYTEST_CURRENT_TEST" in _sec_os.environ or bool(_sec_os.environ.get("HUB_DEV"))
+if _ON_CLOUD and not _UNDER_TEST:
+    if settings.secret_key == "dev-insecure-secret":
+        raise RuntimeError(
+            "REFUSING TO BOOT: HUB_SECRET is unset (default session-signing key). "
+            "Set HUB_SECRET to a strong random value (render.yaml does this with "
+            "generateValue) before exposing this service — otherwise session "
+            "cookies are forgeable.")
+    if settings.password == "admin":
+        import sys as _sec_sys
+        print("\n" + "=" * 68 + "\n  SECURITY WARNING: HUB_PASSWORD is the default 'admin'.\n"
+              "  Set a strong HUB_PASSWORD before real use.\n" + "=" * 68 + "\n",
+              file=_sec_sys.stderr, flush=True)
+
 # Kyros Phase 1: TradingView webhook -> paper-execution -> ledger API.
 # `webhook_api` also owns the process-wide paper account / ledger / control
 # switch singletons; the dashboard pages below read them via the module so they
@@ -94,7 +115,10 @@ async def _require_auth(request: Request, call_next):
     # "/app" is exempt here but self-gates in its own handler (it carries the
     # control secret, so anonymous visitors are redirected to /login there).
     if _LANDING_READY:
-        exempt = exempt + ("/settings", "/app")
+        # H-2: exempt the SPA sub-routes ("/settings/profile", …) but NOT the
+        # bare "/settings" API endpoint, which returns live strategy/risk config
+        # and must stay session-gated. The landing serves only "/settings/{path}".
+        exempt = exempt + ("/settings/", "/app")
     if (path == "/" or any(path.startswith(p) for p in exempt)
             or _user(request)
             or request.headers.get("x-webhook-secret") == settings.webhook_secret):
@@ -227,7 +251,10 @@ def _sign_session(username: str) -> str:
     import time
     exp = str(int(time.time()) + SESSION_DAYS * 86400)
     msg = f"{username}|{exp}"
-    sig = _hmac.new(settings.webhook_secret.encode(), msg.encode(),
+    # CR-1: sign with the server-only secret_key (HUB_SECRET), NOT the
+    # webhook_secret — the webhook secret is embedded in every authed page, so
+    # signing sessions with it would let any logged-in user forge an owner token.
+    sig = _hmac.new(settings.secret_key.encode(), msg.encode(),
                     hashlib.sha256).hexdigest()
     return f"{msg}|{sig}"
 
@@ -241,7 +268,7 @@ def _verify_session(token: str):
     except ValueError:
         return None
     msg = f"{username}|{exp}"
-    good = _hmac.new(settings.webhook_secret.encode(), msg.encode(),
+    good = _hmac.new(settings.secret_key.encode(), msg.encode(),
                      hashlib.sha256).hexdigest()
     if not _hmac.compare_digest(sig, good):
         return None

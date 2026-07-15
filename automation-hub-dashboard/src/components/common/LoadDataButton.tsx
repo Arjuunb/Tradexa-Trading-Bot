@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
 import { apiGet, apiPost } from "../../lib/api";
 import { useApp } from "../../app-context";
@@ -10,6 +10,10 @@ export default function LoadDataButton({ onDone }: { onDone?: () => void }) {
   const app = useApp();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
+  const pollRef = useRef<number | null>(null);
+  // M-2: clear the status poll on unmount so it doesn't keep firing +
+  // setState on an unmounted component when the user navigates away mid-load.
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
 
   const start = async () => {
     setBusy(true); setProgress("starting…");
@@ -21,7 +25,7 @@ export default function LoadDataButton({ onDone }: { onDone?: () => void }) {
           setProgress(`${st.done}/${st.total}${st.current ? ` — ${st.current}` : ""}`
             + (st.current_candles ? ` (${st.current_candles})` : ""));
           if (!st.running) {
-            window.clearInterval(poll);
+            window.clearInterval(poll); pollRef.current = null;
             setBusy(false);
             if (st.succeeded > 0) {
               app.toast(`Real data loaded (${st.succeeded} series)`, "success");
@@ -32,6 +36,7 @@ export default function LoadDataButton({ onDone }: { onDone?: () => void }) {
           }
         } catch { /* keep polling */ }
       }, 3000);
+      pollRef.current = poll;
     } catch {
       setBusy(false);
       app.toast("Could not start the data load — backend reachable?", "error");

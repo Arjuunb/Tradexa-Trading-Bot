@@ -4,6 +4,7 @@ import AreaLine from "../components/chart/AreaLine";
 import BarChart from "../components/chart/BarChart";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
+import OfflineBanner from "../components/common/OfflineBanner";
 import { useApp } from "../app-context";
 import { apiGet, apiPostJson, useLive, hhmmss, type CustomSpec, type SimResult } from "../lib/api";
 import ControlBar from "../components/control/ControlBar";
@@ -40,6 +41,7 @@ const BAR_CHOICES = [500, 1000, 2000, 3000, 5000, 8000, 10000];
 export default function SimulationPage() {
   const app = useApp();
   const saved = useLive<CustomSpec[]>("/strategy/custom", 6000);
+  const sysErr = useLive("/system/status", 5000).error;
   const [mode, setMode] = useState<"builtin" | "custom">("builtin");
   const [selId, setSelId] = useState<string>("");
   const [bars, setBars] = useState(3000);
@@ -106,6 +108,8 @@ export default function SimulationPage() {
   return (
     <>
       <PageHeader title="Simulation" subtitle="Forward simulation with the trade-quality brain · Backtest → Simulation → Paper → Live" />
+
+      <OfflineBanner show={Boolean(sysErr) && !saved.data} what="the simulator" />
 
       <ControlBar onResult={onControlResult} />
 

@@ -10,6 +10,7 @@ threads don't survive a restart.
 from __future__ import annotations
 
 import json
+import threading
 import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -31,6 +32,11 @@ class SqliteStore:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # M-3: this store is shared between request threads and the bot
+        # lifecycle. Serialize access with a lock (like every other store) and
+        # let concurrent access wait rather than raise "database is locked".
+        self._lock = threading.RLock()
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._migrate()
 
     # ---------------------------------------------------------- migrations
@@ -51,19 +57,21 @@ class SqliteStore:
     # ---------------------------------------------------------------- CRUD
     def save(self, bot: Bot) -> None:
         cfg = bot.config
-        self._conn.execute(
+        with self._lock:
+          self._conn.execute(
             "INSERT OR REPLACE INTO bots"
             "(id, name, strategy, exchange, symbol, timeframe, mode, risk_json,"
             " starting_cash, state, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (cfg.id, cfg.name, cfg.strategy, cfg.exchange, cfg.symbol,
              cfg.timeframe, cfg.mode.value, json.dumps(asdict(cfg.risk)),
              cfg.starting_cash, bot.runtime.state.value, cfg.created_at.isoformat()),
-        )
-        self._conn.commit()
+          )
+          self._conn.commit()
 
     def delete(self, bot_id: str) -> None:
-        self._conn.execute("DELETE FROM bots WHERE id = ?", (bot_id,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM bots WHERE id = ?", (bot_id,))
+            self._conn.commit()
 
     def load_all(self) -> list[Bot]:
         out: list[Bot] = []
@@ -85,13 +93,14 @@ class SqliteStore:
     def create_user(self, username: str, password: str, role: str = "operator") -> User:
         salt, pw_hash = auth.hash_password(password)
         user = User(username=username, password_hash=pw_hash, salt=salt, role=role)
-        self._conn.execute(
-            "INSERT OR REPLACE INTO users"
-            "(username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?)",
-            (user.username, user.password_hash, user.salt, user.role,
-             user.created_at.isoformat()),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO users"
+                "(username, password_hash, salt, role, created_at) VALUES (?,?,?,?,?)",
+                (user.username, user.password_hash, user.salt, user.role,
+                 user.created_at.isoformat()),
+            )
+            self._conn.commit()
         return user
 
     def get_user(self, username: str) -> User | None:
@@ -125,9 +134,10 @@ class SqliteStore:
 
     def set_password(self, username: str, new_password: str) -> None:
         salt, pw_hash = auth.hash_password(new_password)
-        self._conn.execute("UPDATE users SET password_hash=?, salt=? WHERE username=?",
-                           (pw_hash, salt, username))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("UPDATE users SET password_hash=?, salt=? WHERE username=?",
+                               (pw_hash, salt, username))
+            self._conn.commit()
 
     # -------------------------------------------------- per-user settings
     def get_user_settings(self, username: str, namespace: str) -> dict:
@@ -145,22 +155,24 @@ class SqliteStore:
 
     def set_user_settings(self, username: str, namespace: str, data: dict) -> None:
         import json
-        self._conn.execute(
-            "INSERT OR REPLACE INTO user_settings(username, namespace, data, updated_at) "
-            "VALUES (?,?,?,?)",
-            (username, namespace, json.dumps(data),
-             datetime.now(timezone.utc).isoformat()))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO user_settings(username, namespace, data, updated_at) "
+                "VALUES (?,?,?,?)",
+                (username, namespace, json.dumps(data),
+                 datetime.now(timezone.utc).isoformat()))
+            self._conn.commit()
 
     def delete_user_settings(self, username: str, namespace: str | None = None) -> None:
         """Explicit reset only — called from the user's own Reset actions."""
-        if namespace is None:
-            self._conn.execute("DELETE FROM user_settings WHERE username=?", (username,))
-        else:
-            self._conn.execute(
-                "DELETE FROM user_settings WHERE username=? AND namespace=?",
-                (username, namespace))
-        self._conn.commit()
+        with self._lock:
+            if namespace is None:
+                self._conn.execute("DELETE FROM user_settings WHERE username=?", (username,))
+            else:
+                self._conn.execute(
+                    "DELETE FROM user_settings WHERE username=? AND namespace=?",
+                    (username, namespace))
+            self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
