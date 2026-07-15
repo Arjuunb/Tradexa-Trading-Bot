@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
@@ -35,6 +35,8 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
   const [cmpTf, setCmpTf] = useState("15m");
   const [loadingData, setLoadingData] = useState(false);
   const [loadProgress, setLoadProgress] = useState("");
+  const pollRef = useRef<number | null>(null);
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
 
   useEffect(() => {
     apiGet<ControlOptions>("/control/options").then((o) => {
@@ -70,7 +72,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
           setLoadProgress(`${st.done}/${st.total}${st.current ? ` — ${st.current}` : ""}`
             + (st.current_candles ? ` (${st.current_candles})` : ""));
           if (!st.running) {
-            window.clearInterval(poll);
+            window.clearInterval(poll); pollRef.current = null;
             setLoadingData(false);
             if (st.failed > 0 && st.succeeded === 0) {
               app.toast("Data load failed — is the exchange reachable from the server?", "error");
@@ -81,6 +83,7 @@ export default function ControlBar({ onResult }: { onResult: (r: ControlSimResul
           }
         } catch { /* keep polling */ }
       }, 3000);
+      pollRef.current = poll;
     } catch {
       setLoadingData(false);
       app.toast("Could not start the data load — backend reachable?", "error");

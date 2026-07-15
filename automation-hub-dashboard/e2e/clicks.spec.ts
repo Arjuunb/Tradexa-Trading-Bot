@@ -62,6 +62,7 @@ test("clicking every content button on every page never throws", async ({ page }
 // ── paper controls fire the right endpoints ──
 test("paper controls POST pause / stop / resume", async ({ page }) => {
   await mockApi(page);
+  page.on("dialog", (d) => d.accept());   // Pause All / Stop All now confirm first (H-6)
   await page.goto("/#/paper-trading");
   await page.waitForTimeout(500);
   for (const [label, path] of [

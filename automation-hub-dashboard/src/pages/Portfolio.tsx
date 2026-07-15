@@ -2,13 +2,14 @@ import Card from "../components/common/Card";
 import Doughnut from "../components/chart/Doughnut";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
+import OfflineBanner from "../components/common/OfflineBanner";
 import { useLive, hhmmss, type LedgerPosition, type PaperAccount, type RiskSummary, type PortfolioRisk } from "../lib/api";
 
 const money = (n: number | undefined) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const COLORS = ["#eab54f", "#22c55e", "#3b82f6", "#eab54f", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
 
 export default function PortfolioPage() {
-  const { data: acct } = useLive<PaperAccount>("/paper/account", 2500);
+  const { data: acct, error: acctErr } = useLive<PaperAccount>("/paper/account", 2500);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 2500);
   const { data: pf } = useLive<PortfolioRisk>("/risk/portfolio?timeframe=1d", 4000);
   const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 2500);
@@ -28,6 +29,8 @@ export default function PortfolioPage() {
     <>
       <PageHeader title="Portfolio" subtitle="Allocation, exposure and risk across open paper positions"
         actions={pf && <Badge text={`${lvl} risk`} tone={lvlTone as any} />} />
+
+      <OfflineBanner show={Boolean(acctErr) && !acct} what="your portfolio" />
 
       <div className="stat-row">
         <StatCard label="Equity" value={money(pf?.equity ?? risk?.equity ?? acct?.balance)} />

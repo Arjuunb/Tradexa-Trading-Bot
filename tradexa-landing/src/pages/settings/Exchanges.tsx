@@ -61,9 +61,11 @@ export default function Exchanges() {
     toast("Connection test runs against the venue when the backend is connected.", "info");
 
   const save = (ex: Exchange) => {
+    // Live trading is not wired yet — Tradexa runs in paper mode. Keys entered
+    // here stay in this browser session only; they are NOT stored or transmitted.
     setConnected((prev) => ({ ...prev, [ex.id]: true }));
     setOpen((prev) => ({ ...prev, [ex.id]: false }));
-    toast(`${ex.name} keys saved and encrypted.`, "success");
+    toast(`${ex.name} noted for this session — live trading isn't enabled yet, so nothing is stored or sent.`, "info");
   };
 
   const disconnect = (ex: Exchange) => {
@@ -80,6 +82,12 @@ export default function Exchanges() {
         description="Link your exchange accounts with API keys. Tradexa trades on your behalf — it never holds your funds."
       />
 
+      <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[13px] text-white/60">
+        <b className="text-white/80">Preview.</b> Exchange connections aren’t wired to the engine yet —
+        Tradexa runs in <b>paper mode</b>. Keys entered here are not stored or transmitted; live execution
+        is a future release.
+      </div>
+
       <div className="mb-5 flex items-start gap-3 rounded-xl border border-gold/30 bg-gold/[0.07] px-4 py-3.5">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-gold">
           <Lock className="h-4 w-4" />
@@ -88,7 +96,7 @@ export default function Exchanges() {
           <p className="font-medium text-white/90">
             Tradexa only needs trade permissions. NEVER enable withdrawal permissions on your API keys.
           </p>
-          <p className="mt-0.5 text-[13px] text-white/55">Keys are encrypted before storage.</p>
+          <p className="mt-0.5 text-[13px] text-white/55">Tradexa runs in paper mode and never holds your funds.</p>
         </div>
       </div>
 
@@ -108,7 +116,7 @@ export default function Exchanges() {
                     <h3 className="text-[15px] font-semibold text-white">{ex.name}</h3>
                     <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-white/45">
                       <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                      We verify keys are trade-only, no withdrawals.
+                      Use trade-only keys with withdrawals disabled.
                     </p>
                   </div>
                 </div>
@@ -179,7 +187,7 @@ export default function Exchanges() {
 
                       <p className="flex items-center gap-1.5 text-[13px] text-white/45">
                         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-soft" />
-                        Permission checker: we verify keys are trade-only, no withdrawals.
+                        Reminder: create trade-only keys with withdrawals disabled.
                       </p>
 
                       <div className="flex flex-wrap items-center justify-end gap-2.5">
