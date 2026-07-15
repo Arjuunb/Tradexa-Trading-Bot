@@ -41,6 +41,45 @@ function Row({ k, v, tone }: { k: string; v: any; tone?: string }) {
   );
 }
 
+interface StorageInfo {
+  tier: string; persistent: boolean; warning: string | null;
+  at_risk: string[]; supabase_connected: boolean; hub_data_dir_set: boolean;
+}
+
+const TIER_TONE: Record<string, "green" | "amber" | "red"> = {
+  disk: "green", supabase: "amber", ephemeral: "red",
+};
+const TIER_LABEL: Record<string, string> = {
+  disk: "Persistent disk — everything survives redeploys",
+  supabase: "Supabase — trade history survives; account/settings/memory do NOT",
+  ephemeral: "Ephemeral — nothing survives a redeploy",
+};
+
+function StorageDurability() {
+  const s = useLive<StorageInfo>("/ops/storage", 30000).data;
+  if (!s) return null;
+  const tone = TIER_TONE[s.tier] ?? "amber";
+  const border = tone === "green" ? "var(--green)" : tone === "amber" ? "var(--gold)" : "var(--red)";
+  return (
+    <div className="card" style={{ borderLeft: `3px solid ${border}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <Icon name={s.persistent ? "check" : "warning"} size={16}
+              className={s.persistent ? "pos" : tone === "red" ? "neg" : "amber"} />
+        <b style={{ fontSize: 14 }}>Storage durability</b>
+        <Badge text={s.tier} tone={tone} />
+        <span className="dim" style={{ fontSize: 13 }}>{TIER_LABEL[s.tier] ?? ""}</span>
+      </div>
+      {s.warning && <p className="dim" style={{ margin: "8px 0 0", fontSize: 13 }}>{s.warning}</p>}
+      {s.at_risk?.length > 0 && (
+        <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+          <span className="neg" style={{ fontWeight: 600 }}>At risk on next redeploy: </span>
+          <span className="dim">{s.at_risk.join(" · ")}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function BotHealthPage() {
   const h = useLive<BotHealth>("/health/bot", 3000);
   const d = h.data;
@@ -49,6 +88,8 @@ export default function BotHealthPage() {
   return (
     <>
       <PageHeader title="Bot Health" subtitle="live operational status — engine, feed, broker, risk, watchdog, errors" />
+
+      <StorageDurability />
 
       {offline && (
         <div className="card" style={{ borderColor: "#ef4444", display: "flex", alignItems: "center", gap: 10 }}>

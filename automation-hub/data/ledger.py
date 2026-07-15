@@ -183,6 +183,27 @@ class SqliteLedger:
             return [dict(r) for r in self._c.execute(
                 "SELECT * FROM alerts ORDER BY ts DESC LIMIT ?", (limit,))]
 
+    def prune(self, keep_logs=50000, keep_alerts=10000, keep_events=20000) -> dict:
+        """Retention cap for the noisy append-only tables (bot_logs, alerts,
+        webhook_events) — keep the most recent N of each, delete older. Trade
+        rows (positions / paper_trades) are NEVER pruned; they are the record."""
+        out = {}
+        with self._lock:
+            # id is a random string on these tables, so order by the real
+            # timestamp column to keep the NEWEST rows (not a random subset).
+            for table, tcol, keep, key in (("bot_logs", "ts", keep_logs, "logs"),
+                                           ("alerts", "ts", keep_alerts, "alerts"),
+                                           ("webhook_events", "received_at", keep_events, "events")):
+                try:
+                    cur = self._c.execute(
+                        f"DELETE FROM {table} WHERE id NOT IN "
+                        f"(SELECT id FROM {table} ORDER BY {tcol} DESC LIMIT ?)", (int(keep),))
+                    out[key] = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                except Exception:  # noqa: BLE001 — a table variant may differ
+                    out[key] = 0
+            self._c.commit()
+        return out
+
     def close(self):
         with self._lock:
             self._c.close()

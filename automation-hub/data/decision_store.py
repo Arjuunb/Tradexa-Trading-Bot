@@ -99,6 +99,20 @@ class DecisionStore:
         with self._lock:
             return [self._row(r) for r in self._c.execute(sql, args)]
 
+    def prune(self, keep: int = 20000) -> int:
+        """Retention cap — keep the most recent ``keep`` decisions (by id, which
+        is chronological), delete older. Bounds growth on a persistent disk."""
+        with self._lock:
+            cur = self._c.execute(
+                "DELETE FROM decisions WHERE id NOT IN "
+                "(SELECT id FROM decisions ORDER BY id DESC LIMIT ?)", (int(keep),))
+            self._c.commit()
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+    def count(self) -> int:
+        with self._lock:
+            return int(self._c.execute("SELECT COUNT(*) c FROM decisions").fetchone()["c"])
+
     def get(self, decision_id: int) -> Optional[dict]:
         with self._lock:
             r = self._c.execute("SELECT * FROM decisions WHERE id=?",

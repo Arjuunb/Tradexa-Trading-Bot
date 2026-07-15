@@ -102,6 +102,15 @@ class SkippedTradeStore:
         with self._lock:
             return [self._row(r) for r in self._c.execute(sql, args)]
 
+    def prune(self, keep: int = 20000) -> int:
+        """Keep the most recent ``keep`` skipped-trade rows (by id); delete older."""
+        with self._lock:
+            cur = self._c.execute(
+                "DELETE FROM skipped_trades WHERE id NOT IN "
+                "(SELECT id FROM skipped_trades ORDER BY id DESC LIMIT ?)", (int(keep),))
+            self._c.commit()
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
     def summary(self) -> list[dict]:
         """Count of skips per failed gate — where the bot says 'no' most."""
         with self._lock:
