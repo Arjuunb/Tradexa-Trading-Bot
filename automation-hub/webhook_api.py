@@ -282,13 +282,52 @@ def _memory_review() -> None:
                    message=f"Trade-memory review failed: {type(e).__name__}")
 
 
+# Retention pruning (M-6): cap the append-only tables each night so a
+# persistent disk never fills. Trade rows are never pruned — they are the record.
+def _retention_prune() -> None:
+    keep = int(_os.environ.get("HUB_RETENTION_ROWS", "20000"))
+    try:
+        led = ledger.prune(keep_logs=keep * 2, keep_alerts=max(2000, keep // 2),
+                           keep_events=keep)
+        dec = decision_store.prune(keep=keep)
+        skp = skipped_store.prune(keep=keep)
+        ledger.log(level="info", stage="ops",
+                   message=f"Retention prune: ledger={led} decisions={dec} skipped={skp}")
+    except Exception as e:  # noqa: BLE001 — pruning must never crash the nightly run
+        ledger.log(level="warning", stage="ops", message=f"Retention prune failed: {e}")
+
+
+# Storage durability (H-1): assess whether state survives a redeploy and warn
+# LOUDLY at boot if it does not, so no one runs on disposable storage silently.
+from services.storage_health import assess as _assess_storage, boot_banner as _storage_banner  # noqa: E402
+from data.ledger import SUPABASE_STATUS as _SUPA  # noqa: E402
+
+
+def storage_assessment() -> dict:
+    return _assess_storage(
+        data_dir=str(_config.DATA_DIR),
+        hub_data_dir_set=bool(_os.environ.get("HUB_DATA_DIR")),
+        on_cloud=bool(_os.environ.get("RENDER") or _os.environ.get("DYNO")),
+        supabase_connected=bool(_SUPA.get("connected")))
+
+
+_boot_storage = storage_assessment()
+_boot_banner = _storage_banner(_boot_storage)
+if _boot_banner:
+    import sys as _sys
+    print(_boot_banner, file=_sys.stderr, flush=True)
+    ledger.log(level="warning", stage="ops",
+               message=(_boot_storage["warning"] or "Storage not fully durable"))
+
+
 daily_tasks = DailyTasks(
     notifier.send_async, _daily_report_data,
     hour=int(_os.environ.get("HUB_DAILY_REPORT_HOUR", "8")),
     extra=[lambda: ledger.log(level="info", stage="ops",
                               message=f"Nightly backup: {_backup_now(str(_config.DATA_DIR))['snapshot']}"),
            _auto_retune_check,
-           _memory_review])
+           _memory_review,
+           _retention_prune])
 daily_tasks.start()
 
 # Apply persisted runtime overrides on top of env defaults.

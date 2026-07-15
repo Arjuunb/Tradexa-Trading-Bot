@@ -254,16 +254,20 @@ def ops_storage():
                            "bytes": _wa._os.path.getsize(p) if _wa._os.path.exists(p) else 0}
         except OSError:
             files[name] = {"path": p, "exists": False, "bytes": 0}
-    data_dir_set = bool(_wa._os.environ.get("HUB_DATA_DIR"))
-    on_cloud = bool(_wa._os.environ.get("RENDER") or _wa._os.environ.get("DYNO"))
-    warning = None
-    if on_cloud and not data_dir_set:
-        warning = ("Storage is EPHEMERAL: every redeploy wipes trade history, cached "
-                   "candles and learned lessons. Attach a persistent disk and set "
-                   "HUB_DATA_DIR to its mount path.")
-    return {"data_dir": str(_cfg.DATA_DIR), "hub_data_dir_set": data_dir_set,
-            "persistent": data_dir_set or not on_cloud, "warning": warning,
-            "files": files}
+    # include the stores the old version omitted (account / users+settings /
+    # trade memory / decisions), so "at risk" reflects EVERYTHING at stake.
+    for name, p in (("paper_account", _wa.settings.account_db),
+                    ("users_and_settings", _wa.settings.db_path),
+                    ("trade_memory", _wa.settings.trade_memory_db),
+                    ("decisions", _wa.settings.decisions_db)):
+        try:
+            files[name] = {"path": p, "exists": _wa._os.path.exists(p),
+                           "bytes": _wa._os.path.getsize(p) if _wa._os.path.exists(p) else 0}
+        except OSError:
+            files[name] = {"path": p, "exists": False, "bytes": 0}
+    # honest durability tier — disk / supabase(ledger-only) / ephemeral
+    a = _wa.storage_assessment()
+    return {**a, "files": files}
 
 
 @router.get("/validation/paper")

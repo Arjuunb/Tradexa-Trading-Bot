@@ -61,3 +61,22 @@ services:
       # for free (env config, not disk). Defaults to 10000.
       - key: HUB_STARTING_CASH
         sync: false
+    # --- FULL persistence across redeploys (recommended for real users) ---
+    # A Supabase project (above) preserves TRADE HISTORY only. To make the paper
+    # account, user accounts, saved settings and AI memory ALSO survive every
+    # redeploy, mount a persistent disk and point HUB_DATA_DIR at it. Uncomment
+    # the two blocks below. NOTE: attaching a disk moves the service off the
+    # `free` plan onto a paid instance (Render requirement) — change `plan: free`
+    # above to `plan: starter` when you enable this.
+    #
+    #   - key: HUB_DATA_DIR
+    #     value: /var/hubdata
+    #
+    # disk:
+    #   name: hub-data
+    #   mountPath: /var/hubdata
+    #   sizeGB: 1
+    #
+    # Until then, the app logs a loud STORAGE DURABILITY WARNING at boot and the
+    # Bot Health page shows the current tier (disk / supabase / ephemeral) so you
+    # always know exactly what survives a redeploy.
