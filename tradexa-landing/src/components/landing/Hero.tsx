@@ -22,7 +22,7 @@ export function Hero() {
           <motion.div variants={item}>
             <span className="eyebrow">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Institutional-grade automation
+              Your personal trading intelligence
             </span>
           </motion.div>
 
@@ -30,16 +30,17 @@ export function Hero() {
             variants={item}
             className="mt-6 text-balance text-5xl font-extrabold leading-[1.03] tracking-tight text-white sm:text-6xl lg:text-[4.25rem]"
           >
-            Trade Smarter.
+            A Trading Bot
             <br />
-            Execute Faster.
+            That Remembers
             <br />
-            <span className="text-gold-gradient">Stay in Control.</span>
+            <span className="text-gold-gradient">How You Trade.</span>
           </motion.h1>
 
           <motion.p variants={item} className="mt-6 max-w-xl text-lg leading-relaxed text-white/60">
-            Tradexa Trading Bot automatically analyzes markets, executes your strategies, manages
-            risk, and gives you complete transparency over every trade.
+            Tradexa doesn’t simply execute trades. It remembers every decision, learns from every
+            mistake, and understands how you trade — every trade becomes part of your personal
+            trading intelligence.
           </motion.p>
 
           <motion.div variants={item} className="mt-9 flex flex-col gap-3 sm:flex-row">
@@ -63,7 +64,7 @@ export function Hero() {
           >
             <span className="tabular">Tagline</span>
             <span className="h-4 w-px bg-line" />
-            <span className="font-medium text-white/60">Automated Trading. Human Intelligence.</span>
+            <span className="font-medium text-white/60">Every trade becomes knowledge.</span>
           </motion.div>
         </motion.div>
 

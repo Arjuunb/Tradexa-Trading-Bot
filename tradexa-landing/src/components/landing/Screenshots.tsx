@@ -77,7 +77,7 @@ const VIEWS: View[] = [
     label: "Trade History",
     icon: ListOrdered,
     render: () => (
-      <Panel title="Recent Trades">
+      <Panel title="Memory Timeline">
         <div className="divide-y divide-line">
           {[
             ["BTC/USDT", "LONG", "+2.4R", true],

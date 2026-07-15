@@ -25,8 +25,8 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: BrainCircuit,
-    title: "AI Strategy Engine",
-    body: "Automatically detects market structure, trend shifts and confirmations — and executes only high-quality setups.",
+    title: "Decision Engine",
+    body: "Reads market structure, scores every setup, and acts only on high-quality entries — explaining every yes and every no.",
     span: true,
   },
   {
@@ -48,8 +48,8 @@ const FEATURES: Feature[] = [
   },
   {
     icon: NotebookText,
-    title: "Trade Journal Integration",
-    body: "Every completed trade flows automatically into the Tradexa Journal for review and coaching.",
+    title: "Trading Memory",
+    body: "Every completed trade becomes permanent memory — the outcome, the mistake, the lesson and the coaching that sharpen the next decision.",
   },
   {
     icon: Building2,
@@ -70,8 +70,8 @@ export function Features() {
       <div className="container-x">
         <SectionHeading
           eyebrow="Capabilities"
-          title="Everything an automated desk needs"
-          subtitle="Purpose-built for traders who want speed and automation without giving up control or transparency."
+          title="Built to remember, decide and protect"
+          subtitle="A long-term trading companion — disciplined execution today, and a memory of your trading that compounds over time."
         />
 
         <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
