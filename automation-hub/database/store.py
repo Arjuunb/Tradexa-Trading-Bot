@@ -129,5 +129,38 @@ class SqliteStore:
                            (pw_hash, salt, username))
         self._conn.commit()
 
+    # -------------------------------------------------- per-user settings
+    def get_user_settings(self, username: str, namespace: str) -> dict:
+        """The user's saved workspace blob for one namespace ({} if none)."""
+        import json
+        r = self._conn.execute(
+            "SELECT data FROM user_settings WHERE username=? AND namespace=?",
+            (username, namespace)).fetchone()
+        if r is None:
+            return {}
+        try:
+            return json.loads(r["data"]) or {}
+        except Exception:  # noqa: BLE001 — corrupt blob -> behave as empty
+            return {}
+
+    def set_user_settings(self, username: str, namespace: str, data: dict) -> None:
+        import json
+        self._conn.execute(
+            "INSERT OR REPLACE INTO user_settings(username, namespace, data, updated_at) "
+            "VALUES (?,?,?,?)",
+            (username, namespace, json.dumps(data),
+             datetime.now(timezone.utc).isoformat()))
+        self._conn.commit()
+
+    def delete_user_settings(self, username: str, namespace: str | None = None) -> None:
+        """Explicit reset only — called from the user's own Reset actions."""
+        if namespace is None:
+            self._conn.execute("DELETE FROM user_settings WHERE username=?", (username,))
+        else:
+            self._conn.execute(
+                "DELETE FROM user_settings WHERE username=? AND namespace=?",
+                (username, namespace))
+        self._conn.commit()
+
     def close(self) -> None:
         self._conn.close()

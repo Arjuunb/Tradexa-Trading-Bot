@@ -118,6 +118,7 @@ export default function SettingsPage() {
       <AccountCard />
 
       <PaperCapitalCard />
+      <WorkspaceCard />
 
       <div className="grid-2-eq">
         <Card title="Risk Management" subtitle="editable · applied live + persisted">
@@ -330,6 +331,30 @@ function PaperCapitalCard() {
       <p className="dim" style={{ fontSize: 11, marginTop: 6 }}>
         Changing initial capital resets the paper account (equity + trade history) after an explicit confirmation. It never affects live trading — live stays locked.
       </p>
+    </Card>
+  );
+}
+
+function WorkspaceCard() {
+  const app = useApp();
+  const [busy, setBusy] = useState(false);
+  const reset = async () => {
+    if (!window.confirm("Reset saved dashboard preferences (filters, chart timeframes, layout state)? Trades, journal and memory are NOT touched.")) return;
+    setBusy(true);
+    const { resetDashboardPrefs } = await import("../lib/prefs");
+    await resetDashboardPrefs();
+    setBusy(false);
+    app.toast("Dashboard preferences reset — defaults restored.", "success");
+  };
+  return (
+    <Card title="Workspace" subtitle="per-user preferences · saved to your account on every change">
+      <p className="dim" style={{ fontSize: 12.5, marginBottom: 10 }}>
+        Filters, chart timeframes and view preferences are saved to your account as you change
+        them, and restored on every login. Nothing resets unless you ask it to.
+      </p>
+      <button className="btn btn-warn" disabled={busy} onClick={() => void reset()}>
+        <Icon name="refresh" size={13} /> {busy ? "…" : "Reset dashboard preferences"}
+      </button>
     </Card>
   );
 }

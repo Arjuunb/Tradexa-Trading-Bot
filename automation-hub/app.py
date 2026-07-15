@@ -374,6 +374,57 @@ def auth_logout(request: Request):
     return resp
 
 
+# ------------------------------------------------- persistent user workspace
+# Per-user settings blobs (namespace -> JSON), session-authenticated and
+# strictly isolated by username. The backend DB is the source of truth; the
+# frontends use localStorage only as a fast-boot cache. Nothing here is ever
+# reset implicitly — DELETE is wired only to the user's explicit Reset actions.
+_SETTINGS_NAMESPACES = ("settings-center", "dashboard", "preferences")
+
+
+@app.get("/user/settings")
+async def user_settings_get(request: Request, ns: str = "settings-center"):
+    from fastapi.responses import JSONResponse
+    u = _user(request)
+    if not u:
+        return JSONResponse({"error": "Not signed in"}, status_code=401)
+    if ns not in _SETTINGS_NAMESPACES:
+        return JSONResponse({"error": f"Unknown namespace {ns!r}"}, status_code=400)
+    return {"ns": ns, "data": store.get_user_settings(u, ns)}
+
+
+@app.post("/user/settings")
+async def user_settings_set(request: Request):
+    from fastapi.responses import JSONResponse
+    u = _user(request)
+    if not u:
+        return JSONResponse({"error": "Not signed in"}, status_code=401)
+    body = await request.json()
+    ns = str(body.get("ns", "settings-center"))
+    data = body.get("data")
+    if ns not in _SETTINGS_NAMESPACES:
+        return JSONResponse({"error": f"Unknown namespace {ns!r}"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "data must be an object"}, status_code=400)
+    if len(str(data)) > 200_000:
+        return JSONResponse({"error": "settings blob too large"}, status_code=413)
+    store.set_user_settings(u, ns, data)
+    return {"saved": True, "ns": ns}
+
+
+@app.delete("/user/settings")
+async def user_settings_reset(request: Request, ns: str = ""):
+    """Explicit reset only (Reset Settings / Reset Dashboard / Factory Reset)."""
+    from fastapi.responses import JSONResponse
+    u = _user(request)
+    if not u:
+        return JSONResponse({"error": "Not signed in"}, status_code=401)
+    if ns and ns not in _SETTINGS_NAMESPACES:
+        return JSONResponse({"error": f"Unknown namespace {ns!r}"}, status_code=400)
+    store.delete_user_settings(u, ns or None)
+    return {"reset": True, "ns": ns or "all"}
+
+
 @app.post("/auth/change-password")
 async def auth_change_password(request: Request):
     u = _user(request)

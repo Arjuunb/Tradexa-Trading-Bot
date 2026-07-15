@@ -309,6 +309,11 @@ def _apply_setting(key: str, value) -> None:
         # applied before the startup event starts the engine, so a persisted
         # timeframe choice survives restarts/redeploys
         engine.timeframe = str(value)
+    elif key == "engine_symbols":
+        # persisted watchlist (comma-separated) — applied before engine start
+        syms = [x.strip().upper() for x in str(value).split(",") if x.strip()]
+        if syms:
+            engine.symbols = syms
     elif key in ("max_open_positions", "session_start", "session_end",
                  "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
                  "trading_days_mask"):
@@ -340,6 +345,7 @@ def _settings_snapshot() -> dict:
         "daily_report_hour": daily_tasks.hour,
         "min_quality_score": engine.min_quality_score,
         "streak_risk_scaling": 1 if pipeline.streak_risk_scaling else 0,
+        "engine_symbols": ",".join(engine.symbols),
     }
 
 

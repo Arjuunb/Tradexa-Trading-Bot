@@ -21,12 +21,12 @@ EDITABLE = ("risk_per_trade_pct", "exposure_limit_pct", "max_drawdown_pct",
             # this list — the strategy choice and quality gate reverted on
             # every reboot.
             "auto_strategy", "entry_mode", "daily_report_hour",
-            "min_quality_score", "streak_risk_scaling")
+            "min_quality_score", "streak_risk_scaling", "engine_symbols")
 _INT_KEYS = {"max_open_positions", "dedup_window_s", "session_start", "session_end",
              "max_trades_per_day", "max_consecutive_losses", "cooldown_after_loss_min",
              "trading_days_mask", "notify_trades", "notify_risk",
              "daily_report_hour", "min_quality_score", "streak_risk_scaling"}
-_STR_KEYS = {"engine_timeframe", "auto_strategy", "entry_mode"}
+_STR_KEYS = {"engine_timeframe", "auto_strategy", "entry_mode", "engine_symbols"}
 
 
 def _cast(key, value):

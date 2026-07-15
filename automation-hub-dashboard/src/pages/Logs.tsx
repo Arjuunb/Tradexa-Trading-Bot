@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader } from "../components/common/ui";
@@ -17,7 +18,7 @@ const catTone = (c: string) =>
 
 function SkippedTrades() {
   const [q, setQ] = useState("");
-  const [stage, setStage] = useState<string>("all");
+  const [stage, setStage] = usePref<string>("logs.stage", "all");
   const [open, setOpen] = useState<number | null>(null);
   const qs = new URLSearchParams({ limit: "200" });
   if (q.trim()) qs.set("q", q.trim());
@@ -150,7 +151,7 @@ const tone = (l: string) => ({ info: "blue", warning: "amber", error: "red" }[l]
 
 export default function LogsPage() {
   const { data, error, loading } = useLive<LogRow[]>("/ledger/logs?limit=300", 2500);
-  const [level, setLevel] = useState<(typeof LEVELS)[number]>("All");
+  const [level, setLevel] = usePref<(typeof LEVELS)[number]>("logs.level", "All");
   const [query, setQuery] = useState("");
 
   const items = data ?? [];
