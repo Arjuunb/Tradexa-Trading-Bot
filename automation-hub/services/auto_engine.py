@@ -129,6 +129,11 @@ class AutoStrategyEngine:
         self.decisions = None
         # Explainable Trading: per-cycle Decision Report store (data.cycle_store)
         self.reports = None
+        # Trading mode: 'full' (auto-execute), 'semi' (queue entries for human
+        # approval), 'signal' (alert only). Persisted via runtime settings.
+        self.trading_mode = "full"
+        # services.approvals.ApprovalStore — the semi-auto approval queue.
+        self.approvals = None
         self._seq = itertools.count(1)
         # Activity tracking — used to explain *why* no trades are happening
         # (e.g. a stalled live feed that never delivers a new candle).
@@ -360,6 +365,20 @@ class AutoStrategyEngine:
             try:
                 self.counterfactual.on_bar(sym, bar)
             except Exception:  # noqa: BLE001 — grading must never affect live
+                pass
+        # 0c. expire un-approved trade ideas past their TTL and grade each as a
+        # missed entry (an approval the user let lapse is a real decision).
+        if self.approvals is not None:
+            try:
+                for _idea in self.approvals.expire():
+                    if self.counterfactual is not None and _idea.get("status") == "expired":
+                        self.counterfactual.record_veto(
+                            symbol=_idea.get("symbol"),
+                            side="long" if _idea.get("side") == "BUY" else "short",
+                            entry=_idea.get("entry"), stop=_idea.get("stop"),
+                            target=_idea.get("target"), rule="approval-ttl",
+                            detail="approval window expired unactioned")
+            except Exception:  # noqa: BLE001 — never let approvals break the loop
                 pass
         # 1. resting limit entry: fill if this bar traded through it.
         self._check_pending(sym, bar)
@@ -619,6 +638,24 @@ class AutoStrategyEngine:
         if pos is not None:   # opposite side of an open position -> this routes as a close
             _mfe, _mae = self._mfe_mae_r(self._managed.get(sym))
             payload["mfe_r"], payload["mae_r"] = _mfe, _mae
+        # Trading-mode gate: FULL AUTO executes immediately; SEMI-AUTO queues a
+        # NEW ENTRY for human approval; SIGNAL records the idea as an alert
+        # only. Exits/flips (pos is not None) ALWAYS execute automatically — a
+        # human must never have to approve getting OUT of a position.
+        if pos is None and self.trading_mode in ("semi", "signal") and self.approvals is not None:
+            # dedup: one ongoing setup shouldn't queue a fresh idea every bar
+            if self.trading_mode == "semi" and self.approvals.has_pending(sym, side):
+                return {"kind": "queued", "idea": None, "duplicate": True}
+            idea = self.approvals.create(payload, decision=decision, verdict=v,
+                                         mode=self.trading_mode)
+            self.ledger.log(
+                level="info", stage="approval", symbol=sym,
+                message=(f"{sym} {side} setup "
+                         + ("queued for approval" if self.trading_mode == "semi"
+                            else "signalled (alert only)")
+                         + f" — idea #{idea['id']}"))
+            return {"kind": "queued" if self.trading_mode == "semi" else "signal",
+                    "idea": idea, "decision": decision, "verdict": v}
         if self.entry_mode == "limit" and pos is None and signal.stop_loss:
             self._pending[sym] = {"side": side, "price": signal.entry,
                                   "target": signal.take_profit,
@@ -655,6 +692,39 @@ class AutoStrategyEngine:
             return {"kind": "rejected", "stage": res.stage, "reason": res.reason,
                     "decision": decision, "verdict": v}
         return {"kind": "noop", "decision": decision, "verdict": v}
+
+    def execute_approved(self, idea: dict) -> dict:
+        """Route a HUMAN-APPROVED trade idea through the SAME risk pipeline a
+        full-auto entry uses, then set up trade management. All risk gates still
+        apply — approval bypasses nothing."""
+        payload = dict(idea.get("_payload") or {})
+        sym = payload.get("symbol")
+        if not sym:
+            return {"ok": False, "reason": "idea has no symbol"}
+        payload["alert_id"] = f"approved-{sym}-{next(self._seq)}"  # fresh id (dedup)
+        payload["approved"] = True
+        res = self._route(payload)
+        if res is None:
+            return {"ok": False, "reason": "pipeline error (see engine log)"}
+        fill = res.fill or {}
+        if res.accepted and fill.get("action") == "opened":
+            self.stats["trades"] += 1
+            entry = fill.get("price") or payload.get("entry")
+            stop = payload.get("stop")
+            self._targets[sym] = payload.get("target")
+            if stop and entry and stop != entry:
+                from services.trade_manager import ManagedTrade
+                self._managed[sym] = ManagedTrade(
+                    side="long" if payload.get("side") == "BUY" else "short",
+                    entry=entry, stop=stop, target=payload.get("target"),
+                    risk=abs(float(entry) - float(stop)))
+            self.ledger.log(level="info", stage="approval", symbol=sym,
+                            message=f"Approved {sym} {payload.get('side')} entry executed")
+            return {"ok": True, "action": "opened", "fill": fill}
+        if not res.accepted:
+            self.stats["rejections"] += 1
+            return {"ok": False, "reason": res.reason, "stage": getattr(res, "stage", "risk")}
+        return {"ok": False, "reason": "no fill", "fill": fill}
 
     def _route(self, payload: dict):
         try:
