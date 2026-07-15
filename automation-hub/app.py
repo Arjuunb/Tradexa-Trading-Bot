@@ -640,8 +640,11 @@ def edit_bot(
     try:
         manager.update(bot_id, name=name, strategy=strategy, symbol=symbol,
                        timeframe=timeframe, risk=rules)
-    except Exception:  # noqa: BLE001 - missing bot -> back to list
-        pass
+    except Exception as e:  # noqa: BLE001 — M-8: surface, don't swallow
+        webhook_api.ledger.log(level="error", stage="bots",
+                               message=f"edit_bot {bot_id} failed: {type(e).__name__}: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(f"/bots?error={quote(f'Could not save bot: {e}')}", status_code=303)
     return RedirectResponse("/bots", status_code=303)
 
 
@@ -672,8 +675,11 @@ def _bot_action(request: Request, action):
         return RedirectResponse("/login", status_code=303)
     try:
         action()
-    except Exception:  # noqa: BLE001 — illegal transition / missing bot -> back to dashboard
-        pass
+    except Exception as e:  # noqa: BLE001 — M-8: surface, don't swallow
+        webhook_api.ledger.log(level="error", stage="bots",
+                               message=f"bot action failed: {type(e).__name__}: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(f"/?error={quote(f'Action failed: {e}')}", status_code=303)
     return RedirectResponse("/", status_code=303)
 
 
@@ -701,8 +707,11 @@ def go_live_bot(bot_id: str, request: Request):
         manager.start_live(bot_id, event_sink=sink)
         hub_events.publish({"type": "lifecycle", "bot_id": bot_id,
                             "bot_name": name, "message": "went live"})
-    except Exception:  # noqa: BLE001 - bad transition/missing bot -> back to dashboard
-        pass
+    except Exception as e:  # noqa: BLE001 — M-8: surface, don't swallow
+        webhook_api.ledger.log(level="error", stage="bots",
+                               message=f"go_live {bot_id} failed: {type(e).__name__}: {e}")
+        from urllib.parse import quote
+        return RedirectResponse(f"/?error={quote(f'Could not go live: {e}')}", status_code=303)
     return RedirectResponse("/", status_code=303)
 
 

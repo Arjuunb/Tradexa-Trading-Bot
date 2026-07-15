@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     opened_at  TEXT NOT NULL,
     closed_at  TEXT
 );
+-- H-5: paper_trades is scanned ~10x per signal (PnL / streak / Kelly / curve);
+-- index the columns those queries filter/order on.
+CREATE INDEX IF NOT EXISTS idx_paper_status ON paper_trades(status);
+CREATE INDEX IF NOT EXISTS idx_paper_opened ON paper_trades(opened_at);
 
 CREATE TABLE IF NOT EXISTS bot_logs (
     id       TEXT PRIMARY KEY,

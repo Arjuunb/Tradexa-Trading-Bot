@@ -9,6 +9,8 @@ shows exactly why a trade executed or was rejected. No real broker is touched.
 """
 from __future__ import annotations
 
+import threading
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -117,6 +119,12 @@ class SignalPipeline:
         # immediately (the Kelly guard needs a window of trades to move) and
         # only ever REDUCES risk — it can never size up.
         self.streak_risk_scaling = True
+        # H-4: serialize the whole signal->risk->open path. The engine
+        # thread and concurrent webhook POSTs both call process(); the
+        # position-cap / existing-position checks are separated from the
+        # open, so without this two signals for one symbol could both pass
+        # the checks and double-open past the cap.
+        self._proc_lock = threading.RLock()
         # Portfolio-level risk: correlated same-direction positions look like
         # diversification but are one oversized bet; total notional is capped
         # across ALL open positions; the equity-curve throttle halves risk while
@@ -155,6 +163,10 @@ class SignalPipeline:
         self._dd_base_count = 0
 
     def process(self, payload: dict) -> PipelineResult:
+        with self._proc_lock:
+            return self._process(payload)
+
+    def _process(self, payload: dict) -> PipelineResult:
         symbol = payload["symbol"]
         side = str(payload["side"]).upper()
         entry = float(payload["entry"])
