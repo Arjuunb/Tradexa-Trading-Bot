@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
@@ -31,8 +32,8 @@ const MODES = ["all", "paper", "live", "sim"] as const;
 const RESULTS = ["all", "win", "loss"] as const;
 
 export default function JournalPage() {
-  const [mode, setMode] = useState<(typeof MODES)[number]>("all");
-  const [result, setResult] = useState<(typeof RESULTS)[number]>("all");
+  const [mode, setMode] = usePref<(typeof MODES)[number]>("journal.mode", "all");
+  const [result, setResult] = usePref<(typeof RESULTS)[number]>("journal.result", "all");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<string | null>(null);
 

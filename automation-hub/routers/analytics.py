@@ -912,6 +912,8 @@ def set_symbols(body: _wa.SymbolsUpdate, x_webhook_secret: _wa.Optional[str] = _
         raise _wa.HTTPException(400, "At least one symbol is required")
     _wa.engine.reconfigure(symbols=syms, timeframe=_wa.engine.timeframe,
                        strategy_factory=_wa.engine.strategy_factory, label=_wa.engine.strategy_label)
+    # persist so the watchlist survives a server restart/redeploy
+    _wa.save_overrides(_wa.settings.settings_path, _wa._settings_snapshot())
     _wa.ledger.log(level="info", stage="audit", message=f"Watchlist applied: {', '.join(syms)}")
     return {"applied": True, "symbols": _wa.engine.symbols}
 

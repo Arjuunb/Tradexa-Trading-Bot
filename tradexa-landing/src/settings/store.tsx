@@ -18,8 +18,14 @@ import { settingsSchema, defaultSettings, type Settings, type SettingsSection } 
  */
 
 const STORAGE_KEY = "tradexa.settings.v1";
-const API_BASE = import.meta.env.VITE_API_BASE as string | undefined;
-const SECRET = import.meta.env.VITE_WEBHOOK_SECRET as string | undefined;
+
+// Signed-in operator sessions get window.__HUB_CONFIG__ injected by the
+// backend (same-origin). That is the signal that a per-user server workspace
+// exists: the DB becomes the source of truth and localStorage is only the
+// fast-boot cache. Signed-out visitors keep local-only behavior.
+function signedIn(): boolean {
+  return typeof window !== "undefined" && Boolean((window as { __HUB_CONFIG__?: unknown }).__HUB_CONFIG__);
+}
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -68,20 +74,39 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     } catch {
       /* storage full / disabled — the in-memory state still works */
     }
-    if (!API_BASE) {
+    if (!signedIn()) {
       setSaveState("saved");
       window.setTimeout(() => setSaveState("idle"), 1400);
       return;
     }
+    // Immediately save to the per-user workspace on the backend (session
+    // cookie authenticates; each user's blob is isolated by username).
     setSaveState("saving");
-    fetch(`${API_BASE}/settings/all`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...(SECRET ? { "X-Webhook-Secret": SECRET } : {}) },
-      body: JSON.stringify(next),
+    fetch("/user/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ns: "settings-center", data: next }),
     })
       .then((r) => setSaveState(r.ok ? "saved" : "error"))
       .catch(() => setSaveState("error"))
       .finally(() => window.setTimeout(() => setSaveState("idle"), 1600));
+  }, []);
+
+  // On login/mount: restore the saved workspace from the database so the user
+  // continues exactly where they left off (server wins over the local cache).
+  useEffect(() => {
+    if (!signedIn()) return;
+    fetch("/user/settings?ns=settings-center")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { data?: Record<string, unknown> } | null) => {
+        const data = body?.data;
+        if (!data || Object.keys(data).length === 0) return;
+        const parsed = settingsSchema.deepPartial().parse(data);
+        const restored = settingsSchema.parse(mergeDeep(defaultSettings, parsed));
+        setSettings(restored);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(restored)); } catch { /* cache only */ }
+      })
+      .catch(() => { /* offline — the local cache already loaded */ });
   }, []);
 
   const commit = useCallback(
@@ -121,7 +146,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<Ctx>(
-    () => ({ settings, saveState, backendConnected: Boolean(API_BASE), update, setSection, reset }),
+    () => ({ settings, saveState, backendConnected: signedIn(), update, setSection, reset }),
     [settings, saveState, update, setSection, reset],
   );
 

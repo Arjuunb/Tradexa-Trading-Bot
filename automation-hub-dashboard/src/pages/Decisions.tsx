@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
@@ -126,7 +127,7 @@ function ReportDetail({ id }: { id: number }) {
 }
 
 export default function DecisionsPage() {
-  const [decision, setDecision] = useState<(typeof DECISIONS)[number]>("all");
+  const [decision, setDecision] = usePref<(typeof DECISIONS)[number]>("decisions.filter", "all");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<number | null>(null);
 

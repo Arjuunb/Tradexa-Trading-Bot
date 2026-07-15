@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import Sparkline from "../components/chart/Sparkline";
@@ -12,7 +13,7 @@ const fmt = (n?: number) => (n == null ? "—" : n.toLocaleString(undefined, { m
 export default function MarketsPage() {
   const { data: sys } = useLive<SystemStatus>("/system/status", 3000);
   const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 3000);
-  const [tf, setTf] = useState<(typeof TFS)[number]>("1d");
+  const [tf, setTf] = usePref<(typeof TFS)[number]>("markets.chartTf", "1d");
 
   const symbols = sys?.symbols ?? [];
   const symParam = symbols.length ? symbols.join(",") : "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT";
