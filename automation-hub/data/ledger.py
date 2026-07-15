@@ -42,7 +42,7 @@ class Ledger(Protocol):
     def close_position(self, position_id: str, *, exit_price: float, pnl: float) -> None: ...
     def get_positions(self, status: Optional[str] = None) -> list[dict]: ...
     def record_paper_trade(self, trade: dict) -> str: ...
-    def close_paper_trade(self, trade_id: str, *, exit_price: float, pnl: float, rr: float) -> None: ...
+    def close_paper_trade(self, trade_id: str, *, exit_price: float, pnl: float, rr: float, size: float | None = None) -> None: ...
     def get_paper_trades(self) -> list[dict]: ...
     # logs / alerts
     def log(self, *, level: str, stage: str, message: str, symbol: str = "") -> None: ...
@@ -139,11 +139,18 @@ class SqliteLedger:
             self._c.commit()
         return tid
 
-    def close_paper_trade(self, trade_id, *, exit_price, pnl, rr):
+    def close_paper_trade(self, trade_id, *, exit_price, pnl, rr, size=None):
         with self._lock:
-            self._c.execute(
-                "UPDATE paper_trades SET status='closed', exit=?, pnl=?, rr=?, closed_at=? WHERE id=?",
-                (exit_price, pnl, rr, _now(), trade_id))
+            if size is None:
+                self._c.execute(
+                    "UPDATE paper_trades SET status='closed', exit=?, pnl=?, rr=?, closed_at=? WHERE id=?",
+                    (exit_price, pnl, rr, _now(), trade_id))
+            else:
+                # M-9: a partial close records the ACTUALLY-closed size on the
+                # closed row (not the original full size), so per-trade R is right.
+                self._c.execute(
+                    "UPDATE paper_trades SET status='closed', exit=?, pnl=?, rr=?, size=?, closed_at=? WHERE id=?",
+                    (exit_price, pnl, rr, size, _now(), trade_id))
             self._c.commit()
 
     def get_paper_trades(self):
@@ -270,10 +277,12 @@ class SupabaseLedger:
             "stop": trade.get("stop"), "status": "open", "opened_at": _now()}).execute()
         return tid
 
-    def close_paper_trade(self, trade_id, *, exit_price, pnl, rr):  # pragma: no cover
-        self._t("paper_trades").update({
-            "status": "closed", "exit": exit_price, "pnl": pnl, "rr": rr,
-            "closed_at": _now()}).eq("id", trade_id).execute()
+    def close_paper_trade(self, trade_id, *, exit_price, pnl, rr, size=None):  # pragma: no cover
+        patch = {"status": "closed", "exit": exit_price, "pnl": pnl, "rr": rr,
+                 "closed_at": _now()}
+        if size is not None:
+            patch["size"] = size   # M-9: closed row shows the actually-closed size
+        self._t("paper_trades").update(patch).eq("id", trade_id).execute()
 
     def get_paper_trades(self):  # pragma: no cover
         return self._t("paper_trades").select("*").order("opened_at", desc=True).execute().data

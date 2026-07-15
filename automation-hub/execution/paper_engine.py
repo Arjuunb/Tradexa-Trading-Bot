@@ -41,6 +41,10 @@ class PaperExecutionEngine:
         # optional data.account_store.AccountStore — persists the account snapshot
         # (current equity / available / realized) so capital survives a restart.
         self.account_store = None
+        # H-5: history() is read ~10x per signal (PnL/streak/Kelly/curve).
+        # Cache the closed-trade list and invalidate on any write, so one
+        # process() call scans the ledger once, not ten times.
+        self._hist_cache = None
 
     # --------------------------------------------------------------- queries
     def open_position(self, symbol: str) -> Optional[dict]:
@@ -53,7 +57,13 @@ class PaperExecutionEngine:
         return self.ledger.get_positions("open")
 
     def history(self) -> list[dict]:
-        return [t for t in self.ledger.get_paper_trades() if t["status"] == "closed"]
+        if self._hist_cache is None:
+            self._hist_cache = [t for t in self.ledger.get_paper_trades()
+                                if t["status"] == "closed"]
+        return self._hist_cache
+
+    def _invalidate_history(self) -> None:
+        self._hist_cache = None
 
     def realized_pnl(self) -> float:
         return sum((t.get("pnl") or 0.0) for t in self.history())
@@ -113,6 +123,7 @@ class PaperExecutionEngine:
             "alert_id": alert_id, "symbol": symbol, "side": direction,
             "size": size, "entry": entry, "stop": stop,
         })
+        self._invalidate_history()
         return FillResult("opened", symbol, direction, size, entry, 0.0, pid, tid)
 
     def reduce(self, *, symbol: str, exit_price: float, fraction: float) -> FillResult:
@@ -135,12 +146,17 @@ class PaperExecutionEngine:
                                   entry=pos["entry"], stop=pos.get("stop"))
         for t in self.ledger.get_paper_trades():
             if t["symbol"] == symbol and t["status"] == "open":
-                self.ledger.close_paper_trade(t["id"], exit_price=exit_price, pnl=pnl, rr=rr)
+                # M-9: the closed row records the CLOSED size (not the full
+                # original), so per-trade R analytics (Growth Journey / Kelly)
+                # see closed_size vs partial pnl — not full size vs partial pnl.
+                self.ledger.close_paper_trade(t["id"], exit_price=exit_price,
+                                              pnl=pnl, rr=rr, size=closed_size)
                 break
         self.ledger.record_paper_trade({
             "alert_id": "", "symbol": symbol, "side": pos["side"],
             "size": remainder, "entry": pos["entry"], "stop": pos.get("stop"),
         })
+        self._invalidate_history()
         self._persist_account_snapshot()
         return FillResult("reduced", symbol, pos["side"], closed_size, exit_price, pnl, pos["id"])
 
@@ -163,6 +179,7 @@ class PaperExecutionEngine:
             if t["symbol"] == symbol and t["status"] == "open":
                 self.ledger.close_paper_trade(t["id"], exit_price=exit_price, pnl=pnl, rr=rr)
                 break
+        self._invalidate_history()
         self._persist_account_snapshot()
         return FillResult("closed", symbol, pos["side"], pos["size"], exit_price, pnl, pos["id"])
 
