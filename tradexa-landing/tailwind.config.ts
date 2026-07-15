@@ -55,8 +55,12 @@ export default {
       backgroundImage: {
         "gold-sheen": "linear-gradient(135deg, #E7D89A 0%, #C8A94B 45%, #A98E3A 100%)",
         "radial-fade": "radial-gradient(ellipse 80% 60% at 50% -10%, rgba(200,169,75,0.14), transparent 60%)",
+        // page base: barely-warm charcoal falling to true black — depth without
+        // leaving the near-black identity
+        "page-depth":
+          "radial-gradient(120% 85% at 50% 0%, #0D0C0A 0%, #08080A 48%, #050506 100%)",
         "grid-lines":
-          "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
+          "linear-gradient(to right, rgba(226,214,182,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(226,214,182,0.045) 1px, transparent 1px)",
       },
       keyframes: {
         "fade-up": {
@@ -66,6 +70,14 @@ export default {
         float: {
           "0%,100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-8px)" },
+        },
+        bloom: {
+          "0%,100%": { transform: "translate(-50%, 0) scale(1)", opacity: "1" },
+          "50%": { transform: "translate(-46%, 2rem) scale(1.08)", opacity: "0.85" },
+        },
+        "bloom-slow": {
+          "0%,100%": { transform: "translate(0, 0) scale(1)" },
+          "50%": { transform: "translate(-3rem, -2.5rem) scale(1.12)" },
         },
         shimmer: {
           "100%": { transform: "translateX(100%)" },
@@ -86,6 +98,8 @@ export default {
         shimmer: "shimmer 2.5s infinite",
         "pulse-ring": "pulse-ring 2s cubic-bezier(0.4,0,0.6,1) infinite",
         "grid-pan": "grid-pan 8s linear infinite",
+        bloom: "bloom 18s ease-in-out infinite",
+        "bloom-slow": "bloom-slow 26s ease-in-out infinite",
       },
     },
   },
