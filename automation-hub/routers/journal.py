@@ -122,6 +122,16 @@ def trade_memory_trades(limit: int = 200, q: Optional[str] = None,
     return {"trades": rows, "total": _wa.trade_memory_store.count()}
 
 
+@router.get("/trade-memory/growth")
+def trade_memory_growth():
+    """Growth Journey — the bot's performance memory summarised from remembered
+    trades only: lifetime record, expectancy, streaks, month-by-month progress
+    and per-strategy / per-symbol splits. Honest empty state until the first
+    trade is remembered; small samples labelled as provisional."""
+    from services.growth_journey import build_growth
+    return build_growth(_wa.trade_memory_store.list(limit=5000))
+
+
 @router.get("/trade-memory/ask")
 def trade_memory_ask(q: str, limit: int = 50):
     """Natural-language query over the memory ('show all losing BTC trades',

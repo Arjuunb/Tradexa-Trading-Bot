@@ -112,6 +112,10 @@ test("Memory — remembers trades, coaches from real data, and keeps honesty mar
   // honesty markers survive — uncaptured/unchecked fields are never faked
   await expect(page.getByText(/Not checked/).first()).toBeVisible();
   await expect(page.getByText(/not captured/).first()).toBeVisible();
+  // Growth Journey: performance memory from remembered trades
+  await expect(page.getByText("Growth Journey")).toBeVisible();
+  await expect(page.getByText("13W\u20138L \u00b7 61.9%")).toBeVisible();
+  await expect(page.getByText(/early sample/)).toBeVisible();
   // AI reflection is present
   await expect(page.getByText(/A-grade win/)).toBeVisible();
   // notes field for the manual journal entry

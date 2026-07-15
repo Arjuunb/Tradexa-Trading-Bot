@@ -39,6 +39,101 @@ const stageTone = (s: string) =>
 const RESULTS = ["all", "win", "loss"] as const;
 const PERIODS = ["nightly", "weekly", "monthly", "yearly"] as const;
 
+
+// ── Growth Journey: the bot's performance MEMORY, summarised ──────────────
+interface GrowthRow { name: string; trades: number; win_rate: number; net_r: number }
+interface Growth {
+  available: boolean; note?: string;
+  totals?: { trades: number; wins: number; losses: number; win_rate: number;
+    net_pnl: number; net_r: number; expectancy_r: number; best_r: number;
+    worst_r: number; profit_factor: number | null };
+  streaks?: { current: number; longest_win: number; longest_loss: number };
+  span?: { first: string | null; last: string | null };
+  monthly?: { month: string; trades: number; net_r: number; win_rate: number }[];
+  by_strategy?: GrowthRow[]; by_symbol?: GrowthRow[];
+  grades?: Record<string, number>; sample_note?: string;
+}
+
+function MiniSplit({ title, rows }: { title: string; rows: GrowthRow[] }) {
+  return (
+    <div style={{ flex: 1, minWidth: 220 }}>
+      <p className="dim" style={{ margin: "0 0 6px", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>{title}</p>
+      <table className="data-table">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name}>
+              <td><b style={{ fontSize: 12.5 }}>{r.name}</b></td>
+              <td className="dim">{r.trades} trades</td>
+              <td className="dim">{r.win_rate}% WR</td>
+              <td className={r.net_r >= 0 ? "pos" : "neg"} style={{ textAlign: "right" }}>
+                {r.net_r >= 0 ? "+" : ""}{r.net_r}R
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GrowthJourney() {
+  const g = useLive<Growth>("/trade-memory/growth", 15000).data;
+  const t = g?.totals;
+  const maxAbs = Math.max(1, ...(g?.monthly ?? []).map((m) => Math.abs(m.net_r)));
+  return (
+    <Card title="Growth Journey" subtitle="the bot's performance memory — computed from remembered trades only">
+      {!g || !g.available ? (
+        <p className="dim" style={{ padding: "14px 0" }}>
+          {g?.note ?? "The journey starts with the first remembered trade."}
+        </p>
+      ) : (
+        <div style={{ display: "grid", gap: 14 }}>
+          {/* lifetime line */}
+          <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "baseline" }}>
+            <span><span className="dim">Record </span><b>{t!.wins}W–{t!.losses}L · {t!.win_rate}%</b></span>
+            <span><span className="dim">Net </span><b className={t!.net_r >= 0 ? "pos" : "neg"}>{t!.net_r >= 0 ? "+" : ""}{t!.net_r}R</b> <span className="dim">(${t!.net_pnl})</span></span>
+            <span><span className="dim">Expectancy </span><b className={t!.expectancy_r >= 0 ? "pos" : "neg"}>{t!.expectancy_r >= 0 ? "+" : ""}{t!.expectancy_r}R/trade</b></span>
+            {t!.profit_factor != null && <span><span className="dim">Profit factor </span><b>{t!.profit_factor}</b></span>}
+            <span><span className="dim">Best / worst </span><b className="pos">+{t!.best_r}R</b> <span className="dim">/</span> <b className="neg">{t!.worst_r}R</b></span>
+            <span><span className="dim">Streak </span><b className={g.streaks!.current >= 0 ? "pos" : "neg"}>
+              {g.streaks!.current > 0 ? `+${g.streaks!.current} wins` : g.streaks!.current < 0 ? `${-g.streaks!.current} losses` : "—"}</b>
+              <span className="dim"> · best run {g.streaks!.longest_win}W · worst {g.streaks!.longest_loss}L</span></span>
+          </div>
+
+          {/* month-by-month net R */}
+          {(g.monthly?.length ?? 0) > 0 && (
+            <div>
+              <p className="dim" style={{ margin: "0 0 6px", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>Month by month (net R)</p>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", height: 74 }}>
+                {g.monthly!.map((m) => (
+                  <div key={m.month} title={`${m.month}: ${m.net_r}R over ${m.trades} trades (${m.win_rate}% WR)`}
+                       style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 56 }}>
+                    <span className={`mono ${m.net_r >= 0 ? "pos" : "neg"}`} style={{ fontSize: 11 }}>{m.net_r >= 0 ? "+" : ""}{m.net_r}</span>
+                    <div style={{ width: 26, height: Math.max(4, (Math.abs(m.net_r) / maxAbs) * 40), borderRadius: 4,
+                                  background: m.net_r >= 0 ? "var(--green)" : "var(--red)", opacity: 0.85 }} />
+                    <span className="dim mono" style={{ fontSize: 10 }}>{m.month.slice(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* splits */}
+          <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+            {(g.by_strategy?.length ?? 0) > 0 && <MiniSplit title="By strategy" rows={g.by_strategy!} />}
+            {(g.by_symbol?.length ?? 0) > 0 && <MiniSplit title="By symbol" rows={g.by_symbol!} />}
+          </div>
+
+          <p className="dim" style={{ margin: 0, fontSize: 11 }}>
+            {Object.entries(g.grades ?? {}).map(([k, v]) => `${k}×${v}`).join(" · ") || ""}
+            {Object.keys(g.grades ?? {}).length ? " — " : ""}{g.sample_note}
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function MemoryPage() {
   const [query, setQuery] = useState("");
   const [asked, setAsked] = useState("");
@@ -121,6 +216,8 @@ export default function MemoryPage() {
         <StatCard label="Sharpe · Sortino" value={ins ? `${ins.sharpe_ratio} · ${ins.sortino_ratio}` : "—"}
                   sub="per-trade R basis" />
       </div>
+
+      <GrowthJourney />
 
       {ins && (
         <Card title="AI Knowledge Base — data-driven coaching">
