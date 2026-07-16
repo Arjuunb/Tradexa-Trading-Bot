@@ -517,6 +517,9 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
     be_at = float(exit_cfg.get("breakeven_at_r", 0) or 0)
     trail_atr = float(exit_cfg.get("trail_atr", 0) or 0)
     time_stop = int(exit_cfg.get("time_stop_bars", 0) or 0)
+    exit_rules = exit_cfg.get("rules") or []          # indicator-exit condition tree
+    exit_op = (exit_cfg.get("op") or "OR")
+    ai_exit = bool(exit_cfg.get("ai_exit"))           # exit on a reversal (CHoCH against the trade)
     atr_period = int(stop_cfg.get("period", 14))
     reversal = bool(spec.get("reversal")) if brain is None else None
     cost = fee + slippage
@@ -559,6 +562,17 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                     exit_px, exit_reason = pos["target"], "target"
             if exit_px is None and time_stop and (i - pos["idx"]) >= time_stop:
                 exit_px, exit_reason = bar.close, "time"
+            # indicator exit: user-built exit conditions (same blocks/engine) —
+            # close at this bar's close if the exit tree fires.
+            if exit_px is None and exit_rules:
+                hit, _ = evaluate({"op": exit_op, "rules": exit_rules}, bars, i)
+                if hit:
+                    exit_px, exit_reason = bar.close, "indicator"
+            # AI exit suggestion: bail on a change-of-character against the trade.
+            if exit_px is None and ai_exit:
+                hit, _ = _rule({"type": "choch", "dir": "down" if pos["side"] == "long" else "up"}, bars, i)
+                if hit:
+                    exit_px, exit_reason = bar.close, "ai-exit"
             if exit_px is not None:
                 move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
                 r = move / pos["risk"] - cost * pos["entry"] * 2 / pos["risk"]

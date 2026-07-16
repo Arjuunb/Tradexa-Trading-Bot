@@ -50,6 +50,13 @@ export default function StrategyStudioPage() {
   const delRule = (i: number) =>
     setSpec((s) => ({ ...s, entry: { ...s.entry, rules: s.entry.rules.filter((_, j) => j !== i) } }));
 
+  // exit conditions (same blocks/engine as entry — a separate condition tree)
+  const exitRules = spec.exit?.rules ?? [];
+  const patchExit = (p: Partial<NonNullable<CustomSpec["exit"]>>) => { patch({ exit: { ...(spec.exit ?? {}), ...p } }); setReview(null); setSim(null); };
+  const addExitBlock = (b: BlockDef) => { const rule: CustomRule = { type: b.type }; b.params.forEach((p) => { rule[p.name] = p.default; }); patchExit({ op: spec.exit?.op ?? "OR", rules: [...exitRules, rule] }); };
+  const setExitRule = (i: number, r: CustomRule) => patchExit({ rules: exitRules.map((x, j) => (j === i ? r : x)) });
+  const delExitRule = (i: number) => patchExit({ rules: exitRules.filter((_, j) => j !== i) });
+
   const backtest = async () => {
     setBusy("sim");
     try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, bars: 3000 })); }
@@ -226,6 +233,44 @@ export default function StrategyStudioPage() {
         </Card>
       </div>
       )}
+
+      {/* exit conditions */}
+      <Card title="Exit Conditions" subtitle="Close early when these fire — stop, target & the options below always apply">
+        <div className="chips" style={{ marginBottom: 10, gap: 12, alignItems: "center" }}>
+          <label className="dim" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+            <input type="checkbox" checked={!!spec.exit?.ai_exit} onChange={(e) => patchExit({ ai_exit: e.target.checked })} /> AI exit on reversal
+          </label>
+          <span className="dim" style={{ fontSize: 12.5 }}>Break-even @R <input className="rule-num" style={{ width: 56 }} type="number" step="0.5" value={spec.exit?.breakeven_at_r ?? 0} onChange={(e) => patchExit({ breakeven_at_r: Number(e.target.value) })} /></span>
+          <span className="dim" style={{ fontSize: 12.5 }}>Trail ATR <input className="rule-num" style={{ width: 56 }} type="number" step="0.5" value={spec.exit?.trail_atr ?? 0} onChange={(e) => patchExit({ trail_atr: Number(e.target.value) })} /></span>
+          <span className="dim" style={{ fontSize: 12.5 }}>Time stop (bars) <input className="rule-num" style={{ width: 56 }} type="number" value={spec.exit?.time_stop_bars ?? 0} onChange={(e) => patchExit({ time_stop_bars: Number(e.target.value) })} /></span>
+          {exitRules.length > 1 && (
+            <span className="chips">{(["OR", "AND"] as const).map((op) => <button key={op} className={`chip-btn ${(spec.exit?.op ?? "OR") === op ? "active" : ""}`} onClick={() => patchExit({ op })}>{op}</button>)}</span>
+          )}
+        </div>
+        {exitRules.map((rule, i) => {
+          const def = blockDefs.get(rule.type);
+          return (
+            <div key={i} className="builder-rule">
+              <span className={`rule-tag ${rule.negate ? "neg" : ""}`}>{rule.negate ? "NOT " : ""}{def?.label ?? rule.type}</span>
+              {(def?.params ?? []).map((p) => (
+                p.type === "select" ? (
+                  <select key={p.name} className="rule-num" value={String(rule[p.name] ?? p.default)} onChange={(e) => setExitRule(i, { ...rule, [p.name]: e.target.value })} title={p.label}>
+                    {(p.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input key={p.name} className="rule-num" type="number" value={Number(rule[p.name] ?? p.default)} onChange={(e) => setExitRule(i, { ...rule, [p.name]: Number(e.target.value) })} title={p.label} />
+                )
+              ))}
+              <button className="chip-btn" title="Negate" onClick={() => setExitRule(i, { ...rule, negate: !rule.negate })}>¬</button>
+              <button className="chip-btn" title="Remove" onClick={() => delExitRule(i)}><Icon name="close" size={12} /></button>
+            </div>
+          );
+        })}
+        <select className="rule-num" style={{ marginTop: 6 }} value="" onChange={(e) => { const b = blockDefs.get(e.target.value); if (b) addExitBlock(b); e.target.value = ""; }}>
+          <option value="">+ add exit condition…</option>
+          {(catalog?.categories ?? []).map((c) => <optgroup key={c.key} label={c.label}>{c.blocks.map((b) => <option key={b.type} value={b.type}>{b.label}</option>)}</optgroup>)}
+        </select>
+      </Card>
 
       {/* AI review + backtest */}
       <div className="grid-2-eq">

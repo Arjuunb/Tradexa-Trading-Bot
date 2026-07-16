@@ -75,6 +75,34 @@ def test_nested_condition_groups_evaluate_and_simulate():
     assert "total_trades" in simulate(spec, bars)          # nested tree runs in the simulator
 
 
+def test_indicator_exit_closes_trades():
+    bars, _ = get_bars("BTCUSDT", n=1500, timeframe="1h")
+    base = {"side": "long", "symbol": "BTCUSDT", "timeframe": "1h",
+            "entry": {"op": "AND", "rules": [{"type": "ema_cross", "fast": 20, "slow": 50, "dir": "above"}]},
+            "stop": {"type": "atr", "mult": 2}, "target": {"type": "rr", "rr": 4}}
+    with_exit = {**base, "exit": {"op": "OR", "rules": [{"type": "ema_cross", "fast": 20, "slow": 50, "dir": "below"}]}}
+    r = simulate(with_exit, bars)
+    reasons = {t.get("exit_reason") for t in r["trades"]}
+    assert "indicator" in reasons              # some trades exit on the indicator rule
+
+
+def test_ai_exit_closes_on_reversal():
+    bars, _ = get_bars("BTCUSDT", n=1500, timeframe="1h")
+    spec = {"side": "long", "symbol": "BTCUSDT", "timeframe": "1h",
+            "entry": {"op": "AND", "rules": [{"type": "ema_cross", "dir": "above"}]},
+            "stop": {"type": "atr", "mult": 2}, "target": {"type": "rr", "rr": 4}, "exit": {"ai_exit": True}}
+    r = simulate(spec, bars)
+    assert any(t.get("exit_reason") == "ai-exit" for t in r["trades"])
+
+
+def test_no_exit_rules_unchanged():
+    bars, _ = get_bars("BTCUSDT", n=800, timeframe="1h")
+    spec = {"side": "long", "entry": {"op": "AND", "rules": [{"type": "ema_cross", "dir": "above"}]},
+            "stop": {"type": "atr", "mult": 2}, "target": {"type": "rr", "rr": 3}}
+    reasons = {t.get("exit_reason") for t in simulate(spec, bars)["trades"]}
+    assert reasons <= {"stop", "target", "breakeven", "time"}      # no indicator/ai exits appear
+
+
 def test_flat_spec_unchanged_by_nesting_support():
     bars = _bars()
     flat = {"op": "AND", "rules": [{"type": "ema_cross"}, {"type": "rsi", "op": "above", "value": 50}]}

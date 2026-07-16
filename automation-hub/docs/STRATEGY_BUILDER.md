@@ -69,11 +69,20 @@ of the last opposing candle before a structure break), and **Supply / Demand
 Zone** (return to a base after an impulse). The palette is data-driven, so they
 appear automatically in both the Form and Canvas builders.
 
-### Still deferred
-Exit *conditions* (indicator-exit, AI-exit) — these need the simulator's exit
-loop to evaluate an exit rule tree each bar (a bigger engine change than the
-entry blocks); the current exits are stop / target / break-even / trailing /
-time-stop.
+### Exit conditions (done)
+Strategies can now close early on **exit conditions**, not just stop/target:
+- **Indicator exit** — a second condition tree (`spec.exit.rules`, OR by default)
+  built from the **same blocks / same `evaluate()`** as entries; `simulate()`
+  checks it each bar and closes at that bar's close (exit reason `indicator`).
+- **AI exit** — `spec.exit.ai_exit` closes the trade on a change-of-character
+  against the position (exit reason `ai-exit`).
+- Plus the existing break-even / trailing / time-stop, all surfaced in a new
+  **Exit Conditions** panel in Strategy Studio.
+
+Backtest-first: exits are evaluated in `simulate()` so users design and validate
+them on real data. Wiring the exit tree into the live paper adapter
+(`CustomStrategyAdapter`) is the remaining follow-on; deployed strategies
+currently exit via stop / target / trade-management.
 
 ## Tests
 `tests/test_strategy_builder.py` (9): new blocks evaluate + simulate, every
