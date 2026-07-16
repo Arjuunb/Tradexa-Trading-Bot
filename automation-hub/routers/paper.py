@@ -63,6 +63,7 @@ def paper_account():
         "current_equity": current_equity,
         "available_balance": available,
         "realized_pnl": realized,
+        "fees_paid": _wa.paper.fees_paid(),
         "unrealized_pnl": float(acct.get("unrealized_pnl", 0.0)),
         "last_updated": acct.get("last_updated"),
         "open_positions": len(_wa.paper.positions()),

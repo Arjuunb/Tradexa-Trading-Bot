@@ -21,8 +21,12 @@ class PerfectFill:
         return {"price": price, "size": size, "rejected": False,
                 "filled_fraction": 1.0, "cost_pct": 0.0}
 
+    def fee_pct(self, *, maker: bool = False) -> float:
+        """Commission as a fraction of notional. Ideal fills pay no fee."""
+        return 0.0
+
     def status(self) -> dict:
-        return {"model": self.name, "note": "Ideal fills — no spread/slippage/rejection."}
+        return {"model": self.name, "note": "Ideal fills — no spread/slippage/rejection/fees."}
 
 
 class RealisticFill:
@@ -30,18 +34,27 @@ class RealisticFill:
 
     def __init__(self, *, spread_pct: float = 0.0004, slippage_pct: float = 0.0003,
                  latency_pct: float = 0.0001, partial_fill_prob: float = 0.0,
-                 partial_fraction: float = 0.6, reject_prob: float = 0.0, seed: int = 1):
+                 partial_fraction: float = 0.6, reject_prob: float = 0.0,
+                 taker_fee_pct: float = 0.0004, maker_fee_pct: float = 0.0002, seed: int = 1):
         self.spread_pct = float(spread_pct)
         self.slippage_pct = float(slippage_pct)
         self.latency_pct = float(latency_pct)
         self.partial_fill_prob = float(partial_fill_prob)
         self.partial_fraction = float(partial_fraction)
         self.reject_prob = float(reject_prob)
+        # Commission, as a fraction of notional, charged each side. Defaults are
+        # Binance-like spot rates; makers (resting limits) pay the lower fee.
+        self.taker_fee_pct = float(taker_fee_pct)
+        self.maker_fee_pct = float(maker_fee_pct)
         self._rnd = random.Random(int(seed))
 
     @property
     def cost_pct(self) -> float:
         return self.spread_pct / 2 + self.slippage_pct + self.latency_pct
+
+    def fee_pct(self, *, maker: bool = False) -> float:
+        """Commission as a fraction of notional for this fill's liquidity role."""
+        return self.maker_fee_pct if maker else self.taker_fee_pct
 
     def apply(self, action: str, price: float, size: float, *,
               allow_reject: bool = True, allow_partial: bool = True,
@@ -64,7 +77,10 @@ class RealisticFill:
         return {"model": self.name, "spread_pct": self.spread_pct, "slippage_pct": self.slippage_pct,
                 "latency_pct": self.latency_pct, "partial_fill_prob": self.partial_fill_prob,
                 "reject_prob": self.reject_prob, "round_trip_cost_pct": round(self.cost_pct * 2 * 100, 4),
-                "note": "Spread + slippage + latency move the fill against you; orders may partial-fill or reject."}
+                "taker_fee_pct": self.taker_fee_pct, "maker_fee_pct": self.maker_fee_pct,
+                "round_trip_fee_pct": round(self.taker_fee_pct * 2 * 100, 4),
+                "note": "Spread + slippage + latency move the fill against you; a commission is "
+                        "charged each side; orders may partial-fill or reject."}
 
 
 def from_env():
@@ -74,5 +90,7 @@ def from_env():
             spread_pct=float(os.environ.get("HUB_FILL_SPREAD_PCT", 0.0004)),
             slippage_pct=float(os.environ.get("HUB_FILL_SLIPPAGE_PCT", 0.0003)),
             partial_fill_prob=float(os.environ.get("HUB_FILL_PARTIAL_PROB", 0.0)),
-            reject_prob=float(os.environ.get("HUB_FILL_REJECT_PROB", 0.0)))
+            reject_prob=float(os.environ.get("HUB_FILL_REJECT_PROB", 0.0)),
+            taker_fee_pct=float(os.environ.get("HUB_FILL_TAKER_FEE_PCT", 0.0004)),
+            maker_fee_pct=float(os.environ.get("HUB_FILL_MAKER_FEE_PCT", 0.0002)))
     return PerfectFill()

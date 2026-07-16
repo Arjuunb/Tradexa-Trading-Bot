@@ -122,6 +122,7 @@ export interface PaperAccount {
   current_equity: number;
   available_balance: number;
   realized_pnl: number;
+  fees_paid?: number;
   unrealized_pnl: number;
   last_updated: string | null;
   open_positions: number;
