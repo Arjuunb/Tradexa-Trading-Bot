@@ -373,6 +373,54 @@ def _rule(rule: dict, bars, i: int) -> tuple[bool, str]:
         ok = up if want == "up" else down
         return ok, f"trend {'up (HH/HL)' if up else 'down (LH/LL)' if down else 'unclear'}"
 
+    if t == "ichimoku":  # price relative to the Ichimoku cloud
+        seg = window[-max(54, 54):] if len(window) >= 52 else window
+        if len(seg) < 52:
+            return False, ""
+
+        def _mid(k):
+            s = seg[-k:]
+            return (max(b.high for b in s) + min(b.low for b in s)) / 2
+        tenkan, kijun, senkou_b = _mid(9), _mid(26), _mid(52)
+        senkou_a = (tenkan + kijun) / 2
+        top, bot = max(senkou_a, senkou_b), min(senkou_a, senkou_b)
+        price = closes[-1]
+        above = price > top
+        ok = above if p.get("dir", "above") == "above" else (price < bot)
+        return ok, f"price {'above' if above else 'below/in'} Ichimoku cloud"
+
+    if t == "order_block":  # retest of the last opposing candle before a structure break
+        lb = int(p.get("lookback", 20))
+        if i < lb + 2:
+            return False, ""
+        prior = bars[i - lb:i]
+        up = p.get("dir", "up") == "up"
+        broke = closes[-1] > max(b.high for b in prior) if up else closes[-1] < min(b.low for b in prior)
+        # the order block is the last candle against the break direction
+        ob = next((b for b in reversed(prior) if (b.close < b.open) == up), None)
+        if ob is None:
+            return False, ""
+        retest = ob.low <= bars[i].low <= ob.high if up else ob.low <= bars[i].high <= ob.high
+        respected = retest and (closes[-1] >= ob.low if up else closes[-1] <= ob.high)
+        return (broke or respected) and retest, f"{'bullish' if up else 'bearish'} order block retest"
+
+    if t == "supply_demand":  # base → impulse → return to the zone
+        lb = int(p.get("lookback", 30))
+        if i < lb + 3:
+            return False, ""
+        demand = p.get("dir", "demand") == "demand"
+        prior = bars[i - lb:i]
+        # zone = the recent extreme (base) the impulse left from
+        if demand:
+            base = min(b.low for b in prior)
+            impulse = max(b.high for b in prior) - base > 2 * atr(window, 14)
+            near = base <= bars[i].low <= base * 1.01
+            return (impulse and near), f"demand zone @ {base:.4g}"
+        base = max(b.high for b in prior)
+        impulse = base - min(b.low for b in prior) > 2 * atr(window, 14)
+        near = base * 0.99 <= bars[i].high <= base
+        return (impulse and near), f"supply zone @ {base:.4g}"
+
     return False, ""
 
 
@@ -882,6 +930,9 @@ def _phrase_rule(r: dict) -> str:
         "obv": f"On-Balance Volume is {'rising' if r.get('dir','up')=='up' else 'falling'}",
         "stoch_rsi": f"Stochastic RSI({r.get('period',14)}) is {r.get('op','below')} {r.get('value',20)}",
         "trend": f"market structure is trending {r.get('dir','up')} ({'HH/HL' if r.get('dir','up')=='up' else 'LH/LL'})",
+        "ichimoku": f"price is {r.get('dir','above')} the Ichimoku cloud",
+        "order_block": f"price retests a {'bullish' if r.get('dir','up')=='up' else 'bearish'} order block",
+        "supply_demand": f"price returns to a {r.get('dir','demand')} zone",
     }.get(t, t or "a condition")
     return f"NOT ({s})" if neg else s
 

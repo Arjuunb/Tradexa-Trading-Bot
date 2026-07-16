@@ -26,6 +26,27 @@ def test_new_blocks_evaluate_without_error():
         assert isinstance(ok, bool) and isinstance(why, str)
 
 
+def test_smc_blocks_evaluate_and_describe():
+    bars = _bars()
+    i = len(bars) - 1
+    for t, params in [("ichimoku", {"dir": "above"}), ("order_block", {"dir": "up", "lookback": 20}),
+                      ("supply_demand", {"dir": "demand"})]:
+        ok, why = _rule({"type": t, **params}, bars, i)
+        assert isinstance(ok, bool) and isinstance(why, str)
+    spec = {"side": "long", "entry": {"op": "AND", "rules": [{"type": "ichimoku", "dir": "above"},
+                                                             {"type": "order_block", "dir": "up"}]}}
+    d = describe(spec)
+    assert "Ichimoku" in d and "order block" in d
+
+
+def test_ichimoku_above_below_exclusive():
+    bars = _bars()
+    i = len(bars) - 1
+    a, _ = _rule({"type": "ichimoku", "dir": "above"}, bars, i)
+    b, _ = _rule({"type": "ichimoku", "dir": "below"}, bars, i)
+    assert not (a and b)          # price can't be both above and below the cloud
+
+
 def test_adx_reports_a_value():
     bars = _bars()
     ok, why = _rule({"type": "adx", "period": 14, "value": 0, "op": "above"}, bars, len(bars) - 1)
