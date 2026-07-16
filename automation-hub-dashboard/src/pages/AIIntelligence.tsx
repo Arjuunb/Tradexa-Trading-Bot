@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts } from "../lib/api";
+import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights } from "../lib/api";
 
 const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
@@ -26,6 +26,7 @@ export default function AIIntelligencePage() {
   const { data: profile } = useLive<AIProfile>("/ai/profile", 30000);
   const { data: calib } = useLive<AIConfidenceAccuracy>("/ai/confidence-accuracy", 30000);
   const { data: alerts } = useLive<AIAlerts>("/ai/alerts", 30000);
+  const { data: insights } = useLive<AIInsights>("/ai/insights", 30000);
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -81,6 +82,21 @@ export default function AIIntelligencePage() {
                 <b style={{ fontSize: 13 }}>{al.title}</b>
                 <span className="dim" style={{ fontSize: 12.5 }}>{al.detail}</span>
               </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* live market insights */}
+      {!!insights?.insights?.length && (
+        <Card title="Live Market Insights" subtitle={`Real-time reads across ${insights.symbols?.length ?? 0} symbols · ${insights.timeframe ?? ""}`}>
+          <div className="chips" style={{ gap: 8 }}>
+            {insights.insights.map((ins, i) => (
+              <span key={i} className="ui-badge" style={{ padding: "6px 11px", fontSize: 12.5,
+                background: "rgba(124,185,232,0.08)", border: "1px solid var(--card-border-soft)", color: "var(--text)" }}>
+                <Icon name={ins.kind === "volatility" ? "warning" : ins.kind === "reversal" ? "refresh" : "chart"}
+                  size={12} className="dim" /> {ins.text}
+              </span>
             ))}
           </div>
         </Card>

@@ -356,6 +356,9 @@ const SHAPES: [string, unknown][] = [
   ["/ai/alerts", { count: 2, checked: ["BTCUSDT", "ETHUSDT"], alerts: [
     { type: "strong_setup", severity: "success", title: "Strong setup — BTCUSDT", detail: "BUY at score 88/100.", symbol: "BTCUSDT" },
     { type: "outside_session", severity: "info", title: "Outside trading session", detail: "Entries held until in-session.", symbol: "" }] }],
+  ["/ai/insights", { timeframe: "1h", symbols: ["BTCUSDT", "ETHUSDT"], insights: [
+    { symbol: "BTCUSDT", kind: "trend", tone: "green", text: "BTC is trending strongly (bullish)." },
+    { symbol: "ETHUSDT", kind: "volume", tone: "default", text: "ETH volume is decreasing (below its 20-bar average)." }] }],
   ["/ai/confidence-levels", { levels: [{ level: "Very High", min_score: 85 }] }],
   ["/strategy/league", { available: false, detail: "no data (mock)" }],
   ["/report/daily", { report: {}, text: "Daily report — mock", telegram_configured: false }],

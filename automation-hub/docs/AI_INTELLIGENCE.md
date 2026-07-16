@@ -46,6 +46,29 @@ levels + a full risk analysis with margin/liquidation).
   per key so dashboard polls don't re-fetch candles or recompute.
 - `GET /ai/profile` — the personal trading profile.
 - `GET /ai/confidence-levels` — the band legend.
+- `GET /ai/confidence-accuracy` — calibration: do higher-confidence setups win more?
+- `GET /ai/alerts` — the live alert feed (cached 30 s).
+- `GET /ai/insights` — live market insights across the tracked symbols (cached 30 s).
+
+### Confidence accuracy (calibration feedback loop)
+`confidence_accuracy(rows)` buckets closed trades (from the trade memory:
+`brain_score`/`confidence` + `result`) by confidence band and reports each
+band's realized win rate / avg R. **Calibrated** = higher-confidence setups
+actually win more (high-band win rate > low-band). Honest below ~10 graded trades.
+
+### AI alert feed
+`evaluate_alerts(analyses, risk, …)` produces the spec's six alert types from
+real state — **strong setup**, **weak setup**, **risk exceeds limit**
+(per-trade + portfolio exposure), **max daily loss / halt**, **outside session**,
+and **high-impact news** (only when a source reports it) — ordered most-severe
+first. `/ai/alerts` assembles the inputs from the engine's tracked symbols, the
+live risk summary, and the pipeline's configured session window.
+
+### Live market insights
+`market_insights(reads)` turns the `market_analysis.analyze` reads into
+natural-language insights — strong trend, break of structure, change-of-character
+reversals, liquidity sweeps, rising/falling volume, and high-volatility warnings.
+Every line is a real read of the candles; returns `[]` when nothing is notable.
 
 ### Dashboard
 New **AI Intelligence** page (nav): decision / confidence / setup-score / market

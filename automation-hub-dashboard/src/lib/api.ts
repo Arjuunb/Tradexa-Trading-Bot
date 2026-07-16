@@ -188,6 +188,8 @@ export interface AIAlert {
   title: string; detail: string; symbol: string;
 }
 export interface AIAlerts { alerts: AIAlert[]; count: number; checked: string[]; }
+export interface AIInsight { symbol: string; kind: string; tone: string; text: string; }
+export interface AIInsights { insights: AIInsight[]; symbols: string[]; timeframe: string; }
 export interface AIConfidenceAccuracy {
   sample: number; ready: boolean; calibrated: boolean; verdict: string;
   high_conf_win_rate: number | null; low_conf_win_rate: number | null; spread_pts: number | null;

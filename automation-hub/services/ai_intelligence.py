@@ -41,6 +41,58 @@ def confidence_level(score: float) -> str:
     return "Very Low"
 
 
+def _base(symbol: str) -> str:
+    """Human ticker: BTC/USDT or BTCUSDT -> BTC."""
+    s = symbol.replace("/", "")
+    for q in ("USDT", "USD", "USDC", "BTC"):
+        if s.endswith(q) and len(s) > len(q):
+            return s[: -len(q)]
+    return s
+
+
+def market_insights(reads: list[dict]) -> list[dict]:
+    """Live, natural-language market insights from the analysis reads — trend,
+    volume shifts, liquidity sweeps, reversals, and volatility. Each is a real
+    read of the bars (never invented); returns [] when nothing notable."""
+    out: list[dict] = []
+    for r in reads or []:
+        sym = r.get("symbol", "")
+        ma = r.get("ma") or {}
+        if not ma.get("available"):
+            continue
+        base = _base(sym)
+        bias = (ma.get("bias") or "").lower()
+        trend = ma.get("trend") or {}
+        strength = (trend.get("strength_label") or "").lower()
+        structure = ma.get("structure") or {}
+        vol = (ma.get("volume") or {}).get("label") or ""
+        vola = (ma.get("volatility") or {}).get("label") or ""
+        sweep = (ma.get("liquidity") or {}).get("sweep")
+
+        if bias in ("bullish", "bearish") and strength in ("strong", "very strong"):
+            out.append({"symbol": sym, "kind": "trend", "tone": "green" if bias == "bullish" else "red",
+                        "text": f"{base} is trending strongly ({bias})."})
+        if structure.get("change_of_character"):
+            out.append({"symbol": sym, "kind": "reversal", "tone": "amber",
+                        "text": f"Possible reversal forming on {base} — change of character."})
+        elif structure.get("break_of_structure") not in (None, "none", "None"):
+            out.append({"symbol": sym, "kind": "structure", "tone": "default",
+                        "text": f"{base} broke structure ({structure.get('break_of_structure')})."})
+        if sweep and str(sweep).lower() not in ("none", "none detected"):
+            out.append({"symbol": sym, "kind": "liquidity", "tone": "amber",
+                        "text": f"Liquidity sweep detected on {base}."})
+        if vol == "below average":
+            out.append({"symbol": sym, "kind": "volume", "tone": "default",
+                        "text": f"{base} volume is decreasing (below its 20-bar average)."})
+        elif vol == "above average":
+            out.append({"symbol": sym, "kind": "volume", "tone": "default",
+                        "text": f"{base} volume is rising (above its 20-bar average)."})
+        if "high" in vola.lower():
+            out.append({"symbol": sym, "kind": "volatility", "tone": "red",
+                        "text": f"High volatility warning on {base}."})
+    return out
+
+
 def _alert(type_: str, severity: str, title: str, detail: str, symbol: str = "") -> dict:
     return {"type": type_, "severity": severity, "title": title, "detail": detail, "symbol": symbol}
 

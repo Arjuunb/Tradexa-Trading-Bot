@@ -45,6 +45,33 @@ def ai_analyze(symbol: str = "BTCUSDT", timeframe: str = "1h",
     return cached(key, 20.0, _run)
 
 
+@router.get("/ai/insights")
+def ai_insights(symbols: Optional[str] = None, timeframe: Optional[str] = None):
+    """Live market insights (trend / volume / liquidity / reversal / volatility)
+    across the tracked symbols — natural-language reads of the real candles."""
+    from data.market_data import get_bars
+    from services import market_analysis
+    from services.ttl_cache import cached
+
+    syms = ([s.strip().upper() for s in symbols.split(",") if s.strip()] if symbols
+            else list(getattr(_wa.engine, "symbols", []) or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]))[:8]
+    tf = timeframe or getattr(_wa.engine, "timeframe", "1h")
+    key = f"ai:insights:{','.join(syms)}:{tf}"
+
+    def _run() -> dict:
+        reads = []
+        for sym in syms:
+            try:
+                bars, _ = get_bars(sym, n=120, timeframe=tf)
+                if bars:
+                    reads.append({"symbol": sym, "ma": market_analysis.analyze(bars)})
+            except Exception:  # noqa: BLE001
+                continue
+        return {"insights": _ai.market_insights(reads), "symbols": syms, "timeframe": tf}
+
+    return cached(key, 30.0, _run)
+
+
 @router.get("/ai/profile")
 def ai_profile():
     """The trader's personal profile (strengths / weaknesses), distilled from the

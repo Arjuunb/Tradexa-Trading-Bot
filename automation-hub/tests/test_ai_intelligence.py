@@ -179,3 +179,31 @@ def test_alerts_high_impact_news_only_when_present():
     assert not any(a["type"] == "news" for a in ai.evaluate_alerts([], {}))
     withnews = ai.evaluate_alerts([], {}, high_impact_news=[{"title": "FOMC in 30m"}])
     assert any(a["type"] == "news" and "FOMC" in a["detail"] for a in withnews)
+
+
+# ─────────────────────────── live market insights ───────────────────────────
+def test_market_insights_from_reads():
+    reads = [{"symbol": "BTCUSDT", "ma": {
+        "available": True, "bias": "Bullish", "trend": {"strength_label": "strong"},
+        "structure": {"break_of_structure": "bullish", "change_of_character": False},
+        "volume": {"label": "above average"}, "volatility": {"label": "normal"},
+        "liquidity": {"sweep": "bullish sweep @ 100"}}}]
+    ins = ai.market_insights(reads)
+    texts = " ".join(i["text"] for i in ins)
+    assert "BTC is trending strongly" in texts
+    assert "Liquidity sweep detected on BTC" in texts
+    assert "volume is rising" in texts
+
+
+def test_market_insights_reversal_and_volatility():
+    reads = [{"symbol": "ETH/USDT", "ma": {
+        "available": True, "bias": "Neutral", "trend": {"strength_label": "weak"},
+        "structure": {"break_of_structure": "none", "change_of_character": True},
+        "volume": {"label": "below average"}, "volatility": {"label": "high"},
+        "liquidity": {"sweep": "none detected"}}}]
+    kinds = {i["kind"] for i in ai.market_insights(reads)}
+    assert {"reversal", "volume", "volatility"} <= kinds
+
+
+def test_market_insights_empty_when_no_data():
+    assert ai.market_insights([{"symbol": "BTCUSDT", "ma": {"available": False}}]) == []
