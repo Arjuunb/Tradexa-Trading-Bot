@@ -20,7 +20,7 @@ export const useApp = () => useContext(AppContext);
 // The sidebar pages (the standalone trading-bot workspace layout).
 export const NAV_LABELS = [
   "Overview", "Markets", "Symbols", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Assistant",
+  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Intelligence", "AI Assistant",
   "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ] as const;
 

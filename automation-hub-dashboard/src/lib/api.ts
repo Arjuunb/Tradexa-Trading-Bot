@@ -158,6 +158,31 @@ export interface MarketPrefs {
   favorites: string[]; pinned: string[];
   watchlists: { id: string; name: string; symbols: string[] }[];
 }
+// ── AI Trading Intelligence ──
+export interface AIRiskAnalysis {
+  position_size: number; notional: number; max_loss: number; expected_profit: number;
+  risk_pct: number; risk_reward: number; margin_used: number; leverage: number;
+  liquidation_price: number | null; portfolio_exposure_pct: number;
+  excessive: boolean; warning: string | null;
+}
+export interface AIAnalysis {
+  available?: boolean;
+  symbol: string; timeframe: string; ts: string | null; price: number | null;
+  decision: "BUY" | "SELL" | "WAIT" | "SKIP"; side: string | null;
+  overall_score: number; confidence_level: string; confidence_pct: number;
+  engine_score: number | null; allowed: boolean; min_score: number;
+  score_breakdown: { category: string; score: number; max: number }[];
+  reasons: string[]; failed_checks: string[]; recommendation: string;
+  risk_analysis: AIRiskAnalysis | null;
+  setup: { entry: number; stop: number; target: number } | null;
+  market_analysis: any; checklist: { name: string; status: string; explanation: string }[];
+  data_source?: string;
+}
+export interface AIProfile {
+  sample: number; ready: boolean; strengths: string[]; weaknesses: string[];
+  avg_hold_seconds: number | null; sharpe_ratio: number | null;
+  win_rate: number | null; expectancy_r: number | null; note: string;
+}
 export interface PaperTradeRow {
   id: string; alert_id: string | null; symbol: string; side: string; size: number;
   entry: number; stop: number | null; exit: number | null; pnl: number | null;

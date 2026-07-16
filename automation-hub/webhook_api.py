@@ -1000,6 +1000,7 @@ import routers.paper  # noqa: E402
 import routers.risk  # noqa: E402
 import routers.settings  # noqa: E402
 import routers.symbols  # noqa: E402
+import routers.ai  # noqa: E402
 router.include_router(routers.analytics.router)
 router.include_router(routers.bots.router)
 router.include_router(routers.engine.router)
@@ -1009,3 +1010,4 @@ router.include_router(routers.paper.router)
 router.include_router(routers.risk.router)
 router.include_router(routers.settings.router)
 router.include_router(routers.symbols.router)
+router.include_router(routers.ai.router)
