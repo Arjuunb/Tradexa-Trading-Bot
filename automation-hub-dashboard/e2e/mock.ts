@@ -367,6 +367,23 @@ const SHAPES: [string, unknown][] = [
     best_session: { name: "London", expectancy: 0.6 }, worst_session: { name: "Asia", expectancy: -0.3 },
     by_symbol: [{ name: "BTCUSDT", expectancy: 0.5, trades: 4 }], by_strategy: [{ name: "Decision Brain", expectancy: 0.4, trades: 7 }],
     mistakes: [{ mistake: "entered before confirmation", count: 4, repeated: true }] }],
+  ["/strategy/blocks", { categories: [
+    { key: "indicators", label: "Indicators", blocks: [
+      { type: "ema_cross", label: "EMA Crossover", desc: "Fast EMA vs slow EMA", params: [
+        { name: "fast", type: "number", default: 20, label: "fast" }, { name: "slow", type: "number", default: 50, label: "slow" },
+        { name: "dir", type: "select", default: "above", label: "dir", options: ["above", "below"] }] }] },
+    { key: "market_structure", label: "Market Structure", blocks: [
+      { type: "bos", label: "Break of Structure", desc: "BOS", params: [{ name: "dir", type: "select", default: "up", label: "dir", options: ["up", "down"] }] }] }],
+    config: { logic: ["AND", "OR", "NOT"], risk: [], stop: [], target: [], exit: [],
+      sessions: [{ key: "any", label: "Any", start: 0, end: 24 }, { key: "london", label: "London", start: 7, end: 16 }] } }],
+  ["/strategy/templates", { templates: [
+    { id: "smc", name: "Smart Money Concepts", description: "BOS + sweep", side: "long", symbol: "BTCUSDT", timeframe: "4h",
+      entry: { op: "AND", rules: [{ type: "bos", dir: "up" }] }, stop: { type: "atr", mult: 1.5 }, target: { type: "rr", rr: 3 }, risk_per_trade_pct: 0.01 }] }],
+  ["/strategy/ai-review", { complexity: "simple", rule_count: 1, risk_level: "conservative",
+    expected_behaviour: "~20 trades, 55% win rate, profit factor 1.4 in simulation.",
+    strengths: ["Healthy reward:risk target (3.0R)."], weaknesses: ["Only one entry condition."],
+    improvements: ["Add a confirmation."], estimated_confidence: 62, confidence_level: "Medium",
+    summary: "Go long when a bullish BOS occurs.", warnings: [] }],
   ["/ai/confidence-levels", { levels: [{ level: "Very High", min_score: 85 }] }],
   ["/strategy/league", { available: false, detail: "no data (mock)" }],
   ["/report/daily", { report: {}, text: "Daily report — mock", telegram_configured: false }],

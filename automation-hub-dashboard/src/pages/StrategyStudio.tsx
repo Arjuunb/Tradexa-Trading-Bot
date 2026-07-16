@@ -1,0 +1,286 @@
+import { useMemo, useState } from "react";
+import Card from "../components/common/Card";
+import Icon from "../components/common/Icon";
+import { PageHeader, StatCard } from "../components/common/ui";
+import { useApp } from "../app-context";
+import {
+  apiPostJson, apiDelete, useLive,
+  type BlockCatalog, type BlockDef, type CustomRule, type CustomSpec,
+  type SimResult, type AIStrategyReview,
+} from "../lib/api";
+
+const TFS = ["15m", "1h", "4h", "1d"];
+const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
+const WARN_TONE: Record<string, string> = { danger: "red", warning: "amber", ok: "green" };
+
+const EMPTY: CustomSpec = {
+  name: "My Strategy", market: "crypto", symbol: "BTCUSDT", timeframe: "4h", side: "long",
+  entry: { op: "AND", rules: [] }, stop: { type: "atr", mult: 1.5, period: 14 },
+  target: { type: "rr", rr: 2 }, risk_per_trade_pct: 0.01, max_trades_per_day: 0,
+};
+
+export default function StrategyStudioPage() {
+  const { toast } = useApp();
+  const { data: catalog } = useLive<BlockCatalog>("/strategy/blocks", 300000);
+  const templates = useLive<{ templates: (CustomSpec & { id: string; description: string })[] }>("/strategy/templates", 300000);
+  const saved = useLive<CustomSpec[]>("/strategy/custom", 6000);
+
+  const [spec, setSpec] = useState<CustomSpec>(EMPTY);
+  const [sim, setSim] = useState<SimResult | null>(null);
+  const [review, setReview] = useState<AIStrategyReview | null>(null);
+  const [busy, setBusy] = useState<string>("");
+
+  const patch = (p: Partial<CustomSpec>) => setSpec((s) => ({ ...s, ...p }));
+  const blockDefs = useMemo(() => {
+    const m = new Map<string, BlockDef>();
+    catalog?.categories.forEach((c) => c.blocks.forEach((b) => m.set(b.type, b)));
+    return m;
+  }, [catalog]);
+
+  const addBlock = (b: BlockDef) => {
+    const rule: CustomRule = { type: b.type };
+    b.params.forEach((p) => { rule[p.name] = p.default; });
+    setSpec((s) => ({ ...s, entry: { ...s.entry, rules: [...s.entry.rules, rule] } }));
+    setReview(null); setSim(null);
+  };
+  const setRule = (i: number, r: CustomRule) =>
+    setSpec((s) => ({ ...s, entry: { ...s.entry, rules: s.entry.rules.map((x, j) => (j === i ? r : x)) } }));
+  const delRule = (i: number) =>
+    setSpec((s) => ({ ...s, entry: { ...s.entry, rules: s.entry.rules.filter((_, j) => j !== i) } }));
+
+  const backtest = async () => {
+    setBusy("sim");
+    try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, bars: 3000 })); }
+    catch { toast("Backtest failed", "error"); } finally { setBusy(""); }
+  };
+  const aiReview = async () => {
+    setBusy("review");
+    try { setReview(await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 })); }
+    catch { toast("AI review failed", "error"); } finally { setBusy(""); }
+  };
+  const save = async () => {
+    if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
+    try { const r = await apiPostJson<CustomSpec>("/strategy/custom", spec); setSpec(r); saved.refetch(); toast("Strategy saved", "success"); }
+    catch { toast("Save failed", "error"); }
+  };
+  const loadTemplate = (t: CustomSpec & { id: string }) => {
+    const { id, ...rest } = t as any;   // drop the template id so it saves as a new strategy
+    setSpec({ ...EMPTY, ...rest, name: `${t.name} (my copy)` }); setReview(null); setSim(null);
+    toast(`Loaded template: ${t.name}`, "info");
+  };
+  const load = (s: CustomSpec) => { setSpec(s); setReview(null); setSim(null); };
+  const deploy = async (s: CustomSpec) => {
+    try { await apiPostJson(`/strategy/custom/${s.id}/deploy`, {}); toast(`"${s.name}" deployed to paper trading`, "success"); }
+    catch { toast("Deploy failed", "error"); }
+  };
+  const favorite = async (s: CustomSpec) => {
+    try { await apiPostJson(`/strategy/custom/${s.id}/favorite`, { on: !(s as any).favorite }); saved.refetch(); }
+    catch { toast("Failed", "error"); }
+  };
+  const rename = async (s: CustomSpec) => {
+    const name = window.prompt("Rename strategy:", s.name); if (!name?.trim()) return;
+    try { await apiPostJson(`/strategy/custom/${s.id}/meta`, { name }); saved.refetch(); toast("Renamed", "success"); }
+    catch { toast("Failed", "error"); }
+  };
+  const duplicate = async (s: CustomSpec) => {
+    try { await apiPostJson(`/strategy/custom/${s.id}/duplicate`, {}); saved.refetch(); toast("Duplicated", "success"); }
+    catch { toast("Failed", "error"); }
+  };
+  const del = async (s: CustomSpec) => {
+    if (!window.confirm(`Delete "${s.name}"?`)) return;
+    try { await apiDelete(`/strategy/custom/${s.id}`); saved.refetch(); toast("Deleted", "info"); }
+    catch { toast("Failed", "error"); }
+  };
+  const exportSpec = () => {
+    const blob = new Blob([JSON.stringify(spec, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `${spec.name.replace(/\s+/g, "-").toLowerCase()}.json`; a.click();
+  };
+
+  const r = sim?.results;
+  return (
+    <>
+      <PageHeader title="Strategy Studio"
+        subtitle="Build strategies visually with condition blocks — no code. Compiles to the same engine that backtests, paper-trades, and (later) goes live." />
+
+      {/* toolbar */}
+      <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
+        <input className="rule-num" style={{ width: 180 }} value={spec.name}
+          onChange={(e) => patch({ name: e.target.value })} title="Strategy name" />
+        <input className="rule-num" style={{ width: 110 }} value={spec.symbol}
+          onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
+        <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
+        <div className="chips">{(["long", "short"] as const).map((s) => <button key={s} className={`chip-btn ${spec.side === s ? "active" : ""}`} onClick={() => patch({ side: s })}>{s}</button>)}</div>
+        <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
+        <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
+        <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
+        <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
+      </div>
+
+      {/* templates */}
+      <Card title="Templates" subtitle="Start from a proven pattern, then tweak">
+        <div className="chips" style={{ gap: 8 }}>
+          {(templates.data?.templates ?? []).map((t) => (
+            <button key={t.id} className="chip-btn" onClick={() => loadTemplate(t)} title={t.description}>{t.name}</button>
+          ))}
+          <button className="chip-btn" onClick={() => { setSpec(EMPTY); setReview(null); setSim(null); }}><Icon name="plus" size={12} /> Blank</button>
+        </div>
+      </Card>
+
+      <div className="grid-2-1">
+        {/* builder */}
+        <Card title="Entry Conditions" subtitle={`${spec.side.toUpperCase()} when ${spec.entry.op} of these are true`}>
+          <div className="chips" style={{ marginBottom: 10 }}>
+            {(["AND", "OR"] as const).map((op) => (
+              <button key={op} className={`chip-btn ${spec.entry.op === op ? "active" : ""}`}
+                onClick={() => patch({ entry: { ...spec.entry, op } })}>{op}</button>
+            ))}
+          </div>
+
+          {spec.entry.rules.length === 0 && <div className="dim" style={{ padding: "6px 2px 12px" }}>Add condition blocks from the palette →</div>}
+          {spec.entry.rules.map((rule, i) => {
+            const def = blockDefs.get(rule.type);
+            return (
+              <div key={i} className="builder-rule">
+                <span className={`rule-tag ${rule.negate ? "neg" : ""}`}>{rule.negate ? "NOT " : ""}{def?.label ?? rule.type}</span>
+                {(def?.params ?? []).map((p) => (
+                  p.type === "select" ? (
+                    <select key={p.name} className="rule-num" value={String(rule[p.name] ?? p.default)}
+                      onChange={(e) => setRule(i, { ...rule, [p.name]: e.target.value })} title={p.label}>
+                      {(p.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input key={p.name} className="rule-num" type="number" value={Number(rule[p.name] ?? p.default)}
+                      onChange={(e) => setRule(i, { ...rule, [p.name]: Number(e.target.value) })} title={p.label} />
+                  )
+                ))}
+                <button className="chip-btn" title="Negate (NOT)" onClick={() => setRule(i, { ...rule, negate: !rule.negate })}>¬</button>
+                <button className="chip-btn" title="Remove" onClick={() => delRule(i)}><Icon name="close" size={12} /></button>
+              </div>
+            );
+          })}
+
+          {/* exit / risk config */}
+          <div className="form-grid-3" style={{ marginTop: 14 }}>
+            <label className="dim">Stop
+              <div className="chips" style={{ marginTop: 4 }}>
+                {(["atr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.stop.type === tp ? "active" : ""}`} onClick={() => patch({ stop: { ...spec.stop, type: tp } })}>{tp}</button>)}
+                <input className="rule-num" type="number" step="0.1" value={spec.stop.type === "atr" ? (spec.stop.mult ?? 1.5) : (spec.stop.pct ?? 2)}
+                  onChange={(e) => patch({ stop: { ...spec.stop, [spec.stop.type === "atr" ? "mult" : "pct"]: Number(e.target.value) } })} />
+              </div>
+            </label>
+            <label className="dim">Target
+              <div className="chips" style={{ marginTop: 4 }}>
+                {(["rr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.target.type === tp ? "active" : ""}`} onClick={() => patch({ target: { ...spec.target, type: tp } })}>{tp}</button>)}
+                <input className="rule-num" type="number" step="0.1" value={spec.target.type === "rr" ? (spec.target.rr ?? 2) : (spec.target.pct ?? 3)}
+                  onChange={(e) => patch({ target: { ...spec.target, [spec.target.type === "rr" ? "rr" : "pct"]: Number(e.target.value) } })} />
+              </div>
+            </label>
+            <label className="dim">Risk / trade (%)
+              <input className="rule-num" type="number" step="0.1" value={spec.risk_per_trade_pct * 100}
+                onChange={(e) => patch({ risk_per_trade_pct: Number(e.target.value) / 100 })} />
+            </label>
+            <label className="dim">Session (UTC)
+              <select className="rule-num" style={{ marginTop: 4 }}
+                value={spec.session ? `${spec.session.start}-${spec.session.end}` : "any"}
+                onChange={(e) => {
+                  const s = catalog?.config.sessions.find((x) => x.key === e.target.value);
+                  patch({ session: !s || s.key === "any" ? null : { start: s.start, end: s.end } });
+                }}>
+                {(catalog?.config.sessions ?? [{ key: "any", label: "Any" } as any]).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </label>
+          </div>
+        </Card>
+
+        {/* block palette */}
+        <Card title="Blocks" subtitle="Click to add a condition">
+          <div style={{ maxHeight: 520, overflowY: "auto" }}>
+            {(catalog?.categories ?? []).map((cat) => (
+              <div key={cat.key} style={{ marginBottom: 10 }}>
+                <div className="dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, margin: "4px 0" }}>{cat.label}</div>
+                <div className="chips">
+                  {cat.blocks.map((b) => (
+                    <button key={b.type} className="chip-btn" title={b.desc} onClick={() => addBlock(b)}>+ {b.label}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* AI review + backtest */}
+      <div className="grid-2-eq">
+        <Card title="AI Strategy Review" subtitle={review?.summary ?? "Analyse complexity, risk, strengths and confidence"}>
+          {!review ? <div className="dim" style={{ padding: 10 }}>Click “AI Review” to analyse this strategy.</div> : (
+            <>
+              <div className="stat-row">
+                <StatCard label="Confidence" value={review.confidence_level} tone={(CONF_TONE[review.confidence_level] ?? "default") as never} sub={`${review.estimated_confidence}%`} />
+                <StatCard label="Complexity" value={review.complexity} sub={`${review.rule_count} rules`} />
+                <StatCard label="Risk" value={review.risk_level} tone={review.risk_level === "high" ? "red" : review.risk_level === "elevated" ? "amber" : "green"} />
+              </div>
+              <div className="dim" style={{ margin: "10px 0 6px", fontSize: 13 }}>{review.expected_behaviour}</div>
+              <ReviewList label="Strengths" items={review.strengths} cls="pos" />
+              <ReviewList label="Weaknesses" items={review.weaknesses} cls="neg" />
+              <ReviewList label="Improvements" items={review.improvements} cls="dim" />
+              {review.warnings?.map((w, i) => <div key={i} className={WARN_TONE[w.level] === "red" ? "neg" : WARN_TONE[w.level] === "amber" ? "amber" : "pos"} style={{ fontSize: 12.5, marginTop: 4 }}>• {w.message}</div>)}
+            </>
+          )}
+        </Card>
+
+        <Card title="Backtest" subtitle={r ? `${r.total_trades} trades on real ${spec.symbol} ${spec.timeframe} candles` : "Run a backtest on real data"}>
+          {!r ? <div className="dim" style={{ padding: 10 }}>Click “Backtest” to test on historical candles.</div> : (
+            <div className="stat-row">
+              <StatCard label="Net R" value={`${r.net_r >= 0 ? "+" : ""}${r.net_r}`} tone={r.net_r >= 0 ? "green" : "red"} />
+              <StatCard label="Win Rate" value={`${r.win_rate}%`} tone={r.win_rate >= 50 ? "green" : "amber"} />
+              <StatCard label="Profit Factor" value={String(r.profit_factor)} tone={r.profit_factor >= 1 ? "green" : "red"} />
+              <StatCard label="Trades" value={String(r.total_trades)} sub={`${r.max_drawdown_pct}% max DD`} />
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* library */}
+      <Card title="Strategy Library" subtitle={`${saved.data?.length ?? 0} saved`}>
+        {!(saved.data ?? []).length ? <div className="dim" style={{ padding: 10 }}>No saved strategies yet — build one and hit Save.</div> : (
+          <table className="data-table" style={{ fontSize: 12.5 }}>
+            <thead><tr><th></th><th>Name</th><th>Symbol</th><th>Rules</th><th>Folder</th><th></th></tr></thead>
+            <tbody>
+              {(saved.data ?? []).map((s) => (
+                <tr key={s.id}>
+                  <td style={{ width: 24, cursor: "pointer", color: (s as any).favorite ? "var(--gold)" : "var(--dim)" }} onClick={() => favorite(s)} title="Favorite"><Icon name="check" size={13} /></td>
+                  <td><b style={{ cursor: "pointer" }} onClick={() => load(s)}>{s.name}</b></td>
+                  <td className="dim">{s.symbol} · {s.timeframe}</td>
+                  <td className="dim">{s.entry?.rules?.length ?? 0}</td>
+                  <td className="dim">{(s as any).folder ?? "—"}</td>
+                  <td>
+                    <div className="row-actions" style={{ gap: 4, justifyContent: "flex-end" }}>
+                      <button className="chip-btn" onClick={() => load(s)} title="Edit">Edit</button>
+                      <button className="chip-btn" onClick={() => rename(s)} title="Rename"><Icon name="settings" size={12} /></button>
+                      <button className="chip-btn" onClick={() => duplicate(s)} title="Duplicate"><Icon name="layers" size={12} /></button>
+                      <button className="chip-btn" onClick={() => deploy(s)} title="Deploy to paper"><Icon name="rocket" size={12} /></button>
+                      <button className="chip-btn" onClick={() => del(s)} title="Delete"><Icon name="close" size={12} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function ReviewList({ label, items, cls }: { label: string; items: string[]; cls: string }) {
+  if (!items?.length) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <ul style={{ margin: "2px 0 0", paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
+        {items.map((x, i) => <li key={i} className={cls}>{x}</li>)}
+      </ul>
+    </div>
+  );
+}

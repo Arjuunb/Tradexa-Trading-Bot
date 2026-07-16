@@ -830,6 +830,44 @@ def builtin_simulate(strategy: str = "smc", symbol: str = "BTCUSDT",
         "brain": {"quality_filter": False, "min_score": 0, "blocked_count": 0},
     }
 
+@router.get("/strategy/blocks")
+def strategy_blocks():
+    """The no-code builder's block palette — every block maps 1:1 to the spec
+    engine, so the UI stays data-driven and can't invent behaviour."""
+    from services.strategy_builder import block_catalog
+    return block_catalog()
+
+
+@router.get("/strategy/templates")
+def strategy_templates():
+    """Ready-made strategy templates (SMC, ICT, EMA trend, breakout, …)."""
+    from services.strategy_builder import templates
+    return {"templates": templates()}
+
+
+@router.post("/strategy/ai-review")
+def strategy_ai_review(body: dict):
+    """AI review of a strategy spec: complexity, risk, strengths, weaknesses,
+    improvements and an estimated confidence. Runs a quick real-data backtest so
+    the confidence is grounded, not invented."""
+    from services.strategy_builder import ai_review
+    from strategies.custom import simulate
+    from strategies.brain import TradeBrain
+    from data.market_data import get_bars
+    spec = body.get("spec") or body
+    results = None
+    try:
+        symbol = spec.get("symbol", "BTCUSDT")
+        timeframe = spec.get("timeframe", "4h")
+        rows, _ = get_bars(symbol, n=int(body.get("bars", 2000)), timeframe=timeframe)
+        if rows:
+            results = simulate(spec, rows, brain=TradeBrain() if spec.get("quality_filter", True) else None,
+                               min_score=int(spec.get("min_score", 60)) if spec.get("quality_filter", True) else 0)
+    except Exception:  # noqa: BLE001 — review still works without a backtest
+        results = None
+    return ai_review(spec, results)
+
+
 @router.get("/strategy/custom")
 def custom_list():
     return _wa.custom_store.list()
@@ -856,6 +894,23 @@ def custom_duplicate(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(
     if dup is None:
         raise _wa.HTTPException(404, "Strategy not found")
     return dup
+
+@router.post("/strategy/custom/{sid}/favorite")
+def custom_favorite(sid: str, body: dict, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    _wa._check_secret(x_webhook_secret)
+    r = _wa.custom_store.set_favorite(sid, bool(body.get("on", True)))
+    if r is None:
+        raise _wa.HTTPException(404, "Strategy not found")
+    return r
+
+@router.post("/strategy/custom/{sid}/meta")
+def custom_meta(sid: str, body: dict, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Rename and/or move a saved strategy into a folder (library organisation)."""
+    _wa._check_secret(x_webhook_secret)
+    r = _wa.custom_store.set_meta(sid, name=body.get("name"), folder=body.get("folder"))
+    if r is None:
+        raise _wa.HTTPException(404, "Strategy not found")
+    return r
 
 @router.post("/strategy/custom/{sid}/deploy")
 def custom_deploy(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):

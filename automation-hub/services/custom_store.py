@@ -70,6 +70,19 @@ class CustomStore:
         self._write(data)
         return data[sid]
 
+    def set_meta(self, sid: str, *, name=None, folder=None):
+        """Rename and/or move a strategy into a folder (library organisation)."""
+        data = self._load()
+        if sid not in data:
+            return None
+        if name is not None and str(name).strip():
+            data[sid]["name"] = str(name).strip()[:80]
+        if folder is not None:
+            data[sid]["folder"] = str(folder).strip()[:60]
+        data[sid]["updated_at"] = _now()
+        self._write(data)
+        return data[sid]
+
     def duplicate(self, sid: str):
         data = self._load()
         src = data.get(sid)

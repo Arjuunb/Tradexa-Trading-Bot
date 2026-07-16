@@ -465,6 +465,13 @@ a.brand:hover { opacity: 0.85; }
 .banner { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--dim);
   background: rgba(124,185,232,0.08); border: 1px solid rgba(124,185,232,0.18); border-radius: 10px; }
 
+/* ----------------------------------------------------------- strategy studio */
+.builder-rule { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 7px 8px; margin-bottom: 6px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--card-border-soft); border-radius: 8px; }
+.rule-tag { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 6px; white-space: nowrap;
+  background: rgba(234,181,79,0.14); color: var(--gold); border: 1px solid rgba(234,181,79,0.3); }
+.rule-tag.neg { background: rgba(239,68,68,0.14); color: var(--red); border-color: rgba(239,68,68,0.3); }
+
 /* data table */
 .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .data-table th { color: var(--dim); font-weight: 500; text-align: left; padding: 9px 12px;

@@ -25,6 +25,7 @@ const PortfolioPage = lazy(() => import("./pages/Portfolio"));
 const AnalyticsPage = lazy(() => import("./pages/Analytics"));
 const AIAssistantPage = lazy(() => import("./pages/AIAssistant"));
 const AIIntelligencePage = lazy(() => import("./pages/AIIntelligence"));
+const StrategyStudioPage = lazy(() => import("./pages/StrategyStudio"));
 const SafetyCenterPage = lazy(() => import("./pages/SafetyCenter"));
 const JournalPage = lazy(() => import("./pages/Journal"));
 const DecisionsPage = lazy(() => import("./pages/Decisions"));
@@ -88,6 +89,7 @@ export default function App() {
       case "Portfolio": return <PortfolioPage />;
       case "Analytics": return <AnalyticsPage />;
       case "Strategy Proof": return <StrategyProofPage />;
+      case "Strategy Studio": return <StrategyStudioPage />;
       case "AI Intelligence": return <AIIntelligencePage />;
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
