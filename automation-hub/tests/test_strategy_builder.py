@@ -95,6 +95,32 @@ def test_ai_exit_closes_on_reversal():
     assert any(t.get("exit_reason") == "ai-exit" for t in r["trades"])
 
 
+def test_live_adapter_should_exit_fires():
+    # the live paper adapter honours the SAME exit rules as the backtest, so a
+    # deployed strategy exits consistently (no divergence).
+    from strategies.custom_adapter import CustomStrategyAdapter
+    bars, _ = get_bars("BTCUSDT", n=600, timeframe="1h")
+    spec = {"name": "X", "side": "long", "timeframe": "1h", "quality_filter": False,
+            "entry": {"op": "AND", "rules": [{"type": "ema_cross", "dir": "above"}]},
+            "exit": {"op": "OR", "rules": [{"type": "rsi", "op": "below", "value": 45}]}}
+    a = CustomStrategyAdapter("BTCUSDT", spec)
+    fired = 0
+    for i in range(60, len(bars)):
+        a.bars = list(bars[:i])                 # history WITHOUT the current bar (engine order)
+        if a.should_exit(bars[i], "long") == "indicator":
+            fired += 1
+    assert fired > 0                            # exit conditions trigger live too
+
+
+def test_live_adapter_no_exit_rules_returns_none():
+    from strategies.custom_adapter import CustomStrategyAdapter
+    bars, _ = get_bars("BTCUSDT", n=200, timeframe="1h")
+    a = CustomStrategyAdapter("BTCUSDT", {"name": "X", "side": "long", "quality_filter": False,
+                                          "entry": {"op": "AND", "rules": [{"type": "ema_cross"}]}})
+    a.bars = list(bars[:-1])
+    assert a.should_exit(bars[-1], "long") is None    # no exit config -> never exits early
+
+
 def test_no_exit_rules_unchanged():
     bars, _ = get_bars("BTCUSDT", n=800, timeframe="1h")
     spec = {"side": "long", "entry": {"op": "AND", "rules": [{"type": "ema_cross", "dir": "above"}]},

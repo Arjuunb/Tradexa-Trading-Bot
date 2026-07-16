@@ -18,7 +18,7 @@ from typing import Callable, Optional
 from bot.types import Bar, Signal, SignalType
 from strategies.base_strategy import HubStrategy
 from strategies.brain import TradeBrain, detect_reversal
-from strategies.custom import WARMUP, _stop_distance, _target_distance, evaluate
+from strategies.custom import WARMUP, _rule, _stop_distance, _target_distance, evaluate
 
 
 class CustomStrategyAdapter(HubStrategy):
@@ -43,6 +43,28 @@ class CustomStrategyAdapter(HubStrategy):
         # Multi-timeframe gate (on unless the spec disables it): never trade
         # against the higher-timeframe trend — the same gate replay uses.
         self._mtf_filter = spec.get("mtf_filter", True)
+
+    def should_exit(self, bar: Bar, side: str) -> Optional[str]:
+        """Live counterpart of the simulator's exit rules: close an open position
+        when the spec's exit conditions fire. Called by the engine each bar with
+        the current bar (self.bars does not yet include it at exit-check time)."""
+        exit_cfg = self.spec.get("exit") or {}
+        rules = exit_cfg.get("rules") or []
+        if not rules and not exit_cfg.get("ai_exit"):
+            return None
+        window = self.bars if (self.bars and self.bars[-1] is bar) else [*self.bars, bar]
+        i = len(window) - 1
+        if i < WARMUP:
+            return None
+        if rules:
+            hit, _ = evaluate({"op": exit_cfg.get("op", "OR"), "rules": rules}, window, i)
+            if hit:
+                return "indicator"
+        if exit_cfg.get("ai_exit"):
+            hit, _ = _rule({"type": "choch", "dir": "down" if side == "long" else "up"}, window, i)
+            if hit:
+                return "ai-exit"
+        return None
 
     def generate(self, bar: Bar) -> Optional[Signal]:
         if len(self.bars) > self.max_history:
