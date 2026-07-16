@@ -183,6 +183,19 @@ export interface AIProfile {
   avg_hold_seconds: number | null; sharpe_ratio: number | null;
   win_rate: number | null; expectancy_r: number | null; note: string;
 }
+export interface AIAlert {
+  type: string; severity: "critical" | "warning" | "success" | "info";
+  title: string; detail: string; symbol: string;
+}
+export interface AIAlerts { alerts: AIAlert[]; count: number; checked: string[]; }
+export interface AIInsight { symbol: string; kind: string; tone: string; text: string; }
+export interface AIInsights { insights: AIInsight[]; symbols: string[]; timeframe: string; }
+export interface AIConfidenceAccuracy {
+  sample: number; ready: boolean; calibrated: boolean; verdict: string;
+  high_conf_win_rate: number | null; low_conf_win_rate: number | null; spread_pts: number | null;
+  by_confidence: { level: string; trades: number; wins: number; win_rate: number;
+    avg_rr: number | null; avg_pnl: number | null }[];
+}
 export interface PaperTradeRow {
   id: string; alert_id: string | null; symbol: string; side: string; size: number;
   entry: number; stop: number | null; exit: number | null; pnl: number | null;

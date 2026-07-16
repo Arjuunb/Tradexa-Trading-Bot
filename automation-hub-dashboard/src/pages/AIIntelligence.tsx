@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile } from "../lib/api";
+import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights } from "../lib/api";
+
+const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
 const CONF_TONE: Record<string, string> = {
   "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red",
@@ -22,6 +24,9 @@ export default function AIIntelligencePage() {
   const qs = `symbol=${encodeURIComponent(symbol)}&timeframe=${tf}${side ? `&side=${side}` : ""}&leverage=${lev}`;
   const { data: a } = useLive<AIAnalysis>(`/ai/analyze?${qs}`, 20000);
   const { data: profile } = useLive<AIProfile>("/ai/profile", 30000);
+  const { data: calib } = useLive<AIConfidenceAccuracy>("/ai/confidence-accuracy", 30000);
+  const { data: alerts } = useLive<AIAlerts>("/ai/alerts", 30000);
+  const { data: insights } = useLive<AIInsights>("/ai/insights", 30000);
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -65,6 +70,37 @@ export default function AIIntelligencePage() {
         <StatCard label="Min Score" value={a ? String(a.min_score) : "—"} sub={a?.allowed ? "setup qualifies" : "below threshold"}
           tone={a?.allowed ? "green" : "amber"} />
       </div>
+
+      {/* AI alert feed */}
+      {!!alerts?.alerts?.length && (
+        <Card title="AI Alerts" subtitle={`${alerts.count} live — across ${alerts.checked?.length ?? 0} tracked symbols`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {alerts.alerts.map((al, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid var(--card-border-soft)" }}>
+                <Badge text={al.severity} tone={(SEV_TONE[al.severity] ?? "default") as never} />
+                <b style={{ fontSize: 13 }}>{al.title}</b>
+                <span className="dim" style={{ fontSize: 12.5 }}>{al.detail}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* live market insights */}
+      {!!insights?.insights?.length && (
+        <Card title="Live Market Insights" subtitle={`Real-time reads across ${insights.symbols?.length ?? 0} symbols · ${insights.timeframe ?? ""}`}>
+          <div className="chips" style={{ gap: 8 }}>
+            {insights.insights.map((ins, i) => (
+              <span key={i} className="ui-badge" style={{ padding: "6px 11px", fontSize: 12.5,
+                background: "rgba(124,185,232,0.08)", border: "1px solid var(--card-border-soft)", color: "var(--text)" }}>
+                <Icon name={ins.kind === "volatility" ? "warning" : ins.kind === "reversal" ? "refresh" : "chart"}
+                  size={12} className="dim" /> {ins.text}
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid-2-eq">
         {/* score breakdown */}
@@ -142,6 +178,30 @@ export default function AIIntelligencePage() {
             {(profile?.weaknesses ?? []).map((w, i) => <li key={i} className="neg">{w}</li>)}
             {!profile?.weaknesses?.length && <li className="dim">None flagged yet.</li>}
           </ul>
+        </Card>
+        <Card title="Confidence Accuracy" subtitle={calib?.verdict ?? "Do higher-confidence setups actually win more?"}>
+          {!calib?.ready ? <div className="dim" style={{ padding: 10 }}>{calib?.verdict ?? "Grading trades as they close…"}</div> : (
+            <>
+              <div style={{ marginBottom: 8 }}>
+                <Badge text={calib.calibrated ? "Well calibrated" : "Miscalibrated"} tone={calib.calibrated ? "green" : "red"} />
+                <span className="dim" style={{ marginLeft: 8, fontSize: 12 }}>
+                  high {calib.high_conf_win_rate}% vs low {calib.low_conf_win_rate}%
+                  {calib.spread_pts != null && ` (${calib.spread_pts > 0 ? "+" : ""}${calib.spread_pts} pts)`}</span>
+              </div>
+              <table className="data-table" style={{ fontSize: 12.5 }}>
+                <thead><tr><th>Confidence</th><th>Trades</th><th>Win %</th><th>Avg R</th></tr></thead>
+                <tbody>
+                  {calib.by_confidence.filter((b) => b.trades > 0).map((b) => (
+                    <tr key={b.level}>
+                      <td><b>{b.level}</b></td><td className="dim">{b.trades}</td>
+                      <td className={b.win_rate >= 50 ? "pos" : "neg"}>{b.win_rate}%</td>
+                      <td className="dim">{b.avg_rr ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </Card>
         <Card title="Market Read" subtitle={`${a?.symbol ?? ""} · ${a?.timeframe ?? ""}${a?.data_source ? ` · ${a.data_source}` : ""}`}>
           {!ma?.available ? <div className="dim" style={{ padding: 10 }}>{ma?.note ?? "Analyzing…"}</div> : (

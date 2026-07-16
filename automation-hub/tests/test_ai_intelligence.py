@@ -114,3 +114,96 @@ def test_trader_profile_small_sample_is_honest():
     prof = ai.trader_profile({"sample": 2, "overall": {"trades": 2}})
     assert prof["ready"] is False
     assert "firms up" in prof["note"]
+
+
+# ─────────────────────────── confidence accuracy ───────────────────────────
+def _mem(score, result, rr=1.0, pnl=10.0):
+    return {"brain_score": score, "result": result, "actual_rr": rr, "pnl": pnl}
+
+
+def test_confidence_accuracy_detects_good_calibration():
+    # high-confidence trades mostly win; low-confidence mostly lose -> calibrated
+    rows = ([_mem(90, "win") for _ in range(8)] + [_mem(88, "loss") for _ in range(2)]
+            + [_mem(30, "loss") for _ in range(8)] + [_mem(35, "win") for _ in range(2)])
+    out = ai.confidence_accuracy(rows)
+    assert out["ready"] is True
+    assert out["calibrated"] is True
+    assert out["high_conf_win_rate"] > out["low_conf_win_rate"]
+    assert out["spread_pts"] > 0
+    # buckets are ordered strongest-first and cover the graded trades
+    assert [b["level"] for b in out["by_confidence"]][0] == "Very High"
+    assert sum(b["trades"] for b in out["by_confidence"]) == 20
+
+
+def test_confidence_accuracy_flags_miscalibration():
+    # high-confidence trades LOSE; low-confidence win -> miscalibrated
+    rows = ([_mem(90, "loss") for _ in range(8)] + [_mem(30, "win") for _ in range(8)]
+            + [_mem(30, "win") for _ in range(4)])
+    out = ai.confidence_accuracy(rows)
+    assert out["calibrated"] is False
+    assert "Miscalibrated" in out["verdict"]
+
+
+def test_confidence_accuracy_small_sample_is_honest():
+    out = ai.confidence_accuracy([_mem(90, "win"), _mem(30, "loss")])
+    assert out["ready"] is False
+    assert "firms up" in out["verdict"]
+
+
+# ─────────────────────────── AI alert feed ───────────────────────────
+def test_alerts_strong_and_weak_setups():
+    analyses = [
+        {"symbol": "BTCUSDT", "available": True, "allowed": True, "decision": "BUY",
+         "overall_score": 88, "confidence_level": "Very High", "risk_analysis": {}},
+        {"symbol": "XRPUSDT", "available": True, "allowed": False, "decision": "SKIP",
+         "overall_score": 40, "confidence_level": "Low", "risk_analysis": {}},
+    ]
+    alerts = ai.evaluate_alerts(analyses, {}, min_score=60)
+    types = {a["type"] for a in alerts}
+    assert "strong_setup" in types and "weak_setup" in types
+
+
+def test_alerts_risk_and_halt_and_session():
+    analyses = [{"symbol": "BTCUSDT", "available": True, "allowed": True, "decision": "BUY",
+                 "overall_score": 80, "risk_analysis": {"excessive": True, "warning": "too big"}}]
+    risk = {"exposure_pct": 1.5, "exposure_limit_pct": 1.0, "auto_halted": True,
+            "halt_reason": "max daily loss hit"}
+    alerts = ai.evaluate_alerts(analyses, risk, in_session=False, session_window="13:00–20:00 UTC")
+    types = {a["type"] for a in alerts}
+    assert {"risk_exceeds_limit", "max_daily_loss", "outside_session"} <= types
+    # most-severe first
+    assert alerts[0]["severity"] == "critical"
+
+
+def test_alerts_high_impact_news_only_when_present():
+    assert not any(a["type"] == "news" for a in ai.evaluate_alerts([], {}))
+    withnews = ai.evaluate_alerts([], {}, high_impact_news=[{"title": "FOMC in 30m"}])
+    assert any(a["type"] == "news" and "FOMC" in a["detail"] for a in withnews)
+
+
+# ─────────────────────────── live market insights ───────────────────────────
+def test_market_insights_from_reads():
+    reads = [{"symbol": "BTCUSDT", "ma": {
+        "available": True, "bias": "Bullish", "trend": {"strength_label": "strong"},
+        "structure": {"break_of_structure": "bullish", "change_of_character": False},
+        "volume": {"label": "above average"}, "volatility": {"label": "normal"},
+        "liquidity": {"sweep": "bullish sweep @ 100"}}}]
+    ins = ai.market_insights(reads)
+    texts = " ".join(i["text"] for i in ins)
+    assert "BTC is trending strongly" in texts
+    assert "Liquidity sweep detected on BTC" in texts
+    assert "volume is rising" in texts
+
+
+def test_market_insights_reversal_and_volatility():
+    reads = [{"symbol": "ETH/USDT", "ma": {
+        "available": True, "bias": "Neutral", "trend": {"strength_label": "weak"},
+        "structure": {"break_of_structure": "none", "change_of_character": True},
+        "volume": {"label": "below average"}, "volatility": {"label": "high"},
+        "liquidity": {"sweep": "none detected"}}}]
+    kinds = {i["kind"] for i in ai.market_insights(reads)}
+    assert {"reversal", "volume", "volatility"} <= kinds
+
+
+def test_market_insights_empty_when_no_data():
+    assert ai.market_insights([{"symbol": "BTCUSDT", "ma": {"available": False}}]) == []

@@ -41,6 +41,177 @@ def confidence_level(score: float) -> str:
     return "Very Low"
 
 
+def _base(symbol: str) -> str:
+    """Human ticker: BTC/USDT or BTCUSDT -> BTC."""
+    s = symbol.replace("/", "")
+    for q in ("USDT", "USD", "USDC", "BTC"):
+        if s.endswith(q) and len(s) > len(q):
+            return s[: -len(q)]
+    return s
+
+
+def market_insights(reads: list[dict]) -> list[dict]:
+    """Live, natural-language market insights from the analysis reads — trend,
+    volume shifts, liquidity sweeps, reversals, and volatility. Each is a real
+    read of the bars (never invented); returns [] when nothing notable."""
+    out: list[dict] = []
+    for r in reads or []:
+        sym = r.get("symbol", "")
+        ma = r.get("ma") or {}
+        if not ma.get("available"):
+            continue
+        base = _base(sym)
+        bias = (ma.get("bias") or "").lower()
+        trend = ma.get("trend") or {}
+        strength = (trend.get("strength_label") or "").lower()
+        structure = ma.get("structure") or {}
+        vol = (ma.get("volume") or {}).get("label") or ""
+        vola = (ma.get("volatility") or {}).get("label") or ""
+        sweep = (ma.get("liquidity") or {}).get("sweep")
+
+        if bias in ("bullish", "bearish") and strength in ("strong", "very strong"):
+            out.append({"symbol": sym, "kind": "trend", "tone": "green" if bias == "bullish" else "red",
+                        "text": f"{base} is trending strongly ({bias})."})
+        if structure.get("change_of_character"):
+            out.append({"symbol": sym, "kind": "reversal", "tone": "amber",
+                        "text": f"Possible reversal forming on {base} — change of character."})
+        elif structure.get("break_of_structure") not in (None, "none", "None"):
+            out.append({"symbol": sym, "kind": "structure", "tone": "default",
+                        "text": f"{base} broke structure ({structure.get('break_of_structure')})."})
+        if sweep and str(sweep).lower() not in ("none", "none detected"):
+            out.append({"symbol": sym, "kind": "liquidity", "tone": "amber",
+                        "text": f"Liquidity sweep detected on {base}."})
+        if vol == "below average":
+            out.append({"symbol": sym, "kind": "volume", "tone": "default",
+                        "text": f"{base} volume is decreasing (below its 20-bar average)."})
+        elif vol == "above average":
+            out.append({"symbol": sym, "kind": "volume", "tone": "default",
+                        "text": f"{base} volume is rising (above its 20-bar average)."})
+        if "high" in vola.lower():
+            out.append({"symbol": sym, "kind": "volatility", "tone": "red",
+                        "text": f"High volatility warning on {base}."})
+    return out
+
+
+def _alert(type_: str, severity: str, title: str, detail: str, symbol: str = "") -> dict:
+    return {"type": type_, "severity": severity, "title": title, "detail": detail, "symbol": symbol}
+
+
+def evaluate_alerts(analyses: list[dict], risk: dict, *, in_session: bool = True,
+                    session_window: str = "", high_impact_news: Optional[list] = None,
+                    strong_score: int = 75, min_score: int = 60) -> list[dict]:
+    """The AI alert feed — the spec's six alert types, each derived from real
+    state (never fabricated). Ordered most-severe first."""
+    alerts: list[dict] = []
+    risk = risk or {}
+
+    for a in analyses or []:
+        if not a.get("available", True):
+            continue
+        sym = a.get("symbol", "")
+        score = a.get("overall_score", 0)
+        if a.get("allowed") and score >= strong_score:
+            alerts.append(_alert("strong_setup", "success", f"Strong setup — {sym}",
+                                 f"{a.get('decision')} at score {score}/100 "
+                                 f"({a.get('confidence_level')} confidence).", sym))
+        elif a.get("decision") == "SKIP" and score < min_score:
+            alerts.append(_alert("weak_setup", "info", f"Weak setup skipped — {sym}",
+                                 f"Score {score}/100 is below the {min_score} minimum — no trade.", sym))
+        ra = a.get("risk_analysis") or {}
+        if ra.get("excessive"):
+            alerts.append(_alert("risk_exceeds_limit", "warning", f"Risk exceeds limit — {sym}",
+                                 ra.get("warning") or "The proposed risk is above your limit.", sym))
+
+    # portfolio-level exposure
+    exp, lim = risk.get("exposure_pct"), risk.get("exposure_limit_pct")
+    if exp is not None and lim and exp > lim:
+        alerts.append(_alert("risk_exceeds_limit", "warning", "Portfolio exposure over limit",
+                             f"Exposure {exp * 100:.0f}% exceeds the {lim * 100:.0f}% limit."))
+
+    # max daily loss / halt
+    if risk.get("auto_halted"):
+        alerts.append(_alert("max_daily_loss", "critical", "Trading halted",
+                             risk.get("halt_reason") or "A risk limit (e.g. max daily loss) was hit."))
+    elif (risk.get("trading_state") or "").lower() not in ("active", ""):
+        alerts.append(_alert("max_daily_loss", "warning", f"Trading {risk.get('trading_state')}",
+                             "New entries are paused by a risk control."))
+
+    # outside preferred session
+    if not in_session:
+        alerts.append(_alert("outside_session", "info", "Outside trading session",
+                             f"Now outside the preferred window{f' ({session_window})' if session_window else ''} "
+                             "— new entries are held until in-session."))
+
+    # high-impact news (only when a source actually reports it)
+    for n in high_impact_news or []:
+        title = n.get("title") if isinstance(n, dict) else str(n)
+        alerts.append(_alert("news", "warning", "High-impact news approaching", title))
+
+    sev_rank = {"critical": 0, "warning": 1, "success": 2, "info": 3}
+    alerts.sort(key=lambda x: sev_rank.get(x["severity"], 4))
+    return alerts
+
+
+def _mem_confidence(row: dict) -> Optional[float]:
+    """A closed trade's pre-trade confidence as a 0–100 score. Prefers the
+    Decision Brain score; falls back to a stored 0–1 confidence."""
+    bs = row.get("brain_score")
+    if bs is not None:
+        return float(bs)
+    c = row.get("confidence")
+    if c is not None:
+        return float(c) * 100 if float(c) <= 1.0 else float(c)
+    return None
+
+
+def confidence_accuracy(rows: list[dict]) -> dict:
+    """Was the AI's pre-trade confidence borne out? Buckets closed trades by
+    their confidence band and reports the realized win rate / expectancy of each
+    — the calibration feedback loop. 'Calibrated' means higher-confidence setups
+    actually won more often. Pure; honest about small samples."""
+    graded = [(lvl, r) for r in rows
+              if (r.get("result") in ("win", "loss", "breakeven"))
+              and (_mem_confidence(r) is not None)
+              for lvl in [confidence_level(_mem_confidence(r))]]
+    order = ["Very High", "High", "Medium", "Low", "Very Low"]
+    buckets = {lvl: [] for lvl in order}
+    for lvl, r in graded:
+        buckets[lvl].append(r)
+
+    def _stat(rs: list[dict]) -> dict:
+        n = len(rs)
+        wins = sum(1 for r in rs if r.get("result") == "win")
+        rr = [float(r["actual_rr"]) for r in rs if r.get("actual_rr") is not None]
+        pnl = [float(r["pnl"]) for r in rs if r.get("pnl") is not None]
+        return {"trades": n, "wins": wins,
+                "win_rate": round(wins / n * 100, 1) if n else 0.0,
+                "avg_rr": round(sum(rr) / len(rr), 2) if rr else None,
+                "avg_pnl": round(sum(pnl) / len(pnl), 2) if pnl else None}
+
+    by_conf = [{"level": lvl, **_stat(buckets[lvl])} for lvl in order]
+    sample = len(graded)
+
+    high = [r for lvl in ("Very High", "High") for r in buckets[lvl]]
+    low = [r for lvl in ("Low", "Very Low") for r in buckets[lvl]]
+    hi_wr = _stat(high)["win_rate"] if high else None
+    lo_wr = _stat(low)["win_rate"] if low else None
+    spread = round(hi_wr - lo_wr, 1) if (hi_wr is not None and lo_wr is not None) else None
+    calibrated = spread is not None and spread > 0
+
+    if sample < 10 or spread is None:
+        verdict = f"Only {sample} graded trades — calibration firms up past ~10 with a spread of confidence."
+    elif calibrated:
+        verdict = (f"Well calibrated: high-confidence setups win {hi_wr}% vs {lo_wr}% for "
+                   f"low-confidence (+{spread} pts).")
+    else:
+        verdict = (f"Miscalibrated: high-confidence setups win {hi_wr}% vs {lo_wr}% for "
+                   f"low-confidence ({spread} pts) — the score isn't separating winners yet.")
+
+    return {"sample": sample, "ready": sample >= 10, "by_confidence": by_conf,
+            "high_conf_win_rate": hi_wr, "low_conf_win_rate": lo_wr,
+            "spread_pts": spread, "calibrated": bool(calibrated), "verdict": verdict}
+
+
 def _bucket_name(b) -> str:
     if isinstance(b, dict):
         return str(b.get("name") or b.get("key") or b.get("label") or b.get("session") or b.get("symbol") or "?")
