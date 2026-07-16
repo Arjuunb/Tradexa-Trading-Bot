@@ -37,6 +37,10 @@ class SqliteStore:
         # let concurrent access wait rather than raise "database is locked".
         self._lock = threading.RLock()
         self._conn.execute("PRAGMA busy_timeout=5000")
+        # Optional durable mirror for per-user settings (data/settings_store.py).
+        # When set, SQLite is the fast local cache and the mirror (Supabase) is
+        # the source of truth that survives an ephemeral-disk restart.
+        self.settings_mirror = None
         self._migrate()
 
     # ---------------------------------------------------------- migrations
@@ -140,9 +144,7 @@ class SqliteStore:
             self._conn.commit()
 
     # -------------------------------------------------- per-user settings
-    def get_user_settings(self, username: str, namespace: str) -> dict:
-        """The user's saved workspace blob for one namespace ({} if none)."""
-        import json
+    def _sqlite_get_settings(self, username: str, namespace: str) -> dict:
         r = self._conn.execute(
             "SELECT data FROM user_settings WHERE username=? AND namespace=?",
             (username, namespace)).fetchone()
@@ -153,8 +155,7 @@ class SqliteStore:
         except Exception:  # noqa: BLE001 — corrupt blob -> behave as empty
             return {}
 
-    def set_user_settings(self, username: str, namespace: str, data: dict) -> None:
-        import json
+    def _sqlite_set_settings(self, username: str, namespace: str, data: dict) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO user_settings(username, namespace, data, updated_at) "
@@ -162,6 +163,27 @@ class SqliteStore:
                 (username, namespace, json.dumps(data),
                  datetime.now(timezone.utc).isoformat()))
             self._conn.commit()
+
+    def get_user_settings(self, username: str, namespace: str) -> dict:
+        """The user's saved workspace blob for one namespace ({} if none).
+
+        Reads the local SQLite cache first; on a miss (e.g. after an
+        ephemeral-disk restart) it pulls from the durable mirror and backfills
+        the cache, so a login always restores real settings instead of defaults."""
+        local = self._sqlite_get_settings(username, namespace)
+        if local:
+            return local
+        if self.settings_mirror is not None:
+            remote = self.settings_mirror.get(username, namespace)
+            if remote:
+                self._sqlite_set_settings(username, namespace, remote)   # warm the cache
+                return remote
+        return {}
+
+    def set_user_settings(self, username: str, namespace: str, data: dict) -> None:
+        self._sqlite_set_settings(username, namespace, data)
+        if self.settings_mirror is not None:
+            self.settings_mirror.set(username, namespace, data)          # durable write
 
     def delete_user_settings(self, username: str, namespace: str | None = None) -> None:
         """Explicit reset only — called from the user's own Reset actions."""
@@ -173,6 +195,8 @@ class SqliteStore:
                     "DELETE FROM user_settings WHERE username=? AND namespace=?",
                     (username, namespace))
             self._conn.commit()
+        if self.settings_mirror is not None:
+            self.settings_mirror.delete(username, namespace)
 
     def close(self) -> None:
         self._conn.close()

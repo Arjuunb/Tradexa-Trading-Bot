@@ -114,6 +114,20 @@ CREATE INDEX IF NOT EXISTS ix_trade_memories_result  ON trade_memories(result);
 CREATE INDEX IF NOT EXISTS ix_trade_memories_session ON trade_memories(session);
 CREATE INDEX IF NOT EXISTS ix_trade_memories_closed  ON trade_memories(closed_at);
 
+-- ---------------------------------------------------------------------------
+-- Durable per-user settings (Supabase mirror of the SQLite user_settings table).
+-- Lets saved settings / dashboard prefs survive a redeploy on the free tier, so
+-- logging in restores real settings instead of defaults. Mirrored by
+-- data/settings_store.py; SQLite under HUB_DATA_DIR stays the fast local cache.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_settings (
+    username    TEXT NOT NULL,
+    namespace   TEXT NOT NULL,
+    data        TEXT NOT NULL,
+    updated_at  TEXT,
+    PRIMARY KEY (username, namespace)
+);
+
 CREATE TABLE IF NOT EXISTS memory_reviews (
     id          SERIAL PRIMARY KEY,
     period      TEXT NOT NULL,         -- nightly | weekly | monthly | yearly
