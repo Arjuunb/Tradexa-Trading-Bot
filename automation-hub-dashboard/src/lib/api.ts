@@ -361,6 +361,21 @@ export interface StrategyPerformance {
   recent: PaperTradeRow[];
 }
 export interface CustomRule { type: string; negate?: boolean; [k: string]: unknown; }
+// ── no-code strategy builder ──
+export interface BlockParam { name: string; type: "number" | "select"; default: unknown; label: string; options?: string[]; }
+export interface BlockDef { type: string; label: string; desc: string; params: BlockParam[]; }
+export interface BlockCategory { key: string; label: string; blocks: BlockDef[]; }
+export interface SessionDef { key: string; label: string; start: number; end: number; }
+export interface BlockCatalog {
+  categories: BlockCategory[];
+  config: { logic: string[]; risk: BlockParam[]; stop: BlockParam[]; target: BlockParam[]; exit: BlockParam[]; sessions: SessionDef[]; };
+}
+export interface AIStrategyReview {
+  complexity: string; rule_count: number; risk_level: string; expected_behaviour: string;
+  strengths: string[]; weaknesses: string[]; improvements: string[];
+  estimated_confidence: number; confidence_level: string; summary: string;
+  warnings: { level: string; message: string }[];
+}
 export interface CustomSpec {
   id?: string; name: string; market?: string; symbol: string; timeframe: string;
   side: "long" | "short";

@@ -92,6 +92,94 @@ def _macd(closes, fast, slow, signal):
     return macd_series[-1], sig[-1]
 
 
+# ---- extra indicators for the strategy builder (bounded-window, like the rest) ----
+def _wilder_adx(bars, period: int = 14) -> float:
+    """Average Directional Index (trend strength, 0..100). Compact Wilder calc
+    over the trailing window supplied. Returns 0 when there is not enough data."""
+    n = period * 2 + 2
+    seg = bars[-n:] if len(bars) > n else bars
+    if len(seg) < period + 2:
+        return 0.0
+    trs, plus_dm, minus_dm = [], [], []
+    for k in range(1, len(seg)):
+        up = seg[k].high - seg[k - 1].high
+        down = seg[k - 1].low - seg[k].low
+        plus_dm.append(up if (up > down and up > 0) else 0.0)
+        minus_dm.append(down if (down > up and down > 0) else 0.0)
+        trs.append(max(seg[k].high - seg[k].low,
+                       abs(seg[k].high - seg[k - 1].close),
+                       abs(seg[k].low - seg[k - 1].close)))
+    atr_s = sum(trs[-period:]) or 1e-9
+    pdi = 100 * sum(plus_dm[-period:]) / atr_s
+    mdi = 100 * sum(minus_dm[-period:]) / atr_s
+    dx = 100 * abs(pdi - mdi) / ((pdi + mdi) or 1e-9)
+    return round(dx, 2)
+
+
+def _obv_rising(bars, lookback: int) -> bool:
+    """True when On-Balance Volume is higher than ``lookback`` bars ago."""
+    seg = bars[-(lookback + 1):]
+    if len(seg) < 2:
+        return False
+    obv0 = obv = 0.0
+    for k in range(1, len(seg)):
+        if seg[k].close > seg[k - 1].close:
+            obv += seg[k].volume
+        elif seg[k].close < seg[k - 1].close:
+            obv -= seg[k].volume
+        if k == 1:
+            obv0 = obv
+    return obv > obv0
+
+
+def _supertrend_bullish(bars, period: int, mult: float) -> bool:
+    """Supertrend direction: True = uptrend (price above the ATR band)."""
+    n = period * 3 + 2
+    seg = bars[-n:] if len(bars) > n else bars
+    if len(seg) < period + 2:
+        return False
+    st_up = True
+    lower = upper = None
+    for k in range(period, len(seg)):
+        a = atr(seg[: k + 1], period)
+        mid = (seg[k].high + seg[k].low) / 2
+        up_band, low_band = mid + mult * a, mid - mult * a
+        upper = up_band if upper is None else (min(up_band, upper) if seg[k - 1].close <= upper else up_band)
+        lower = low_band if lower is None else (max(low_band, lower) if seg[k - 1].close >= lower else low_band)
+        if seg[k].close > (upper or up_band):
+            st_up = True
+        elif seg[k].close < (lower or low_band):
+            st_up = False
+    return st_up
+
+
+def _rsi_series(closes, period: int) -> list[float]:
+    """RSI at each of the trailing points (Wilder), bounded window."""
+    n = period * 3 + 2
+    seg = closes[-n:] if len(closes) > n else closes
+    out = []
+    for k in range(period, len(seg) + 1):
+        out.append(rsi(seg[:k], period))
+    return out
+
+
+def _swing_seq(bars, i, k, lookback, count):
+    """The last ``count`` confirmed swing highs and lows (newest last)."""
+    highs, lows = [], []
+    for j in range(i - k, max(k, i - lookback) - 1, -1):
+        if j - k < 0 or j + k >= len(bars):
+            continue
+        seg = bars[j - k:j + k + 1]
+        mid = bars[j]
+        if mid.high == max(b.high for b in seg):
+            highs.append(mid.high)
+        if mid.low == min(b.low for b in seg):
+            lows.append(mid.low)
+        if len(highs) >= count and len(lows) >= count:
+            break
+    return list(reversed(highs[:count])), list(reversed(lows[:count]))
+
+
 # ----------------------------------------------------------------- rule eval
 def _rule(rule: dict, bars, i: int) -> tuple[bool, str]:
     """Evaluate one rule at bar index i. Returns (passed, human reason)."""
@@ -241,6 +329,49 @@ def _rule(rule: dict, bars, i: int) -> tuple[bool, str]:
         if p.get("dir", "up") == "up":
             return (sh is not None and closes[-1] > sh and closes[-2] < es), "CHoCH up"
         return (sl is not None and closes[-1] < sl and closes[-2] > es), "CHoCH down"
+
+    # ---- extra indicators ----
+    if t == "adx":
+        per = int(p.get("period", 14)); val = float(p.get("value", 25))
+        a = _wilder_adx(window, per)
+        strong = a >= val
+        ok = strong if p.get("op", "above") == "above" else (not strong)
+        return ok, f"ADX {a:.0f}{'≥' if strong else '<'}{val:.0f}"
+
+    if t == "supertrend":
+        per = int(p.get("period", 10)); mult = float(p.get("mult", 3))
+        up = _supertrend_bullish(window, per, mult)
+        ok = up if p.get("dir", "up") == "up" else (not up)
+        return ok, f"Supertrend {'up' if up else 'down'}"
+
+    if t == "obv":
+        lb = int(p.get("lookback", 20))
+        rising = _obv_rising(window, lb)
+        ok = rising if p.get("dir", "up") == "up" else (not rising)
+        return ok, f"OBV {'rising' if rising else 'falling'}"
+
+    if t == "stoch_rsi":
+        per = int(p.get("period", 14)); val = float(p.get("value", 20))
+        series = _rsi_series(closes, per)
+        if len(series) < per:
+            return False, ""
+        win = series[-per:]
+        lo, hi = min(win), max(win)
+        k = 100 * (series[-1] - lo) / ((hi - lo) or 1e-9)
+        below = k < val
+        ok = below if p.get("op", "below") == "below" else (k > (100 - val))
+        return ok, f"StochRSI {k:.0f}"
+
+    if t == "trend":  # market-structure direction from the last two swings
+        k = int(p.get("pivot", 3))
+        highs, lows = _swing_seq(bars, i, k, int(p.get("lookback", 60)), 2)
+        if len(highs) < 2 or len(lows) < 2:
+            return False, ""
+        up = highs[-1] > highs[-2] and lows[-1] > lows[-2]      # HH + HL
+        down = highs[-1] < highs[-2] and lows[-1] < lows[-2]    # LH + LL
+        want = p.get("dir", "up")
+        ok = up if want == "up" else down
+        return ok, f"trend {'up (HH/HL)' if up else 'down (LH/LL)' if down else 'unclear'}"
 
     return False, ""
 
@@ -734,6 +865,11 @@ def _phrase_rule(r: dict) -> str:
         "bollinger": f"price is at the Bollinger {r.get('zone','below_lower').replace('_',' ')} ({r.get('period',20)},{r.get('std',2)})",
         "bos": f"a {r.get('dir','up')} break of structure occurs",
         "choch": f"a {r.get('dir','up')} change of character (reversal) occurs",
+        "adx": f"ADX({r.get('period',14)}) is {r.get('op','above')} {r.get('value',25)} (trend strength)",
+        "supertrend": f"Supertrend points {r.get('dir','up')}",
+        "obv": f"On-Balance Volume is {'rising' if r.get('dir','up')=='up' else 'falling'}",
+        "stoch_rsi": f"Stochastic RSI({r.get('period',14)}) is {r.get('op','below')} {r.get('value',20)}",
+        "trend": f"market structure is trending {r.get('dir','up')} ({'HH/HL' if r.get('dir','up')=='up' else 'LH/LL'})",
     }.get(t, t or "a condition")
     return f"NOT ({s})" if neg else s
 
