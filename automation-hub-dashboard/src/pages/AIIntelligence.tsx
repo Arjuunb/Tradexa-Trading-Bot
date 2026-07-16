@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy } from "../lib/api";
+import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts } from "../lib/api";
+
+const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
 const CONF_TONE: Record<string, string> = {
   "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red",
@@ -23,6 +25,7 @@ export default function AIIntelligencePage() {
   const { data: a } = useLive<AIAnalysis>(`/ai/analyze?${qs}`, 20000);
   const { data: profile } = useLive<AIProfile>("/ai/profile", 30000);
   const { data: calib } = useLive<AIConfidenceAccuracy>("/ai/confidence-accuracy", 30000);
+  const { data: alerts } = useLive<AIAlerts>("/ai/alerts", 30000);
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -66,6 +69,22 @@ export default function AIIntelligencePage() {
         <StatCard label="Min Score" value={a ? String(a.min_score) : "—"} sub={a?.allowed ? "setup qualifies" : "below threshold"}
           tone={a?.allowed ? "green" : "amber"} />
       </div>
+
+      {/* AI alert feed */}
+      {!!alerts?.alerts?.length && (
+        <Card title="AI Alerts" subtitle={`${alerts.count} live — across ${alerts.checked?.length ?? 0} tracked symbols`}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {alerts.alerts.map((al, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid var(--card-border-soft)" }}>
+                <Badge text={al.severity} tone={(SEV_TONE[al.severity] ?? "default") as never} />
+                <b style={{ fontSize: 13 }}>{al.title}</b>
+                <span className="dim" style={{ fontSize: 12.5 }}>{al.detail}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid-2-eq">
         {/* score breakdown */}

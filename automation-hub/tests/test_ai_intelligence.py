@@ -148,3 +148,34 @@ def test_confidence_accuracy_small_sample_is_honest():
     out = ai.confidence_accuracy([_mem(90, "win"), _mem(30, "loss")])
     assert out["ready"] is False
     assert "firms up" in out["verdict"]
+
+
+# ─────────────────────────── AI alert feed ───────────────────────────
+def test_alerts_strong_and_weak_setups():
+    analyses = [
+        {"symbol": "BTCUSDT", "available": True, "allowed": True, "decision": "BUY",
+         "overall_score": 88, "confidence_level": "Very High", "risk_analysis": {}},
+        {"symbol": "XRPUSDT", "available": True, "allowed": False, "decision": "SKIP",
+         "overall_score": 40, "confidence_level": "Low", "risk_analysis": {}},
+    ]
+    alerts = ai.evaluate_alerts(analyses, {}, min_score=60)
+    types = {a["type"] for a in alerts}
+    assert "strong_setup" in types and "weak_setup" in types
+
+
+def test_alerts_risk_and_halt_and_session():
+    analyses = [{"symbol": "BTCUSDT", "available": True, "allowed": True, "decision": "BUY",
+                 "overall_score": 80, "risk_analysis": {"excessive": True, "warning": "too big"}}]
+    risk = {"exposure_pct": 1.5, "exposure_limit_pct": 1.0, "auto_halted": True,
+            "halt_reason": "max daily loss hit"}
+    alerts = ai.evaluate_alerts(analyses, risk, in_session=False, session_window="13:00–20:00 UTC")
+    types = {a["type"] for a in alerts}
+    assert {"risk_exceeds_limit", "max_daily_loss", "outside_session"} <= types
+    # most-severe first
+    assert alerts[0]["severity"] == "critical"
+
+
+def test_alerts_high_impact_news_only_when_present():
+    assert not any(a["type"] == "news" for a in ai.evaluate_alerts([], {}))
+    withnews = ai.evaluate_alerts([], {}, high_impact_news=[{"title": "FOMC in 30m"}])
+    assert any(a["type"] == "news" and "FOMC" in a["detail"] for a in withnews)

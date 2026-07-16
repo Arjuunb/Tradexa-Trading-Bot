@@ -41,6 +41,65 @@ def confidence_level(score: float) -> str:
     return "Very Low"
 
 
+def _alert(type_: str, severity: str, title: str, detail: str, symbol: str = "") -> dict:
+    return {"type": type_, "severity": severity, "title": title, "detail": detail, "symbol": symbol}
+
+
+def evaluate_alerts(analyses: list[dict], risk: dict, *, in_session: bool = True,
+                    session_window: str = "", high_impact_news: Optional[list] = None,
+                    strong_score: int = 75, min_score: int = 60) -> list[dict]:
+    """The AI alert feed — the spec's six alert types, each derived from real
+    state (never fabricated). Ordered most-severe first."""
+    alerts: list[dict] = []
+    risk = risk or {}
+
+    for a in analyses or []:
+        if not a.get("available", True):
+            continue
+        sym = a.get("symbol", "")
+        score = a.get("overall_score", 0)
+        if a.get("allowed") and score >= strong_score:
+            alerts.append(_alert("strong_setup", "success", f"Strong setup — {sym}",
+                                 f"{a.get('decision')} at score {score}/100 "
+                                 f"({a.get('confidence_level')} confidence).", sym))
+        elif a.get("decision") == "SKIP" and score < min_score:
+            alerts.append(_alert("weak_setup", "info", f"Weak setup skipped — {sym}",
+                                 f"Score {score}/100 is below the {min_score} minimum — no trade.", sym))
+        ra = a.get("risk_analysis") or {}
+        if ra.get("excessive"):
+            alerts.append(_alert("risk_exceeds_limit", "warning", f"Risk exceeds limit — {sym}",
+                                 ra.get("warning") or "The proposed risk is above your limit.", sym))
+
+    # portfolio-level exposure
+    exp, lim = risk.get("exposure_pct"), risk.get("exposure_limit_pct")
+    if exp is not None and lim and exp > lim:
+        alerts.append(_alert("risk_exceeds_limit", "warning", "Portfolio exposure over limit",
+                             f"Exposure {exp * 100:.0f}% exceeds the {lim * 100:.0f}% limit."))
+
+    # max daily loss / halt
+    if risk.get("auto_halted"):
+        alerts.append(_alert("max_daily_loss", "critical", "Trading halted",
+                             risk.get("halt_reason") or "A risk limit (e.g. max daily loss) was hit."))
+    elif (risk.get("trading_state") or "").lower() not in ("active", ""):
+        alerts.append(_alert("max_daily_loss", "warning", f"Trading {risk.get('trading_state')}",
+                             "New entries are paused by a risk control."))
+
+    # outside preferred session
+    if not in_session:
+        alerts.append(_alert("outside_session", "info", "Outside trading session",
+                             f"Now outside the preferred window{f' ({session_window})' if session_window else ''} "
+                             "— new entries are held until in-session."))
+
+    # high-impact news (only when a source actually reports it)
+    for n in high_impact_news or []:
+        title = n.get("title") if isinstance(n, dict) else str(n)
+        alerts.append(_alert("news", "warning", "High-impact news approaching", title))
+
+    sev_rank = {"critical": 0, "warning": 1, "success": 2, "info": 3}
+    alerts.sort(key=lambda x: sev_rank.get(x["severity"], 4))
+    return alerts
+
+
 def _mem_confidence(row: dict) -> Optional[float]:
     """A closed trade's pre-trade confidence as a 0–100 score. Prefers the
     Decision Brain score; falls back to a stored 0–1 confidence."""

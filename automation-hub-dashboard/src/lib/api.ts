@@ -183,6 +183,11 @@ export interface AIProfile {
   avg_hold_seconds: number | null; sharpe_ratio: number | null;
   win_rate: number | null; expectancy_r: number | null; note: string;
 }
+export interface AIAlert {
+  type: string; severity: "critical" | "warning" | "success" | "info";
+  title: string; detail: string; symbol: string;
+}
+export interface AIAlerts { alerts: AIAlert[]; count: number; checked: string[]; }
 export interface AIConfidenceAccuracy {
   sample: number; ready: boolean; calibrated: boolean; verdict: string;
   high_conf_win_rate: number | null; low_conf_win_rate: number | null; spread_pts: number | null;

@@ -353,6 +353,9 @@ const SHAPES: [string, unknown][] = [
       { level: "Medium", trades: 4, wins: 2, win_rate: 50, avg_rr: 0.4, avg_pnl: 5 },
       { level: "Low", trades: 4, wins: 1, win_rate: 25, avg_rr: -0.3, avg_pnl: -12 },
       { level: "Very Low", trades: 2, wins: 1, win_rate: 50, avg_rr: 0.1, avg_pnl: 2 }] }],
+  ["/ai/alerts", { count: 2, checked: ["BTCUSDT", "ETHUSDT"], alerts: [
+    { type: "strong_setup", severity: "success", title: "Strong setup — BTCUSDT", detail: "BUY at score 88/100.", symbol: "BTCUSDT" },
+    { type: "outside_session", severity: "info", title: "Outside trading session", detail: "Entries held until in-session.", symbol: "" }] }],
   ["/ai/confidence-levels", { levels: [{ level: "Very High", min_score: 85 }] }],
   ["/strategy/league", { available: false, detail: "no data (mock)" }],
   ["/report/daily", { report: {}, text: "Daily report — mock", telegram_configured: false }],
