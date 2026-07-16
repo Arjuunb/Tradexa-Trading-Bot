@@ -50,9 +50,11 @@ services:
       # real deploy runs with the guard engaged and Safety Center shows it green.
       - key: HUB_MAX_DAILY_LOSS
         value: "0.03"
-      # --- FREE persistence (so capital/trades survive redeploy without a paid
-      # disk): create a free Supabase project, run automation-hub/data/
-      # ledger_schema.sql, then set these two. Leave blank to skip.
+      # --- FREE persistence (so trades AND saved settings survive redeploy
+      # without a paid disk): create a free Supabase project, run automation-hub/
+      # data/ledger_schema.sql (it now includes a user_settings table), then set
+      # these two. With them set, your dashboard/Settings-Center settings persist
+      # across redeploys — no more "defaults on every login". Leave blank to skip.
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -62,8 +64,8 @@ services:
       - key: HUB_STARTING_CASH
         sync: false
     # --- FULL persistence across redeploys (recommended for real users) ---
-    # A Supabase project (above) preserves TRADE HISTORY only. To make the paper
-    # account, user accounts, saved settings and AI memory ALSO survive every
+    # A Supabase project (above) preserves trade history AND saved settings. To
+    # make the paper account, user accounts and AI memory ALSO survive every
     # redeploy, mount a persistent disk and point HUB_DATA_DIR at it. Uncomment
     # the two blocks below. NOTE: attaching a disk moves the service off the
     # `free` plan onto a paid instance (Render requirement) — change `plan: free`

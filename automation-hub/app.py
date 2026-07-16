@@ -43,6 +43,16 @@ app = FastAPI(title=settings.app_name)
 # The first admin is seeded from HUB_USERNAME/HUB_PASSWORD. Tests override
 # `manager` with an in-memory BotManager() but reuse `store` for auth.
 store = SqliteStore(settings.db_path)
+# Durable settings mirror: when SUPABASE_URL + SUPABASE_KEY are set, per-user
+# settings persist to Supabase so they survive an ephemeral-disk restart (no
+# more "defaults on every login") without needing a paid disk. No-op otherwise.
+try:
+    from data.settings_store import make_settings_mirror  # noqa: E402
+    store.settings_mirror = make_settings_mirror()
+    if store.settings_mirror is not None:
+        print("[settings] durable Supabase mirror enabled — settings survive redeploys.", flush=True)
+except Exception:  # noqa: BLE001 — never let settings persistence break boot
+    pass
 store.seed_admin(settings.username, settings.password)
 manager = BotManager(store=store)
 
