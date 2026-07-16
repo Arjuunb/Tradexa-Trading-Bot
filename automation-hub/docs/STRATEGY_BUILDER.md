@@ -79,10 +79,11 @@ Strategies can now close early on **exit conditions**, not just stop/target:
 - Plus the existing break-even / trailing / time-stop, all surfaced in a new
   **Exit Conditions** panel in Strategy Studio.
 
-Backtest-first: exits are evaluated in `simulate()` so users design and validate
-them on real data. Wiring the exit tree into the live paper adapter
-(`CustomStrategyAdapter`) is the remaining follow-on; deployed strategies
-currently exit via stop / target / trade-management.
+Both backtest **and live paper** honour the same exit rules: `simulate()`
+evaluates them per bar, and `CustomStrategyAdapter.should_exit()` does the same
+in the engine (called from `auto_engine._check_exit` each bar, backward-compatibly
+— built-in strategies don't implement it, so their behaviour is unchanged). So a
+deployed strategy exits exactly as its backtest did — no divergence.
 
 ## Tests
 `tests/test_strategy_builder.py` (9): new blocks evaluate + simulate, every

@@ -383,7 +383,7 @@ class AutoStrategyEngine:
         # 1. resting limit entry: fill if this bar traded through it.
         self._check_pending(sym, bar)
         # 2. stop-loss / take-profit exits against this bar's range.
-        self._check_exit(sym, bar)
+        self._check_exit(sym, bar, strategy)
         # 3. strategy decision on the new bar.
         signal: Optional[Signal] = strategy.on_bar(bar)
         outcome: Optional[dict] = None
@@ -475,7 +475,7 @@ class AutoStrategyEngine:
         mae_r = round((mt.entry - mt.mae) * sign / mt.risk, 3)
         return mfe_r, mae_r
 
-    def _check_exit(self, sym: str, bar) -> None:
+    def _check_exit(self, sym: str, bar, strategy=None) -> None:
         pos = self.paper.open_position(sym)
         if pos is None:
             self._managed.pop(sym, None)
@@ -510,6 +510,17 @@ class AutoStrategyEngine:
                     exit_price, why = stop, "stop-loss"
                 elif target and bar.low <= target:
                     exit_price, why = target, "take-profit"
+        # strategy-defined exit conditions (custom builder: indicator / AI exit).
+        # Only strategies that implement should_exit participate — built-ins don't.
+        if exit_price is None and strategy is not None:
+            should = getattr(strategy, "should_exit", None)
+            if callable(should):
+                try:
+                    reason = should(bar, pos["side"])
+                    if reason:
+                        exit_price, why = bar.close, reason
+                except Exception:  # noqa: BLE001 — a bad exit rule must never stall the engine
+                    pass
         if exit_price is not None:
             mfe_r, mae_r = self._mfe_mae_r(mt)
             res = self._route({
