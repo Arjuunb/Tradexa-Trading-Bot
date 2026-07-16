@@ -85,7 +85,7 @@ export default function PaperTradingPage() {
 
       <div className="stat-row">
         <StatCard label="Current Equity" value={money(acct?.current_equity)} sub={`Initial ${money(acct?.initial_capital)}`} tone={(acct?.current_equity ?? 0) >= (acct?.initial_capital ?? 0) ? "green" : "red"} />
-        <StatCard label="Available Balance" value={money(acct?.available_balance)} sub={`Realized ${money(acct?.realized_pnl)}`} />
+        <StatCard label="Available Balance" value={money(acct?.available_balance)} sub={acct?.fees_paid ? `Realized ${money(acct?.realized_pnl)} · fees ${money(acct.fees_paid)}` : `Realized ${money(acct?.realized_pnl)}`} />
         <StatCard label="Open Positions" value={String(acct?.open_positions ?? 0)} />
         <StatCard label="Engine" value={eng?.running ? "Running" : "Stopped"} tone={eng?.running ? "green" : "red"} sub={eng ? `${eng.signals} signals · ${eng.trades} fills` : ""} />
         <StatCard label="Trading State" value={state ?? "—"} tone={stateTone(state)} />

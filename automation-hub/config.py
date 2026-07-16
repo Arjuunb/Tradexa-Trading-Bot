@@ -121,6 +121,9 @@ class Settings:
     # Persistent paper-account state (initial capital + current equity snapshot)
     account_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_ACCOUNT_DB", str(DATA_DIR / "account.db")))
+    # Persistent market prefs (favorites, pins, watchlists)
+    watchlist_db: str = field(default_factory=lambda: os.environ.get(
+        "HUB_WATCHLIST_DB", str(DATA_DIR / "watchlists.db")))
     # Unified decision store (every accepted AND rejected trade decision)
     decisions_db: str = field(default_factory=lambda: os.environ.get(
         "HUB_DECISIONS_DB", str(DATA_DIR / "decisions.db")))

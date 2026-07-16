@@ -122,6 +122,7 @@ export interface PaperAccount {
   current_equity: number;
   available_balance: number;
   realized_pnl: number;
+  fees_paid?: number;
   unrealized_pnl: number;
   last_updated: string | null;
   open_positions: number;
@@ -136,6 +137,26 @@ export interface LedgerPosition {
   id: string; symbol: string; side: string; size: number;
   entry: number; stop: number | null; status: string; pnl: number;
   opened_at: string; closed_at: string | null;
+}
+// ── multi-asset symbol universe ──
+export type AssetClass = "crypto" | "stock" | "etf" | "index" | "forex" | "commodity";
+export interface SymbolRow {
+  symbol: string; ticker: string; name: string; asset_class: AssetClass;
+  exchange: string; base: string; quote: string; type: string; session: string;
+  favorite?: boolean; pinned?: boolean;
+}
+export interface SymbolInfo extends SymbolRow {
+  found: boolean; market_status: "open" | "closed"; price_available: boolean;
+  price?: number; change_24h_pct?: number; volume_24h?: number; spark?: number[];
+  source?: string; note?: string;
+}
+export interface AssetClassCount { asset_class: AssetClass; count: number; }
+export interface AssetClasses {
+  asset_classes: AssetClassCount[]; crypto_source: string; synced_at: string; total: number;
+}
+export interface MarketPrefs {
+  favorites: string[]; pinned: string[];
+  watchlists: { id: string; name: string; symbols: string[] }[];
 }
 export interface PaperTradeRow {
   id: string; alert_id: string | null; symbol: string; side: string; size: number;

@@ -20,9 +20,10 @@ class FillResult:
     side: str
     size: float
     price: float
-    pnl: float = 0.0
+    pnl: float = 0.0            # net of fees
     position_id: str = ""
     trade_id: str = ""
+    fee: float = 0.0            # round-trip commission charged on this fill
 
 
 def _dir(side: str) -> str:
@@ -138,7 +139,9 @@ class PaperExecutionEngine:
                                   exit_price, closed_size,
                                   allow_reject=False, allow_partial=False)
         exit_price = f["price"]
-        pnl = self._pnl(pos["side"], closed_size, pos["entry"], exit_price)
+        gross = self._pnl(pos["side"], closed_size, pos["entry"], exit_price)
+        fee = self._round_trip_fee(closed_size, pos["entry"], exit_price)
+        pnl = gross - fee          # realized P&L on the closed fraction, net of fees
         rr = self._rr(pos, exit_price)
         remainder = pos["size"] - closed_size
         self.ledger.close_position(pos["id"], exit_price=exit_price, pnl=pnl)
@@ -158,7 +161,7 @@ class PaperExecutionEngine:
         })
         self._invalidate_history()
         self._persist_account_snapshot()
-        return FillResult("reduced", symbol, pos["side"], closed_size, exit_price, pnl, pos["id"])
+        return FillResult("reduced", symbol, pos["side"], closed_size, exit_price, pnl, pos["id"], fee=fee)
 
     def close(self, *, symbol: str, exit_price: float) -> FillResult:
         pos = self.open_position(symbol)
@@ -172,7 +175,9 @@ class PaperExecutionEngine:
             self.quality.record(symbol=symbol, side=action, intended=exit_price,
                                 filled=f["price"], kind="exit")
         exit_price = f["price"]
-        pnl = self._pnl(pos["side"], pos["size"], pos["entry"], exit_price)
+        gross = self._pnl(pos["side"], pos["size"], pos["entry"], exit_price)
+        fee = self._round_trip_fee(pos["size"], pos["entry"], exit_price)
+        pnl = gross - fee          # realized P&L is net of commission
         rr = self._rr(pos, exit_price)
         self.ledger.close_position(pos["id"], exit_price=exit_price, pnl=pnl)
         for t in self.ledger.get_paper_trades():
@@ -181,9 +186,37 @@ class PaperExecutionEngine:
                 break
         self._invalidate_history()
         self._persist_account_snapshot()
-        return FillResult("closed", symbol, pos["side"], pos["size"], exit_price, pnl, pos["id"])
+        return FillResult("closed", symbol, pos["side"], pos["size"], exit_price, pnl, pos["id"], fee=fee)
 
     # --------------------------------------------------------------- helpers
+    def _fee_rate(self, *, maker: bool = False) -> float:
+        """Commission fraction from the fill model (0 for PerfectFill)."""
+        fn = getattr(self.fill_model, "fee_pct", None)
+        return fn(maker=maker) if fn else 0.0
+
+    def _round_trip_fee(self, size: float, entry: float, exit_price: float) -> float:
+        """Commission for a full round trip (entry + exit notional). Taker rate
+        both sides — a conservative paper assumption that never understates cost.
+        Zero when the fill model charges no fee, so ideal-fill behaviour is
+        unchanged."""
+        rate = self._fee_rate(maker=False)
+        if rate <= 0:
+            return 0.0
+        return rate * size * (abs(entry) + abs(exit_price))
+
+    def fees_paid(self) -> float:
+        """Total commission booked across all closed trades (recomputed from the
+        round-trip notional), for transparency in the account/analytics view."""
+        rate = self._fee_rate(maker=False)
+        if rate <= 0:
+            return 0.0
+        total = 0.0
+        for t in self.history():
+            entry, exit_price, size = t.get("entry"), t.get("exit"), t.get("size")
+            if entry and exit_price and size:
+                total += rate * size * (abs(entry) + abs(exit_price))
+        return round(total, 8)
+
     @staticmethod
     def _pnl(direction: str, size: float, entry: float, exit_price: float) -> float:
         return (exit_price - entry) * size if direction == "long" else (entry - exit_price) * size

@@ -135,6 +135,10 @@ paper.account_store = account_store
 # reconcile the snapshot from the ledger's real closed trades on boot
 paper._persist_account_snapshot()
 
+# Persistent market prefs: favorites / pins / watchlists survive logout + restart.
+from data.watchlist_store import WatchlistStore  # noqa: E402
+watchlist_store = WatchlistStore(settings.watchlist_db)
+
 # Permanent Trading Memory: every CLOSED trade is composed into an 8-category
 # memory (trade info, market context, technicals, strategy, execution, emotion,
 # outcome, AI reflection) and remembered forever unless explicitly deleted.
@@ -995,6 +999,7 @@ import routers.journal  # noqa: E402
 import routers.paper  # noqa: E402
 import routers.risk  # noqa: E402
 import routers.settings  # noqa: E402
+import routers.symbols  # noqa: E402
 router.include_router(routers.analytics.router)
 router.include_router(routers.bots.router)
 router.include_router(routers.engine.router)
@@ -1003,3 +1008,4 @@ router.include_router(routers.journal.router)
 router.include_router(routers.paper.router)
 router.include_router(routers.risk.router)
 router.include_router(routers.settings.router)
+router.include_router(routers.symbols.router)
