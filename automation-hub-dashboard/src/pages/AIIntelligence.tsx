@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile } from "../lib/api";
+import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy } from "../lib/api";
 
 const CONF_TONE: Record<string, string> = {
   "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red",
@@ -22,6 +22,7 @@ export default function AIIntelligencePage() {
   const qs = `symbol=${encodeURIComponent(symbol)}&timeframe=${tf}${side ? `&side=${side}` : ""}&leverage=${lev}`;
   const { data: a } = useLive<AIAnalysis>(`/ai/analyze?${qs}`, 20000);
   const { data: profile } = useLive<AIProfile>("/ai/profile", 30000);
+  const { data: calib } = useLive<AIConfidenceAccuracy>("/ai/confidence-accuracy", 30000);
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -142,6 +143,30 @@ export default function AIIntelligencePage() {
             {(profile?.weaknesses ?? []).map((w, i) => <li key={i} className="neg">{w}</li>)}
             {!profile?.weaknesses?.length && <li className="dim">None flagged yet.</li>}
           </ul>
+        </Card>
+        <Card title="Confidence Accuracy" subtitle={calib?.verdict ?? "Do higher-confidence setups actually win more?"}>
+          {!calib?.ready ? <div className="dim" style={{ padding: 10 }}>{calib?.verdict ?? "Grading trades as they close…"}</div> : (
+            <>
+              <div style={{ marginBottom: 8 }}>
+                <Badge text={calib.calibrated ? "Well calibrated" : "Miscalibrated"} tone={calib.calibrated ? "green" : "red"} />
+                <span className="dim" style={{ marginLeft: 8, fontSize: 12 }}>
+                  high {calib.high_conf_win_rate}% vs low {calib.low_conf_win_rate}%
+                  {calib.spread_pts != null && ` (${calib.spread_pts > 0 ? "+" : ""}${calib.spread_pts} pts)`}</span>
+              </div>
+              <table className="data-table" style={{ fontSize: 12.5 }}>
+                <thead><tr><th>Confidence</th><th>Trades</th><th>Win %</th><th>Avg R</th></tr></thead>
+                <tbody>
+                  {calib.by_confidence.filter((b) => b.trades > 0).map((b) => (
+                    <tr key={b.level}>
+                      <td><b>{b.level}</b></td><td className="dim">{b.trades}</td>
+                      <td className={b.win_rate >= 50 ? "pos" : "neg"}>{b.win_rate}%</td>
+                      <td className="dim">{b.avg_rr ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </Card>
         <Card title="Market Read" subtitle={`${a?.symbol ?? ""} · ${a?.timeframe ?? ""}${a?.data_source ? ` · ${a.data_source}` : ""}`}>
           {!ma?.available ? <div className="dim" style={{ padding: 10 }}>{ma?.note ?? "Analyzing…"}</div> : (

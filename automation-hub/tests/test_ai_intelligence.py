@@ -114,3 +114,37 @@ def test_trader_profile_small_sample_is_honest():
     prof = ai.trader_profile({"sample": 2, "overall": {"trades": 2}})
     assert prof["ready"] is False
     assert "firms up" in prof["note"]
+
+
+# ─────────────────────────── confidence accuracy ───────────────────────────
+def _mem(score, result, rr=1.0, pnl=10.0):
+    return {"brain_score": score, "result": result, "actual_rr": rr, "pnl": pnl}
+
+
+def test_confidence_accuracy_detects_good_calibration():
+    # high-confidence trades mostly win; low-confidence mostly lose -> calibrated
+    rows = ([_mem(90, "win") for _ in range(8)] + [_mem(88, "loss") for _ in range(2)]
+            + [_mem(30, "loss") for _ in range(8)] + [_mem(35, "win") for _ in range(2)])
+    out = ai.confidence_accuracy(rows)
+    assert out["ready"] is True
+    assert out["calibrated"] is True
+    assert out["high_conf_win_rate"] > out["low_conf_win_rate"]
+    assert out["spread_pts"] > 0
+    # buckets are ordered strongest-first and cover the graded trades
+    assert [b["level"] for b in out["by_confidence"]][0] == "Very High"
+    assert sum(b["trades"] for b in out["by_confidence"]) == 20
+
+
+def test_confidence_accuracy_flags_miscalibration():
+    # high-confidence trades LOSE; low-confidence win -> miscalibrated
+    rows = ([_mem(90, "loss") for _ in range(8)] + [_mem(30, "win") for _ in range(8)]
+            + [_mem(30, "win") for _ in range(4)])
+    out = ai.confidence_accuracy(rows)
+    assert out["calibrated"] is False
+    assert "Miscalibrated" in out["verdict"]
+
+
+def test_confidence_accuracy_small_sample_is_honest():
+    out = ai.confidence_accuracy([_mem(90, "win"), _mem(30, "loss")])
+    assert out["ready"] is False
+    assert "firms up" in out["verdict"]

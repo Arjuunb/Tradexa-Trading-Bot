@@ -56,6 +56,17 @@ def ai_profile():
     return _ai.trader_profile(insights)
 
 
+@router.get("/ai/confidence-accuracy")
+def ai_confidence_accuracy():
+    """Confidence calibration: do higher-confidence setups actually win more?
+    Computed from the closed-trade memory (real outcomes)."""
+    try:
+        rows = _wa.trade_memory.store.list(limit=100000)
+    except Exception:  # noqa: BLE001
+        rows = []
+    return _ai.confidence_accuracy(rows)
+
+
 @router.get("/ai/confidence-levels")
 def ai_confidence_levels():
     """Static legend: the score band each confidence level maps to."""

@@ -41,6 +41,66 @@ def confidence_level(score: float) -> str:
     return "Very Low"
 
 
+def _mem_confidence(row: dict) -> Optional[float]:
+    """A closed trade's pre-trade confidence as a 0–100 score. Prefers the
+    Decision Brain score; falls back to a stored 0–1 confidence."""
+    bs = row.get("brain_score")
+    if bs is not None:
+        return float(bs)
+    c = row.get("confidence")
+    if c is not None:
+        return float(c) * 100 if float(c) <= 1.0 else float(c)
+    return None
+
+
+def confidence_accuracy(rows: list[dict]) -> dict:
+    """Was the AI's pre-trade confidence borne out? Buckets closed trades by
+    their confidence band and reports the realized win rate / expectancy of each
+    — the calibration feedback loop. 'Calibrated' means higher-confidence setups
+    actually won more often. Pure; honest about small samples."""
+    graded = [(lvl, r) for r in rows
+              if (r.get("result") in ("win", "loss", "breakeven"))
+              and (_mem_confidence(r) is not None)
+              for lvl in [confidence_level(_mem_confidence(r))]]
+    order = ["Very High", "High", "Medium", "Low", "Very Low"]
+    buckets = {lvl: [] for lvl in order}
+    for lvl, r in graded:
+        buckets[lvl].append(r)
+
+    def _stat(rs: list[dict]) -> dict:
+        n = len(rs)
+        wins = sum(1 for r in rs if r.get("result") == "win")
+        rr = [float(r["actual_rr"]) for r in rs if r.get("actual_rr") is not None]
+        pnl = [float(r["pnl"]) for r in rs if r.get("pnl") is not None]
+        return {"trades": n, "wins": wins,
+                "win_rate": round(wins / n * 100, 1) if n else 0.0,
+                "avg_rr": round(sum(rr) / len(rr), 2) if rr else None,
+                "avg_pnl": round(sum(pnl) / len(pnl), 2) if pnl else None}
+
+    by_conf = [{"level": lvl, **_stat(buckets[lvl])} for lvl in order]
+    sample = len(graded)
+
+    high = [r for lvl in ("Very High", "High") for r in buckets[lvl]]
+    low = [r for lvl in ("Low", "Very Low") for r in buckets[lvl]]
+    hi_wr = _stat(high)["win_rate"] if high else None
+    lo_wr = _stat(low)["win_rate"] if low else None
+    spread = round(hi_wr - lo_wr, 1) if (hi_wr is not None and lo_wr is not None) else None
+    calibrated = spread is not None and spread > 0
+
+    if sample < 10 or spread is None:
+        verdict = f"Only {sample} graded trades — calibration firms up past ~10 with a spread of confidence."
+    elif calibrated:
+        verdict = (f"Well calibrated: high-confidence setups win {hi_wr}% vs {lo_wr}% for "
+                   f"low-confidence (+{spread} pts).")
+    else:
+        verdict = (f"Miscalibrated: high-confidence setups win {hi_wr}% vs {lo_wr}% for "
+                   f"low-confidence ({spread} pts) — the score isn't separating winners yet.")
+
+    return {"sample": sample, "ready": sample >= 10, "by_confidence": by_conf,
+            "high_conf_win_rate": hi_wr, "low_conf_win_rate": lo_wr,
+            "spread_pts": spread, "calibrated": bool(calibrated), "verdict": verdict}
+
+
 def _bucket_name(b) -> str:
     if isinstance(b, dict):
         return str(b.get("name") or b.get("key") or b.get("label") or b.get("session") or b.get("symbol") or "?")
