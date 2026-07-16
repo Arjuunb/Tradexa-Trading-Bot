@@ -15,8 +15,11 @@ from services import ttl_cache
 
 @pytest.fixture(autouse=True)
 def offline_crypto(monkeypatch):
-    # force the seed fallback (no network) and a fresh cache each test
+    # force the crypto seed fallback + stub non-crypto quotes offline so these
+    # tests are deterministic regardless of network or cross-test quote caching.
     monkeypatch.setattr(su, "_ccxt_crypto", lambda names: None)
+    import services.quote_provider as qp
+    monkeypatch.setattr(qp, "quote", lambda record, **k: None)
     ttl_cache.invalidate("symbol_universe")
     yield
     ttl_cache.invalidate("symbol_universe")

@@ -1,5 +1,5 @@
 {
-  "_note": "Curated multi-asset reference universe. Crypto is auto-synced live from CCXT at runtime; this crypto_fallback is only used when the exchange is unreachable. Stock/ETF/index/forex/commodity entries are reference metadata (names, exchange, session) — live quotes require a connected data provider and are reported as unavailable, never fabricated.",
+  "_note": "Curated multi-asset reference universe. Crypto is auto-synced live from CCXT at runtime; this crypto_fallback is only used when the exchange is unreachable. Stock/ETF/index/forex/commodity metadata (names, exchange, session) comes from here; their live quotes come from Yahoo Finance (no API key) via services/quote_provider — reported as unavailable, never fabricated, when Yahoo is unreachable.",
   "crypto_names": {
     "BTC": "Bitcoin", "ETH": "Ethereum", "SOL": "Solana", "BNB": "BNB",
     "XRP": "XRP", "DOGE": "Dogecoin", "ADA": "Cardano", "LINK": "Chainlink",
