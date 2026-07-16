@@ -5,22 +5,24 @@ multi-asset catalog with favorites and watchlists.
 
 ## Asset classes
 
-| Class | Source | Live quotes |
-|-------|--------|-------------|
-| **Crypto** | **Auto-synced from CCXT** (`load_markets` on `HUB_EXCHANGE`, default Binance) — spot + perps, tracks whatever the exchange lists | Yes (cached candle feed) |
-| Stocks (NASDAQ / NYSE / LSE) | Curated reference catalog | Needs a data provider |
-| ETFs | Curated reference catalog | Needs a data provider |
-| Indices (S&P 500, NASDAQ 100, Dow, FTSE 100, DAX, Nikkei 225…) | Curated reference catalog | Needs a data provider |
-| Forex (EUR/USD, GBP/USD…) | Curated reference catalog | Needs a data provider |
-| Commodities (Gold, Silver, WTI, Brent, Nat Gas…) | Curated reference catalog | Needs a data provider |
+| Class | Symbol source | Live quotes |
+|-------|---------------|-------------|
+| **Crypto** | **Auto-synced from CCXT** (`load_markets` on `HUB_EXCHANGE`, default Binance) — spot + perps, tracks whatever the exchange lists | CCXT cached candle feed |
+| Stocks (NASDAQ / NYSE / LSE) | Curated reference catalog | **Yahoo Finance** (no key) |
+| ETFs | Curated reference catalog | **Yahoo Finance** (no key) |
+| Indices (S&P 500, NASDAQ 100, Dow, FTSE 100, DAX, Nikkei 225…) | Curated reference catalog | **Yahoo Finance** (no key) |
+| Forex (EUR/USD, GBP/USD…) | Curated reference catalog | **Yahoo Finance** (no key) |
+| Commodities (Gold, Silver, WTI, Brent, Nat Gas…) | Curated reference catalog | **Yahoo Finance** (no key) |
 
 **No fabricated data.** Crypto pairs are synced live from the exchange and never
-hardcoded — new listings appear and delistings drop on the next sync, no code
-change. When the exchange is unreachable (offline / a blocked cloud IP) crypto
-falls back to a curated seed list so the universe is never empty. For the other
-classes the catalog carries real names / exchanges / sessions; their **prices
-are reported as unavailable** until a market-data provider is connected — they
-are never invented.
+hardcoded — new listings appear and delistings drop on the next sync. When the
+exchange is unreachable crypto falls back to a curated seed list so the universe
+is never empty. Non-crypto quotes come from **Yahoo Finance with no API key**
+(`services/quote_provider.py`, reusing the endpoint the news module already
+calls); each symbol is mapped to its Yahoo ticker (LSE → `.L`, indices → `^GSPC`
+etc., forex → `EURUSD=X`, commodities → `GC=F` etc.). If Yahoo is unreachable
+(offline / a blocked cloud IP) the price is reported as **unavailable**, never
+invented.
 
 ## Backend
 

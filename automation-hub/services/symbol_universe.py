@@ -281,6 +281,16 @@ def market_info(symbol: str, *, timeframe: str = "1d") -> dict:
         except Exception as e:  # noqa: BLE001 — quote lookup must never 500
             info["note"] = f"quote unavailable: {type(e).__name__}"
     else:
-        info["note"] = ("live quotes for this asset class need a connected market-data "
-                        "provider; showing reference metadata only")
+        # stocks / ETFs / indices / forex / commodities — live via Yahoo (no key).
+        try:
+            from services import quote_provider
+            q = quote_provider.quote(s)
+        except Exception:  # noqa: BLE001 — quote lookup must never 500
+            q = None
+        if q:
+            info.update({"price_available": True, "source": q.get("source"),
+                         "price": q["price"], "change_24h_pct": q.get("change_24h_pct", 0.0),
+                         "volume_24h": q.get("volume_24h")})
+        else:
+            info["note"] = "live quote unavailable right now (source unreachable) — reference metadata shown"
     return info
