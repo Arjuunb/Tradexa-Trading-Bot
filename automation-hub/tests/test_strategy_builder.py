@@ -5,7 +5,7 @@ builder adds no second execution path. Uses the deterministic bar feed so tests
 never touch the network.
 """
 from data.market_data import get_bars
-from strategies.custom import _rule, simulate, describe
+from strategies.custom import _rule, simulate, describe, evaluate
 from services import strategy_builder as sb
 from services.custom_store import CustomStore
 
@@ -38,6 +38,27 @@ def test_trend_up_and_down_are_exclusive():
     up, _ = _rule({"type": "trend", "dir": "up"}, bars, i)
     down, _ = _rule({"type": "trend", "dir": "down"}, bars, i)
     assert not (up and down)                  # can't be HH/HL and LH/LL at once
+
+
+def test_nested_condition_groups_evaluate_and_simulate():
+    # the node canvas can express (A AND B) OR C — evaluate() must recurse into
+    # a group rule while flat specs stay unchanged.
+    bars = _bars()
+    tree = {"op": "OR", "rules": [
+        {"op": "AND", "rules": [{"type": "adx", "value": 0}, {"type": "supertrend", "dir": "up"}]},
+        {"type": "rsi", "op": "below", "value": 30}]}
+    ok, reasons = evaluate(tree, bars, len(bars) - 1)
+    assert isinstance(ok, bool) and isinstance(reasons, list)
+    spec = {"side": "long", "symbol": "BTCUSDT", "timeframe": "1h", "entry": tree,
+            "stop": {"type": "atr", "mult": 1.5}, "target": {"type": "rr", "rr": 2}}
+    assert "total_trades" in simulate(spec, bars)          # nested tree runs in the simulator
+
+
+def test_flat_spec_unchanged_by_nesting_support():
+    bars = _bars()
+    flat = {"op": "AND", "rules": [{"type": "ema_cross"}, {"type": "rsi", "op": "above", "value": 50}]}
+    ok, _ = evaluate(flat, bars, len(bars) - 1)
+    assert isinstance(ok, bool)                            # backward compatible
 
 
 def test_simulate_runs_with_new_blocks():

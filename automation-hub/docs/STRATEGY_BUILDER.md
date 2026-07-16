@@ -47,12 +47,25 @@ A saved strategy is the same spec that `/strategy/custom/simulate` backtests and
 other strategy, so paper trading, backtesting and AI analysis all work on it
 with no new code path.
 
-## Not yet (Phase 2)
-A free-form **node-graph canvas** (drag-to-connect, zoom, mini-map, undo/redo)
-and the remaining exotic blocks (Ichimoku, distinct order-block/supply-demand
-zones, indicator-exit, AI-exit). The current builder is a professional
-block/rule editor; the spec it produces already supports everything the engine
-runs.
+## Phase 2 — visual node canvas (done)
+Strategy Studio now has a **Canvas** mode (toggle with Form) — a React Flow
+node graph:
+- **Condition** nodes (a rule block with editable params) → connect to an
+  **AND/OR group** node → connect to the **Entry** (BUY/SELL) node.
+- **Zoom, pan, mini-map, fit** (React Flow built-ins), drag to reposition,
+  drag-to-connect, select + Delete to remove, and **undo / redo**.
+- Groups can feed other groups, so the graph expresses nested logic like
+  `(A AND B) OR C`. The engine's `evaluate()` was extended to **recurse into a
+  nested group rule** (backward-compatible — flat specs are unchanged), so the
+  canvas compiles to the same spec the simulator/paper engine already run.
+- React Flow is lazy-loaded, so it only downloads when Canvas mode is opened.
+
+Both modes edit the same `CustomSpec` — switch freely; Backtest / AI Review /
+Save / Deploy work identically from either.
+
+### Still deferred
+The exotic blocks (Ichimoku, distinct order-block / supply-demand zones,
+indicator-exit, AI-exit) — the current block set covers the common systems.
 
 ## Tests
 `tests/test_strategy_builder.py` (9): new blocks evaluate + simulate, every
