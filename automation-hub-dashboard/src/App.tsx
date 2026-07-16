@@ -14,6 +14,7 @@ import AlertsPage from "./pages/Alerts";
 import SettingsPage from "./pages/Settings";
 import BotDetail from "./pages/BotDetail";
 import MarketsPage from "./pages/Markets";
+import SymbolExplorerPage from "./pages/SymbolExplorer";
 import SimulationPage from "./pages/Simulation";
 import ReplayPage from "./pages/Replay";
 import EvolutionPage from "./pages/Evolution";
@@ -74,6 +75,7 @@ export default function App() {
   const renderPage = () => {
     switch (active) {
       case "Markets": return <MarketsPage />;
+      case "Symbols": return <SymbolExplorerPage />;
       case "Strategies": return <StrategiesPage />;
       case "Backtesting": return <BacktestingPage />;
       case "Simulation": return <SimulationPage />;

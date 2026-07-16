@@ -40,6 +40,9 @@ const PATHS: Record<string, string> = {
   lock: "M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4",
   skipBack: "M19 5v14l-9-7 9-7zM5 5v14",
   skipForward: "M5 5v14l9-7-9-7zM19 5v14",
+  star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5-5.9-3.2-5.9 3.2 1.2-6.5L2.5 9.4l6.6-.9z",
+  pin: "M9 3h6l-1 7 3 3v2H7v-2l3-3-1-7zM12 15v6",
+  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5",
 };
 
 export default function Icon({ name, size = 18, className, color }: IconProps) {

@@ -33,6 +33,12 @@ def cached(key: str, ttl: float, fn: Callable[[], dict]) -> dict:
     return result
 
 
+def invalidate(key: str) -> None:
+    """Drop one cached entry so the next call recomputes (e.g. a manual sync)."""
+    with _lock:
+        _store.pop(key, None)
+
+
 def clear() -> None:
     with _lock:
         _store.clear()

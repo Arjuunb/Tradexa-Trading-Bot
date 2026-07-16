@@ -1,6 +1,6 @@
 import Logo from "../common/Logo";
 import {
-  LayoutDashboard, CandlestickChart, Layers, FlaskConical, RefreshCw, PlayCircle,
+  LayoutDashboard, CandlestickChart, Search, Layers, FlaskConical, RefreshCw, PlayCircle,
   NotebookPen, Rocket, Wallet, BarChart3, Bot, ShieldAlert, Brain, ScrollText,
   BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, ListChecks, type LucideIcon,
 } from "lucide-react";
@@ -12,6 +12,7 @@ import { signedMoney } from "../../lib/format";
 const NAV_LUCIDE: Record<string, LucideIcon> = {
   Overview: LayoutDashboard,
   Markets: CandlestickChart,
+  Symbols: Search,
   Strategies: Layers,
   Backtesting: FlaskConical,
   Simulation: RefreshCw,
