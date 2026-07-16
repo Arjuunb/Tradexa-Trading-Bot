@@ -164,6 +164,9 @@ a.brand:hover { opacity: 0.85; }
 .account-row b.pos { color: var(--green); }
 .market-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dim); padding: 2px 6px; }
 
+/* Dim scrim behind the mobile nav drawer (only rendered on small screens). */
+.nav-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(4, 4, 6, 0.55); backdrop-filter: blur(2px); border: 0; }
+
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
 .dot.warn { background: var(--amber); box-shadow: 0 0 0 3px rgba(234,181,79,0.18); }
@@ -398,6 +401,24 @@ a.brand:hover { opacity: 0.85; }
   .grid-mid, .grid-bottom { grid-template-columns: 1fr; }
   .metric-row { grid-template-columns: repeat(2, 1fr); }
   .status-pill, .profile-meta { display: none; }
+
+  /* Below this width the sidebar stops being a pinned icon rail and becomes an
+     off-canvas drawer: the hamburger slides it in over a scrim, and the content
+     gets the full viewport width. */
+  .app, .app.sidebar-collapsed { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: min(82vw, 270px); z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.24s ease;
+  }
+  .app.mobile-nav-open .sidebar { transform: translateX(0); box-shadow: 8px 0 40px rgba(0, 0, 0, 0.55); }
+  /* the drawer always shows full labels + account card, even if the desktop
+     rail was left collapsed */
+  .mobile-nav-open .sidebar .brand-name { display: flex; }
+  .mobile-nav-open .sidebar .nav-item span { display: inline; }
+  .mobile-nav-open .sidebar .account-card { display: block; }
+  .mobile-nav-open .sidebar .market-status { display: flex; }
 }
 
 /* =================================================================

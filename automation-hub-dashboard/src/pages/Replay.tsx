@@ -250,13 +250,13 @@ export default function ReplayPage() {
               <Card title="">
                 <div className="row-actions" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx(0); }} title="Reset to the first candle"><Icon name="refresh" size={14} /> Reset</button>
-                  <button className="btn btn-soft" onClick={() => jumpTrade(-1)} title="Jump to previous trade entry">⏮ Trade</button>
+                  <button className="btn btn-soft" onClick={() => jumpTrade(-1)} title="Jump to previous trade entry"><Icon name="skipBack" size={14} /> Trade</button>
                   <button className="btn btn-soft" onClick={() => setIdx((i) => Math.max(0, i - 1))}><Icon name="chevron" size={14} /> Step ←</button>
                   <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
                     <Icon name={playing ? "pause" : "play"} size={14} /> {playing ? "Pause" : "Play"}
                   </button>
                   <button className="btn btn-soft" onClick={() => setIdx((i) => Math.min(data.candles.length - 1, i + 1))}>Step → <Icon name="chevron" size={14} /></button>
-                  <button className="btn btn-soft" onClick={() => jumpTrade(1)} title="Jump to next trade entry">Trade ⏭</button>
+                  <button className="btn btn-soft" onClick={() => jumpTrade(1)} title="Jump to next trade entry">Trade <Icon name="skipForward" size={14} /></button>
                   <span className="dim">Speed</span>
                   {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
                   <span className="dim mono" style={{ marginLeft: "auto" }}>{idx + 1} / {data.candles.length} · {(candle?.t ?? "").replace("T", " ").slice(0, 16)}</span>

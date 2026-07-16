@@ -2,6 +2,7 @@ import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
+import { signedMoney, signedNum } from "../lib/format";
 import { useApp } from "../app-context";
 import {
   apiGet, useLive, type StrategyPerformance, type StrategyHealthData,
@@ -24,7 +25,6 @@ function PaperValidationPanel() {
   if (!v) return null;
   const m = v.metrics;
   const pct = (n: number) => `${(n ?? 0).toFixed(1)}%`;
-  const money = (n?: number) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   const eligible = v.live_review.eligible;
   const progress = Math.min(100, Math.round((v.sample_size / v.min_review) * 100));
   return (
@@ -50,7 +50,7 @@ function PaperValidationPanel() {
       <div className="form-grid-3">
         <div className="risk-item"><span className="dim">Win rate</span><b>{pct(m.win_rate)}</b></div>
         <div className="risk-item"><span className="dim">Profit factor</span><b className={m.profit_factor >= 1 ? "pos" : "neg"}>{m.profit_factor.toFixed(2)}</b></div>
-        <div className="risk-item"><span className="dim">Expectancy</span><b className={m.expectancy >= 0 ? "pos" : "neg"}>{money(m.expectancy)}</b></div>
+        <div className="risk-item"><span className="dim">Expectancy</span><b className={m.expectancy >= 0 ? "pos" : "neg"}>{signedMoney(m.expectancy)}</b></div>
         <div className="risk-item"><span className="dim">Avg R</span><b>{m.avg_rr.toFixed(2)}R</b></div>
         <div className="risk-item"><span className="dim">Max drawdown</span><b>{pct(m.max_drawdown_pct)}</b></div>
         <div className="risk-item"><span className="dim">Sharpe / Sortino</span><b>{m.sharpe_ratio.toFixed(2)} / {m.sortino_ratio.toFixed(2)}</b></div>
@@ -146,10 +146,10 @@ export default function StrategyProofPage() {
       <div className="stat-row">
         <StatCard label="Win Rate" value={pct(p?.win_rate)} tone={(p?.win_rate ?? 0) >= 50 ? "green" : "red"} sub={`${p?.trades ?? 0} trades`} />
         <StatCard label="Profit Factor" value={(p?.profit_factor ?? 0).toFixed(2)} tone={(p?.profit_factor ?? 0) >= 1 ? "green" : "red"} />
-        <StatCard label="Expectancy" value={money(p?.expectancy)} tone={(p?.expectancy ?? 0) >= 0 ? "green" : "red"} sub="per trade" />
+        <StatCard label="Expectancy" value={signedMoney(p?.expectancy)} tone={(p?.expectancy ?? 0) >= 0 ? "green" : "red"} sub="per trade" />
         <StatCard label="Max Drawdown" value={pct(p?.max_drawdown_pct)} tone={(p?.max_drawdown_pct ?? 0) <= 15 ? "green" : "red"} />
-        <StatCard label="Sharpe" value={(p?.sharpe_ratio ?? 0).toFixed(2)} sub="per-trade R" tone={(p?.sharpe_ratio ?? 0) >= 0 ? "green" : "red"} />
-        <StatCard label="Sortino" value={(p?.sortino_ratio ?? 0).toFixed(2)} sub="per-trade R" tone={(p?.sortino_ratio ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Sharpe" value={signedNum(p?.sharpe_ratio)} sub="per-trade R" tone={(p?.sharpe_ratio ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Sortino" value={signedNum(p?.sortino_ratio)} sub="per-trade R" tone={(p?.sortino_ratio ?? 0) >= 0 ? "green" : "red"} />
       </div>
 
       <div className="grid-2-eq">
@@ -158,7 +158,7 @@ export default function StrategyProofPage() {
           right={p && <Badge text={p.mode === "live" ? "live data" : "replay"} tone="blue" />}>
           {p && (
             <div className="risk-list">
-              <div className="risk-item"><span className="dim">Net P&L</span><b className={rt(p.realized_pnl)}>{money(p.realized_pnl)}</b></div>
+              <div className="risk-item"><span className="dim">Net P&L</span><b className={rt(p.realized_pnl)}>{signedMoney(p.realized_pnl)}</b></div>
               <div className="risk-item"><span className="dim">Wins / losses</span><b>{p.wins} / {p.losses}</b></div>
               <div className="risk-item"><span className="dim">Avg win / loss</span><b>{money(p.avg_win)} / {money(p.avg_loss)}</b></div>
               <div className="risk-item"><span className="dim">Best / worst</span><b>{money(p.best)} / {money(p.worst)}</b></div>
@@ -184,8 +184,8 @@ export default function StrategyProofPage() {
               <Table head={["Fold", "Train R", "Test R"]}
                 rows={(wf.folds ?? []).map((f: any, i: number) => [
                   `#${i + 1}`,
-                  <span className={rt(f.train_net_r)}>{f.train_net_r}R</span>,
-                  <span className={rt(f.test_net_r)}>{f.test_net_r}R</span>,
+                  <span className={rt(f.train_net_r)}>{signedNum(f.train_net_r)}R</span>,
+                  <span className={rt(f.test_net_r)}>{signedNum(f.test_net_r)}R</span>,
                 ])} />
             </>
           )}
@@ -198,14 +198,14 @@ export default function StrategyProofPage() {
           <Table head={["Symbol", "Trades", "Win %", "Net P&L"]}
             rows={(h?.breakdown.by_symbol ?? []).map((s) => [
               s.name, s.trades, `${s.win_rate}%`,
-              <span className={rt(s.net_pnl)}>{money(s.net_pnl)}</span>,
+              <span className={rt(s.net_pnl)}>{signedMoney(s.net_pnl)}</span>,
             ])} />
         </Card>
         <Card title="Per-Session Performance" subtitle="Asia / London / New York">
           <Table head={["Session", "Trades", "Win %", "Net P&L"]}
             rows={(h?.breakdown.by_session ?? []).map((s) => [
               s.name, s.trades, `${s.win_rate}%`,
-              <span className={rt(s.net_pnl)}>{money(s.net_pnl)}</span>,
+              <span className={rt(s.net_pnl)}>{signedMoney(s.net_pnl)}</span>,
             ])} />
         </Card>
       </div>

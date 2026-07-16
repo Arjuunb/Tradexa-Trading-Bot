@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { NAV_LABELS } from "../../app-context";
 import { useLive, type RiskSummary, type PaperAccount } from "../../lib/api";
+import { signedMoney } from "../../lib/format";
 
 // Real icons (lucide), one per page — gold when active, sky on hover.
 const NAV_LUCIDE: Record<string, LucideIcon> = {
@@ -80,7 +81,7 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
         <div className="account-equity">{acct ? money(acct.current_equity) : r ? money(r.equity) : "—"}</div>
         <div className="account-row"><span>Initial capital</span><b>{acct ? money(acct.initial_capital) : "—"}</b></div>
         <div className="account-row"><span>Realized P&amp;L</span>
-          <b className={(r?.realized_pnl ?? 0) >= 0 ? "pos" : "neg"}>{r ? money(r.realized_pnl) : "—"}</b></div>
+          <b className={(r?.realized_pnl ?? 0) >= 0 ? "pos" : "neg"}>{r ? signedMoney(r.realized_pnl) : "—"}</b></div>
         <div className="account-row"><span>Open Positions</span><b>{r?.open_positions ?? 0}</b></div>
         <div className="account-row"><span>Exposure</span><b>{r ? `${(r.exposure_pct * 100).toFixed(1)}%` : "—"}</b></div>
         <button className="btn btn-soft full" type="button" onClick={() => onSelect("Backtesting")}>Performance</button>
