@@ -1,34 +1,36 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import Sidebar from "./components/layout/Sidebar";
 import TopHeader from "./components/layout/TopHeader";
 import TickerBar from "./components/layout/TickerBar";
 import Toasts, { type ToastItem } from "./components/common/Toasts";
-import Overview from "./pages/Overview";
-import BotsPage from "./pages/Bots";
-import StrategiesPage from "./pages/Strategies";
-import PaperTradingPage from "./pages/PaperTrading";
-import BacktestingPage from "./pages/Backtesting";
-import RiskCenterPage from "./pages/RiskCenter";
-import LogsPage from "./pages/Logs";
-import AlertsPage from "./pages/Alerts";
-import SettingsPage from "./pages/Settings";
-import BotDetail from "./pages/BotDetail";
-import MarketsPage from "./pages/Markets";
-import SymbolExplorerPage from "./pages/SymbolExplorer";
-import SimulationPage from "./pages/Simulation";
-import ReplayPage from "./pages/Replay";
-import EvolutionPage from "./pages/Evolution";
-import LiveTradingPage from "./pages/LiveTrading";
-import PortfolioPage from "./pages/Portfolio";
-import AnalyticsPage from "./pages/Analytics";
-import AIAssistantPage from "./pages/AIAssistant";
-import AIIntelligencePage from "./pages/AIIntelligence";
-import SafetyCenterPage from "./pages/SafetyCenter";
-import JournalPage from "./pages/Journal";
-import DecisionsPage from "./pages/Decisions";
-import MemoryPage from "./pages/Memory";
-import BotHealthPage from "./pages/BotHealth";
-import StrategyProofPage from "./pages/StrategyProof";
+// Pages are code-split (lazy) so the initial bundle is just the shell + the
+// first page, not all ~25 pages and their chart libraries.
+const Overview = lazy(() => import("./pages/Overview"));
+const BotsPage = lazy(() => import("./pages/Bots"));
+const StrategiesPage = lazy(() => import("./pages/Strategies"));
+const PaperTradingPage = lazy(() => import("./pages/PaperTrading"));
+const BacktestingPage = lazy(() => import("./pages/Backtesting"));
+const RiskCenterPage = lazy(() => import("./pages/RiskCenter"));
+const LogsPage = lazy(() => import("./pages/Logs"));
+const AlertsPage = lazy(() => import("./pages/Alerts"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const BotDetail = lazy(() => import("./pages/BotDetail"));
+const MarketsPage = lazy(() => import("./pages/Markets"));
+const SymbolExplorerPage = lazy(() => import("./pages/SymbolExplorer"));
+const SimulationPage = lazy(() => import("./pages/Simulation"));
+const ReplayPage = lazy(() => import("./pages/Replay"));
+const EvolutionPage = lazy(() => import("./pages/Evolution"));
+const LiveTradingPage = lazy(() => import("./pages/LiveTrading"));
+const PortfolioPage = lazy(() => import("./pages/Portfolio"));
+const AnalyticsPage = lazy(() => import("./pages/Analytics"));
+const AIAssistantPage = lazy(() => import("./pages/AIAssistant"));
+const AIIntelligencePage = lazy(() => import("./pages/AIIntelligence"));
+const SafetyCenterPage = lazy(() => import("./pages/SafetyCenter"));
+const JournalPage = lazy(() => import("./pages/Journal"));
+const DecisionsPage = lazy(() => import("./pages/Decisions"));
+const MemoryPage = lazy(() => import("./pages/Memory"));
+const BotHealthPage = lazy(() => import("./pages/BotHealth"));
+const StrategyProofPage = lazy(() => import("./pages/StrategyProof"));
 import { AppContext, parseHash, slug } from "./app-context";
 
 const MOBILE = "(max-width: 720px)";
@@ -116,7 +118,11 @@ export default function App() {
 
         <div className="main">
           <TopHeader onToggleSidebar={toggleSidebar} title={title} />
-          <div className="content">{renderPage()}</div>
+          <div className="content">
+            <Suspense fallback={<div className="dim" style={{ padding: 24 }}>Loading…</div>}>
+              {renderPage()}
+            </Suspense>
+          </div>
           <TickerBar />
         </div>
       </div>

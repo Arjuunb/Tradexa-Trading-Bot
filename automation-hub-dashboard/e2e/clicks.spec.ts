@@ -7,8 +7,8 @@ import { mockApi } from "./mock";
  *  mock backend so nothing hits a live service. */
 
 const NAV = [
-  "Overview", "Markets", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Assistant",
+  "Overview", "Markets", "Symbols", "Strategies", "Backtesting", "Simulation", "Replay",
+  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "AI Intelligence", "AI Assistant",
   "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
@@ -35,14 +35,17 @@ test("every sidebar link opens a page with no uncaught error or 4xx", async ({ p
 });
 
 // ── click every content button on every page; none may throw ──
-test("clicking every content button on every page never throws", async ({ page }) => {
-  await mockApi(page);
-  const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  // auto-dismiss confirms so destructive actions don't fire during the sweep
-  page.on("dialog", (d) => d.dismiss().catch(() => {}));
+// One test PER PAGE (not a single monolithic sweep) so each has its own timeout
+// budget and they run in parallel — the old single test grew slow enough to time
+// out as pages and lazy-loaded chunks were added.
+for (const label of NAV) {
+  test(`clicking every content button on ${label} never throws`, async ({ page }) => {
+    await mockApi(page);
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    // auto-dismiss confirms so destructive actions don't fire during the sweep
+    page.on("dialog", (d) => d.dismiss().catch(() => {}));
 
-  for (const label of NAV) {
     await page.goto(`/#/${slug(label)}`);
     await page.waitForTimeout(350);
     const n = await page.locator(".content button:visible").count();
@@ -50,14 +53,14 @@ test("clicking every content button on every page never throws", async ({ page }
       // reset to a clean page for each click so the index stays valid even when
       // a click toggles / removes / re-renders content
       await page.goto(`/#/${slug(label)}`);
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(120);
       const btns = page.locator(".content button:visible");
       if (i < (await btns.count())) await btns.nth(i).click({ timeout: 3000 }).catch(() => {});
-      await page.waitForTimeout(60);
+      await page.waitForTimeout(50);
     }
-  }
-  expect(errors, `uncaught errors while clicking:\n${errors.join("\n")}`).toHaveLength(0);
-});
+    expect(errors, `uncaught errors while clicking on ${label}:\n${errors.join("\n")}`).toHaveLength(0);
+  });
+}
 
 // ── paper controls fire the right endpoints ──
 test("paper controls POST pause / stop / resume", async ({ page }) => {
