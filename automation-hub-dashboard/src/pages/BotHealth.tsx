@@ -2,6 +2,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE } from "../lib/api";
+import { signedMoney } from "../lib/format";
 
 /** Bot Health — one honest operational view of the running bot. Every field is
  *  real (from the engine, ledger, watchdog and skip log); nothing is faked. */
@@ -104,7 +105,7 @@ export default function BotHealthPage() {
         <StatCard label="Data Source" value={d?.data_source ?? "—"} sub={d ? `${d.engine.symbols.length} symbols` : ""} />
         <StatCard label="Broker" value={d?.broker.connected ? "Connected" : "Paper only"} tone={d?.broker.connected ? "green" : "amber"}
           sub={d?.broker.live_locked ? "live locked" : ""} />
-        <StatCard label="Today's P&L" value={money(d?.daily_pnl)} tone={(d?.daily_pnl ?? 0) >= 0 ? "green" : "red"}
+        <StatCard label="Today's P&L" value={signedMoney(d?.daily_pnl)} tone={(d?.daily_pnl ?? 0) >= 0 ? "green" : "red"}
           sub={`${d?.open_positions ?? 0} open`} />
         <StatCard label="Trading State" value={d?.risk.trading_state ?? "—"}
           tone={d?.risk.trading_state === "Active" ? "green" : d?.risk.trading_state === "Paused" ? "amber" : "red"} />

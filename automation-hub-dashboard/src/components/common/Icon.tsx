@@ -38,6 +38,8 @@ const PATHS: Record<string, string> = {
   wallet: "M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7zM3 7l2-3h11M16 13h.01",
   bot: "M12 2v3M5 8h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM9 13h.01M15 13h.01M9 17h6",
   lock: "M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4",
+  skipBack: "M19 5v14l-9-7 9-7zM5 5v14",
+  skipForward: "M5 5v14l9-7-9-7zM19 5v14",
 };
 
 export default function Icon({ name, size = 18, className, color }: IconProps) {
@@ -59,25 +61,3 @@ export default function Icon({ name, size = 18, className, color }: IconProps) {
     </svg>
   );
 }
-
-export const NAV_ICON: Record<string, string> = {
-  Overview: "grid",
-  Markets: "globe",
-  Strategies: "layers",
-  Backtesting: "history",
-  Simulation: "refresh",
-  Replay: "play",
-  "Paper Trading": "flask",
-  "Live Trading": "rocket",
-  Portfolio: "wallet",
-  Analytics: "chart",
-  "AI Assistant": "bot",
-  "Risk Manager": "shield",
-  Evolution: "bot",
-  Logs: "history",
-  Settings: "settings",
-  "Safety Center": "lock",
-  // legacy routes
-  Bots: "robot",
-  Alerts: "bell",
-};

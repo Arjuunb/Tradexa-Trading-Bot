@@ -29,9 +29,12 @@ import BotHealthPage from "./pages/BotHealth";
 import StrategyProofPage from "./pages/StrategyProof";
 import { AppContext, parseHash, slug } from "./app-context";
 
+const MOBILE = "(max-width: 720px)";
+
 export default function App() {
   const [route, setRoute] = useState(parseHash);
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNav, setMobileNav] = useState(false);   // off-canvas drawer (small screens)
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const active = route.page;
 
@@ -50,8 +53,23 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const go = (page: string) => { window.location.hash = "/" + slug(page); };
-  const viewBot = (id: string) => { window.location.hash = "/bot/" + id; };
+  // On phones the hamburger opens an off-canvas drawer; on desktop it collapses
+  // the rail to icons. Escape and picking a page both close the drawer, and
+  // growing back to desktop width clears any stuck open state.
+  const toggleSidebar = () => {
+    if (window.matchMedia(MOBILE).matches) setMobileNav((o) => !o);
+    else setCollapsed((c) => !c);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileNav(false); };
+    const onResize = () => { if (!window.matchMedia(MOBILE).matches) setMobileNav(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("resize", onResize); };
+  }, []);
+
+  const go = (page: string) => { window.location.hash = "/" + slug(page); setMobileNav(false); };
+  const viewBot = (id: string) => { window.location.hash = "/bot/" + id; setMobileNav(false); };
 
   const renderPage = () => {
     switch (active) {
@@ -87,12 +105,13 @@ export default function App() {
 
   return (
     <AppContext.Provider value={{ go, viewBot, toast }}>
-      <div className={`app ${collapsed ? "sidebar-collapsed" : ""}`}>
+      <div className={`app ${collapsed ? "sidebar-collapsed" : ""} ${mobileNav ? "mobile-nav-open" : ""}`}>
         <Toasts items={toasts} />
+        {mobileNav && <div className="nav-backdrop" onClick={() => setMobileNav(false)} aria-hidden />}
         <Sidebar active={active === "BotDetail" ? "Bots" : active} onSelect={go} collapsed={collapsed} />
 
         <div className="main">
-          <TopHeader onToggleSidebar={() => setCollapsed((c) => !c)} title={title} />
+          <TopHeader onToggleSidebar={toggleSidebar} title={title} />
           <div className="content">{renderPage()}</div>
           <TickerBar />
         </div>

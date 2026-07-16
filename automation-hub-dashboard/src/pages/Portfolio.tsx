@@ -4,6 +4,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import OfflineBanner from "../components/common/OfflineBanner";
 import { useLive, hhmmss, type LedgerPosition, type PaperAccount, type RiskSummary, type PortfolioRisk } from "../lib/api";
+import { signedMoney } from "../lib/format";
 
 const money = (n: number | undefined) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const COLORS = ["#eab54f", "#22c55e", "#3b82f6", "#eab54f", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
@@ -34,7 +35,7 @@ export default function PortfolioPage() {
 
       <div className="stat-row">
         <StatCard label="Equity" value={money(pf?.equity ?? risk?.equity ?? acct?.balance)} />
-        <StatCard label="Net Exposure" value={money(pf?.net_exposure)} sub={`${pf?.exposure_pct ?? 0}% gross`} tone={(pf?.net_exposure ?? 0) >= 0 ? "green" : "red"} />
+        <StatCard label="Net Exposure" value={signedMoney(pf?.net_exposure)} sub={`${pf?.exposure_pct ?? 0}% gross`} tone={(pf?.net_exposure ?? 0) >= 0 ? "green" : "red"} />
         <StatCard label="Portfolio Heat" value={`${pf?.portfolio_heat_pct ?? 0}%`} tone="amber" sub="open risk / equity" />
         <StatCard label="Value at Risk (1d)" value={pf?.value_at_risk_pct != null ? `${pf.value_at_risk_pct}%` : "—"} tone="amber" sub={pf?.value_at_risk != null ? `${money(pf.value_at_risk)} · ${Math.round((pf.var_confidence ?? 0.95) * 100)}%` : "needs data"} />
       </div>

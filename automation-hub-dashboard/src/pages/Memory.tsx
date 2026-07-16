@@ -3,6 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard, EmptyState } from "../components/common/ui";
 import { useLive, apiPatchJson, apiDelete, API_BASE } from "../lib/api";
+import { signedMoney } from "../lib/format";
 
 /** Memory — the AI's permanent long-term memory of every trade. Composed from
  *  REAL captured data (decision journal + decision object + ledger); fields the
@@ -311,7 +312,7 @@ export default function MemoryPage() {
                       <td><Badge text={m.result ?? "—"} tone={resultTone(m.result) as never} /></td>
                       <td><Badge text={m.grade ?? "—"} tone={gradeTone(m.grade) as never} /></td>
                       <td>{m.actual_rr ?? "—"}</td>
-                      <td className={(m.pnl ?? 0) >= 0 ? "pos" : "neg"}>{money(m.pnl)}</td>
+                      <td className={(m.pnl ?? 0) >= 0 ? "pos" : "neg"}>{signedMoney(m.pnl)}</td>
                       <td className="dim">{m.session}</td>
                       <td className="dim">{m.weekday}</td>
                     </tr>

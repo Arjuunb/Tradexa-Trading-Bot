@@ -5,6 +5,7 @@ import Icon from "../components/common/Icon";
 import CustomBuilder from "../components/strategy/CustomBuilder";
 import { useApp } from "../app-context";
 import { apiGet, apiPostJson, useLive, type StrategyList, type StrategyPerformance, type MarketCatalog } from "../lib/api";
+import { signedMoney, signedNum } from "../lib/format";
 
 function PreBuilt() {
   const app = useApp();
@@ -68,7 +69,7 @@ function PreBuilt() {
               <tbody>
                 <tr><td className="dim">Win rate</td><td>{perf.data.win_rate.toFixed(1)}%</td>
                     <td className="dim">Profit factor</td><td className={perf.data.profit_factor >= 1 ? "pos" : "neg"}>{perf.data.profit_factor.toFixed(2)}</td></tr>
-                <tr><td className="dim">Realized P&amp;L</td><td className={perf.data.realized_pnl >= 0 ? "pos" : "neg"}>${perf.data.realized_pnl.toFixed(2)}</td>
+                <tr><td className="dim">Realized P&amp;L</td><td className={perf.data.realized_pnl >= 0 ? "pos" : "neg"}>{signedMoney(perf.data.realized_pnl)}</td>
                     <td className="dim">Max drawdown</td><td className="amber">{perf.data.max_drawdown_pct.toFixed(1)}%</td></tr>
               </tbody>
             </table>
@@ -130,7 +131,7 @@ function Marketplace() {
             <thead><tr><th>#</th><th>Strategy</th><th>Net R</th><th>PF</th><th>Win%</th></tr></thead>
             <tbody>{rank.ranking.map((r, i) => (
               <tr key={r.strategy}><td className="dim">{i + 1}</td><td><b>{r.strategy}</b></td>
-                <td className={r.net_r >= 0 ? "pos" : "neg"}>{r.net_r}R</td><td>{r.profit_factor}</td><td className="dim">{r.win_rate}%</td></tr>
+                <td className={r.net_r >= 0 ? "pos" : "neg"}>{signedNum(r.net_r)}R</td><td>{r.profit_factor}</td><td className="dim">{r.win_rate}%</td></tr>
             ))}</tbody>
           </table>
         )}
