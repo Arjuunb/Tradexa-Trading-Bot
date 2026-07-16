@@ -384,6 +384,8 @@ export interface CustomSpec {
   target: { type: "rr" | "pct"; rr?: number; pct?: number };
   risk_per_trade_pct: number; max_trades_per_day?: number;
   session?: { start: number; end: number } | null;
+  exit?: { op?: "AND" | "OR"; rules?: CustomRule[]; ai_exit?: boolean;
+           breakeven_at_r?: number; trail_atr?: number; time_stop_bars?: number };
   created_at?: string; updated_at?: string;
 }
 export interface SimTrade {
