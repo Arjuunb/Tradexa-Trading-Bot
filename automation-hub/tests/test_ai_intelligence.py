@@ -207,3 +207,32 @@ def test_market_insights_reversal_and_volatility():
 
 def test_market_insights_empty_when_no_data():
     assert ai.market_insights([{"symbol": "BTCUSDT", "ma": {"available": False}}]) == []
+
+
+# ─────────────────────────── daily coach ───────────────────────────
+def test_daily_coach_summary():
+    insights = {
+        "overall": {"trades": 7, "win_rate": 57.0, "expectancy_r": 0.2},
+        "mistakes": [{"mistake": "entered before confirmation", "count": 4}],
+        "coaching": [{"statement": "Wait for BOS before entering.", "stage": "solid"}],
+        "best_session": {"name": "London"}, "worst_setup": {"name": "counter-trend fade"},
+        "avg_hold_seconds": 5400,
+    }
+    c = ai.daily_coach(insights)
+    assert c["trades"] == 7 and c["win_rate"] == 57.0
+    assert c["main_mistake"] == "entered before confirmation"
+    assert c["suggestion"] == "Wait for BOS before entering."
+    assert c["risk_discipline"] == "Excellent"        # no risk-type mistake
+    assert "7 trades" in c["headline"]
+
+
+def test_daily_coach_flags_risk_discipline():
+    c = ai.daily_coach({"overall": {"trades": 5, "win_rate": 40},
+                        "mistakes": [{"mistake": "moved stop loss against the trade", "count": 3}]})
+    assert c["risk_discipline"] == "Needs work"
+
+
+def test_daily_coach_no_trades_is_honest():
+    c = ai.daily_coach({})
+    assert c["ready"] is False and c["trades"] == 0
+    assert "No closed trades" in c["headline"]

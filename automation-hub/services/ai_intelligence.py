@@ -41,6 +41,57 @@ def confidence_level(score: float) -> str:
     return "Very Low"
 
 
+def daily_coach(insights: dict) -> dict:
+    """AI coach summary over the real closed trades — trade count, win rate, the
+    main recurring mistake, one actionable suggestion, and a risk-discipline
+    read. Reuses the trade-memory insights (coaching + mistake library); nothing
+    invented, honest on a thin sample."""
+    ins = insights or {}
+    overall = ins.get("overall") or {}
+    n = overall.get("trades") or ins.get("sample") or 0
+    mistakes = ins.get("mistakes") or []
+    coaching = ins.get("coaching") or []
+
+    main_mistake = None
+    for m in mistakes:
+        if isinstance(m, dict) and m.get("mistake"):
+            main_mistake = m["mistake"]
+            break
+
+    suggestion = None
+    for c in coaching:
+        if isinstance(c, dict) and c.get("stage") not in (None, "insufficient-data") and c.get("statement"):
+            suggestion = c["statement"]
+            break
+    if not suggestion:
+        suggestion = (f"Cut out “{main_mistake}” — it's your most frequent error."
+                      if main_mistake else "Keep taking only your highest-quality setups.")
+
+    risk_terms = ("moved stop", "stop loss", "oversiz", "over-siz", "overtrad", "poor rr", "poor r:r", "chased", "risk")
+    risk_flag = any(isinstance(m, dict) and any(t in (m.get("mistake", "") or "").lower() for t in risk_terms)
+                    for m in mistakes)
+    risk_discipline = "Needs work" if risk_flag else ("Excellent" if n else "—")
+
+    wr = overall.get("win_rate")
+    exp = overall.get("expectancy_r") if overall.get("expectancy_r") is not None else overall.get("expectancy")
+    if n == 0:
+        headline = "No closed trades yet — the coach starts once you've taken some."
+    else:
+        headline = (f"You've taken {n} trades" + (f" at a {wr}% win rate" if wr is not None else "") + ".")
+
+    return {
+        "sample": n, "ready": n >= 1,
+        "trades": n, "win_rate": wr, "expectancy_r": exp,
+        "avg_hold_seconds": ins.get("avg_hold_seconds"),
+        "main_mistake": main_mistake,
+        "suggestion": suggestion,
+        "risk_discipline": risk_discipline,
+        "best_session": _bucket_name(ins.get("best_session")) if ins.get("best_session") else None,
+        "worst_setup": _bucket_name(ins.get("worst_setup")) if ins.get("worst_setup") else None,
+        "headline": headline,
+    }
+
+
 def _base(symbol: str) -> str:
     """Human ticker: BTC/USDT or BTCUSDT -> BTC."""
     s = symbol.replace("/", "")
