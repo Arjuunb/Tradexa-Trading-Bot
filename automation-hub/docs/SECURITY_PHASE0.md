@@ -51,9 +51,16 @@ interval firing `setState` on an unmounted component.
 Portfolio and Simulation now render a shared **OfflineBanner** when the backend
 is unreachable, so `$0` equity reads as “connection issue,” not “wiped account.”
 
-## Still open (later phases)
-Phase 2 (correctness/perf: the position-cap lock, the paper_trades scan+index,
-partial-close bookkeeping, scoping the webhook secret) and Phase 3 (polish).
-The webhook secret is still an all-endpoints key (M-5) — decoupling session
-signing from it (CR-1) removes the account-takeover vector; scoping it to
-`/webhook` is the Phase-2 follow-up.
+## M-5 — webhook secret decoupled from control (done)
+The webhook secret is shared with TradingView (it rides in the alert webhook),
+so it is the credential most likely to leak. It used to authorize everything.
+Now the dashboard/control credential is a separate **admin key** (`HUB_API_KEY`),
+and with `HUB_SCOPE_WEBHOOK=1` the webhook secret is **rejected on every
+non-webhook endpoint** — it can post alerts but cannot stop the engine, reset the
+account, or change settings. Default behaviour is unchanged: the admin key falls
+back to the webhook secret until an operator opts in.
+- `_check_webhook_secret` guards `/webhook/tradingview`; `_check_secret` (all
+  control actions) + the auth wall accept the admin key, and the webhook secret
+  only when unscoped. The same-origin dashboard is served the admin key in its
+  runtime config; cross-origin (Vercel) sets `VITE_WEBHOOK_SECRET` to the admin
+  key. Covered by `tests/test_webhook_scope.py`.

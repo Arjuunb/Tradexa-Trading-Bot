@@ -67,6 +67,13 @@ if _ON_CLOUD and not _UNDER_TEST:
               "  Set a strong HUB_PASSWORD before real use.\n" + "=" * 68 + "\n",
               file=_sec_sys.stderr, flush=True)
 
+# M-5: report the control-credential posture. Scoped = the webhook secret (shared
+# with TradingView) can post alerts but not control the account.
+if settings.scope_webhook_secret and settings.admin_key != settings.webhook_secret:
+    print("[auth] webhook secret is SCOPED to /webhook — control requires the admin key.", flush=True)
+elif settings.admin_key == settings.webhook_secret:
+    print("[auth] admin key = webhook secret (set HUB_API_KEY + HUB_SCOPE_WEBHOOK=1 to decouple).", flush=True)
+
 # Kyros Phase 1: TradingView webhook -> paper-execution -> ledger API.
 # `webhook_api` also owns the process-wide paper account / ledger / control
 # switch singletons; the dashboard pages below read them via the module so they
@@ -119,9 +126,11 @@ async def _require_auth(request: Request, call_next):
         # bare "/settings" API endpoint, which returns live strategy/risk config
         # and must stay session-gated. The landing serves only "/settings/{path}".
         exempt = exempt + ("/settings/", "/app")
+    hdr = request.headers.get("x-webhook-secret")
     if (path == "/" or any(path.startswith(p) for p in exempt)
             or _user(request)
-            or request.headers.get("x-webhook-secret") == settings.webhook_secret):
+            or hdr == settings.admin_key
+            or (not settings.scope_webhook_secret and hdr == settings.webhook_secret)):
         return await call_next(request)
     from fastapi.responses import JSONResponse
     return JSONResponse({"error": "Sign in required"}, status_code=401)
@@ -154,7 +163,7 @@ if _LANDING_READY and (_LANDING / "assets").exists():
 def _serve_react() -> HTMLResponse:
     html = (_WEBUI / "index.html").read_text(encoding="utf-8")
     cfg = ('<script>window.__HUB_CONFIG__='
-           + _json.dumps({"apiBase": "", "secret": settings.webhook_secret})
+           + _json.dumps({"apiBase": "", "secret": settings.admin_key})
            + '</script>')
     return HTMLResponse(html.replace("<head>", "<head>" + cfg, 1))
 
@@ -167,7 +176,7 @@ def _serve_landing(request: Optional[Request] = None) -> HTMLResponse:
     html = (_LANDING / "index.html").read_text(encoding="utf-8")
     if request is not None and _user(request):
         cfg = ('<script>window.__HUB_CONFIG__='
-               + _json.dumps({"apiBase": "", "secret": settings.webhook_secret})
+               + _json.dumps({"apiBase": "", "secret": settings.admin_key})
                + '</script>')
         html = html.replace("<head>", "<head>" + cfg, 1)
     return HTMLResponse(html)
