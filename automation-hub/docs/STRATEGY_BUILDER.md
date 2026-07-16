@@ -63,9 +63,17 @@ node graph:
 Both modes edit the same `CustomSpec` — switch freely; Backtest / AI Review /
 Save / Deploy work identically from either.
 
+### Extra blocks (done)
+Added **Ichimoku Cloud** (price above/below the cloud), **Order Block** (retest
+of the last opposing candle before a structure break), and **Supply / Demand
+Zone** (return to a base after an impulse). The palette is data-driven, so they
+appear automatically in both the Form and Canvas builders.
+
 ### Still deferred
-The exotic blocks (Ichimoku, distinct order-block / supply-demand zones,
-indicator-exit, AI-exit) — the current block set covers the common systems.
+Exit *conditions* (indicator-exit, AI-exit) — these need the simulator's exit
+loop to evaluate an exit rule tree each bar (a bigger engine change than the
+entry blocks); the current exits are stop / target / break-even / trailing /
+time-stop.
 
 ## Tests
 `tests/test_strategy_builder.py` (9): new blocks evaluate + simulate, every
