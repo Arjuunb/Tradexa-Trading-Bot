@@ -472,6 +472,25 @@ a.brand:hover { opacity: 0.85; }
   background: rgba(234,181,79,0.14); color: var(--gold); border: 1px solid rgba(234,181,79,0.3); }
 .rule-tag.neg { background: rgba(239,68,68,0.14); color: var(--red); border-color: rgba(239,68,68,0.3); }
 
+/* strategy canvas (react-flow custom nodes) */
+.sc-node { position: relative; min-width: 130px; padding: 8px 10px; border-radius: 10px; font-size: 11.5px;
+  background: linear-gradient(180deg, #16161a, #101013); border: 1px solid var(--card-border); color: var(--text); }
+.sc-node.cond { border-color: rgba(124,185,232,0.4); }
+.sc-node.cond.neg { border-color: rgba(239,68,68,0.5); }
+.sc-node.group { border-color: rgba(234,181,79,0.5); min-width: 96px; }
+.sc-node.entry { border-color: rgba(34,197,94,0.55); min-width: 110px; }
+.sc-node-title { font-weight: 700; font-size: 11.5px; margin-bottom: 5px; }
+.sc-node-params { display: flex; flex-wrap: wrap; gap: 4px; }
+.sc-in { width: 52px; background: #0c0c0e; border: 1px solid var(--card-border-soft); color: var(--text);
+  border-radius: 6px; padding: 3px 5px; font-size: 11px; }
+.sc-not { position: absolute; top: 6px; right: 8px; background: transparent; border: 0; color: var(--dim); cursor: pointer; font-size: 13px; }
+.sc-logic { display: flex; gap: 4px; }
+.sc-op { background: #0c0c0e; border: 1px solid var(--card-border-soft); color: var(--dim); border-radius: 6px;
+  padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.sc-op.active { background: rgba(234,181,79,0.18); border-color: rgba(234,181,79,0.5); color: var(--gold); }
+.react-flow__attribution { display: none; }
+.react-flow__handle { width: 9px; height: 9px; background: var(--gold); border: 1px solid #000; }
+
 /* data table */
 .data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .data-table th { color: var(--dim); font-weight: 500; text-align: left; padding: 9px 12px;

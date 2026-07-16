@@ -395,14 +395,21 @@ def _last_swings(bars, i, k=3, lookback=60):
 
 def evaluate(tree: dict, bars, i: int) -> tuple[bool, list[str]]:
     """Evaluate a condition tree {op: AND|OR, rules: [...]}. A rule may carry
-    'negate': true (NOT). Returns (matched, reasons-for-passing-rules)."""
+    'negate': true (NOT), and may itself be a nested group ({op, rules}) so the
+    node-canvas builder can express things like (A AND B) OR C. Returns
+    (matched, reasons-for-passing-rules)."""
     op = (tree.get("op") or "AND").upper()
     rules = tree.get("rules") or []
     if not rules:
         return False, []
     results, reasons = [], []
     for r in rules:
-        passed, why = _rule(r, bars, i)
+        if isinstance(r, dict) and r.get("rules") is not None and r.get("type") is None:
+            passed, sub = evaluate(r, bars, i)          # nested group -> recurse
+            why = f"({op_join(r)})" if passed else ""
+            reasons.extend(sub)
+        else:
+            passed, why = _rule(r, bars, i)
         if r.get("negate"):
             passed = not passed
             why = f"NOT({why})" if why else why
@@ -411,6 +418,11 @@ def evaluate(tree: dict, bars, i: int) -> tuple[bool, list[str]]:
             reasons.append(why)
     matched = all(results) if op == "AND" else any(results)
     return matched, reasons
+
+
+def op_join(tree: dict) -> str:
+    return f" {(tree.get('op') or 'AND')} ".join(
+        r.get("type", "group") for r in (tree.get("rules") or []))
 
 
 # ----------------------------------------------------------------- simulator

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { PageHeader, StatCard } from "../components/common/ui";
@@ -9,6 +9,7 @@ import {
   type SimResult, type AIStrategyReview,
 } from "../lib/api";
 
+const StrategyCanvas = lazy(() => import("../components/strategy/StrategyCanvas"));
 const TFS = ["15m", "1h", "4h", "1d"];
 const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
 const WARN_TONE: Record<string, string> = { danger: "red", warning: "amber", ok: "green" };
@@ -29,6 +30,7 @@ export default function StrategyStudioPage() {
   const [sim, setSim] = useState<SimResult | null>(null);
   const [review, setReview] = useState<AIStrategyReview | null>(null);
   const [busy, setBusy] = useState<string>("");
+  const [mode, setMode] = useState<"form" | "canvas">("form");
 
   const patch = (p: Partial<CustomSpec>) => setSpec((s) => ({ ...s, ...p }));
   const blockDefs = useMemo(() => {
@@ -98,6 +100,38 @@ export default function StrategyStudioPage() {
   };
 
   const r = sim?.results;
+  const configFields = (
+    <div className="form-grid-3" style={{ marginTop: 14 }}>
+      <label className="dim">Stop
+        <div className="chips" style={{ marginTop: 4 }}>
+          {(["atr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.stop.type === tp ? "active" : ""}`} onClick={() => patch({ stop: { ...spec.stop, type: tp } })}>{tp}</button>)}
+          <input className="rule-num" type="number" step="0.1" value={spec.stop.type === "atr" ? (spec.stop.mult ?? 1.5) : (spec.stop.pct ?? 2)}
+            onChange={(e) => patch({ stop: { ...spec.stop, [spec.stop.type === "atr" ? "mult" : "pct"]: Number(e.target.value) } })} />
+        </div>
+      </label>
+      <label className="dim">Target
+        <div className="chips" style={{ marginTop: 4 }}>
+          {(["rr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.target.type === tp ? "active" : ""}`} onClick={() => patch({ target: { ...spec.target, type: tp } })}>{tp}</button>)}
+          <input className="rule-num" type="number" step="0.1" value={spec.target.type === "rr" ? (spec.target.rr ?? 2) : (spec.target.pct ?? 3)}
+            onChange={(e) => patch({ target: { ...spec.target, [spec.target.type === "rr" ? "rr" : "pct"]: Number(e.target.value) } })} />
+        </div>
+      </label>
+      <label className="dim">Risk / trade (%)
+        <input className="rule-num" type="number" step="0.1" value={spec.risk_per_trade_pct * 100}
+          onChange={(e) => patch({ risk_per_trade_pct: Number(e.target.value) / 100 })} />
+      </label>
+      <label className="dim">Session (UTC)
+        <select className="rule-num" style={{ marginTop: 4 }}
+          value={spec.session ? "custom" : "any"}
+          onChange={(e) => {
+            const s = catalog?.config.sessions.find((x) => x.key === e.target.value);
+            patch({ session: !s || s.key === "any" ? null : { start: s.start, end: s.end } });
+          }}>
+          {(catalog?.config.sessions ?? [{ key: "any", label: "Any" } as any]).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+      </label>
+    </div>
+  );
   return (
     <>
       <PageHeader title="Strategy Studio"
@@ -111,6 +145,7 @@ export default function StrategyStudioPage() {
           onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
         <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
         <div className="chips">{(["long", "short"] as const).map((s) => <button key={s} className={`chip-btn ${spec.side === s ? "active" : ""}`} onClick={() => patch({ side: s })}>{s}</button>)}</div>
+        <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
         <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
         <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
         <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
@@ -127,6 +162,17 @@ export default function StrategyStudioPage() {
         </div>
       </Card>
 
+      {mode === "canvas" ? (
+        <>
+          <Card title="Strategy Canvas" subtitle={`${spec.side.toUpperCase()} — drag a block's right dot to an AND/OR group, then the group to Entry. Zoom, mini-map, undo included.`}>
+            <Suspense fallback={<div className="dim" style={{ padding: 20 }}>Loading canvas…</div>}>
+              <StrategyCanvas spec={spec} catalog={catalog ?? undefined}
+                onChange={(s) => { setSpec(s); setReview(null); setSim(null); }} />
+            </Suspense>
+          </Card>
+          <Card title="Exit &amp; Risk" subtitle="Applies to the whole strategy">{configFields}</Card>
+        </>
+      ) : (
       <div className="grid-2-1">
         {/* builder */}
         <Card title="Entry Conditions" subtitle={`${spec.side.toUpperCase()} when ${spec.entry.op} of these are true`}>
@@ -160,37 +206,7 @@ export default function StrategyStudioPage() {
             );
           })}
 
-          {/* exit / risk config */}
-          <div className="form-grid-3" style={{ marginTop: 14 }}>
-            <label className="dim">Stop
-              <div className="chips" style={{ marginTop: 4 }}>
-                {(["atr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.stop.type === tp ? "active" : ""}`} onClick={() => patch({ stop: { ...spec.stop, type: tp } })}>{tp}</button>)}
-                <input className="rule-num" type="number" step="0.1" value={spec.stop.type === "atr" ? (spec.stop.mult ?? 1.5) : (spec.stop.pct ?? 2)}
-                  onChange={(e) => patch({ stop: { ...spec.stop, [spec.stop.type === "atr" ? "mult" : "pct"]: Number(e.target.value) } })} />
-              </div>
-            </label>
-            <label className="dim">Target
-              <div className="chips" style={{ marginTop: 4 }}>
-                {(["rr", "pct"] as const).map((tp) => <button key={tp} className={`chip-btn ${spec.target.type === tp ? "active" : ""}`} onClick={() => patch({ target: { ...spec.target, type: tp } })}>{tp}</button>)}
-                <input className="rule-num" type="number" step="0.1" value={spec.target.type === "rr" ? (spec.target.rr ?? 2) : (spec.target.pct ?? 3)}
-                  onChange={(e) => patch({ target: { ...spec.target, [spec.target.type === "rr" ? "rr" : "pct"]: Number(e.target.value) } })} />
-              </div>
-            </label>
-            <label className="dim">Risk / trade (%)
-              <input className="rule-num" type="number" step="0.1" value={spec.risk_per_trade_pct * 100}
-                onChange={(e) => patch({ risk_per_trade_pct: Number(e.target.value) / 100 })} />
-            </label>
-            <label className="dim">Session (UTC)
-              <select className="rule-num" style={{ marginTop: 4 }}
-                value={spec.session ? `${spec.session.start}-${spec.session.end}` : "any"}
-                onChange={(e) => {
-                  const s = catalog?.config.sessions.find((x) => x.key === e.target.value);
-                  patch({ session: !s || s.key === "any" ? null : { start: s.start, end: s.end } });
-                }}>
-                {(catalog?.config.sessions ?? [{ key: "any", label: "Any" } as any]).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-            </label>
-          </div>
+          {configFields}
         </Card>
 
         {/* block palette */}
@@ -209,6 +225,7 @@ export default function StrategyStudioPage() {
           </div>
         </Card>
       </div>
+      )}
 
       {/* AI review + backtest */}
       <div className="grid-2-eq">

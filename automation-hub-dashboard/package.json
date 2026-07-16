@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Automation Hub \u2014 Phase 1 dashboard (React + TypeScript + Apache ECharts, mock data).",
+  "description": "Automation Hub — Phase 1 dashboard (React + TypeScript + Apache ECharts, mock data).",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -16,7 +16,8 @@
     "echarts": "^5.5.0",
     "lucide-react": "^1.23.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "reactflow": "^11.11.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.47.2",
