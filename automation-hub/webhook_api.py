@@ -435,9 +435,24 @@ class WebhookPayload(BaseModel):
     timestamp: Optional[str] = None
 
 
-def _check_secret(secret: Optional[str]) -> None:
+def _check_webhook_secret(secret: Optional[str]) -> None:
+    """Validate the TradingView webhook secret. Only used by /webhook/tradingview
+    — this credential can post alerts but (when scoped) nothing else."""
     if not secret or not hmac.compare_digest(secret, settings.webhook_secret):
         raise HTTPException(status_code=401, detail="Invalid or missing webhook secret")
+
+
+def _check_secret(secret: Optional[str]) -> None:
+    """Validate the admin/control credential for a control action. Accepts the
+    admin key always; accepts the webhook secret too UNLESS it has been scoped
+    off non-webhook endpoints (M-5). Defaults to the webhook secret, so nothing
+    changes until an operator sets HUB_API_KEY."""
+    if secret and hmac.compare_digest(secret, settings.admin_key):
+        return
+    if (not settings.scope_webhook_secret and secret
+            and hmac.compare_digest(secret, settings.webhook_secret)):
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing credential")
 
 
 

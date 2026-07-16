@@ -60,6 +60,15 @@ class Settings:
 
     # --- Kyros Phase 1: webhook + ledger ---
     webhook_secret: str = field(default_factory=lambda: os.environ.get("HUB_WEBHOOK_SECRET", "dev-webhook-secret"))
+    # M-5: admin/control credential for the dashboard, DECOUPLED from the webhook
+    # secret (which is shared with TradingView and so more likely to leak).
+    # Defaults to the webhook secret, so behaviour is unchanged until an operator
+    # sets HUB_API_KEY. With HUB_SCOPE_WEBHOOK=1 the webhook secret is then
+    # rejected on non-webhook endpoints — it can only post alerts, not control.
+    admin_key: str = field(default_factory=lambda: (
+        os.environ.get("HUB_API_KEY") or os.environ.get("HUB_WEBHOOK_SECRET", "dev-webhook-secret")))
+    scope_webhook_secret: bool = field(default_factory=lambda: (
+        os.environ.get("HUB_SCOPE_WEBHOOK", "").lower() in ("1", "true", "yes", "on")))
     exposure_limit_pct: float = field(default_factory=lambda: float(os.environ.get("HUB_EXPOSURE_LIMIT", "0.05")))
     ledger_path: str = field(default_factory=lambda: os.environ.get(
         "HUB_LEDGER_PATH", str(DATA_DIR / "ledger.db")))

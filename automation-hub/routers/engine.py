@@ -146,7 +146,7 @@ def apply_risk_preset(body: dict = Body(...), x_webhook_secret: Optional[str] = 
 @router.post("/webhook/tradingview")
 def tradingview_webhook(payload: _wa.WebhookPayload,
                         x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
-    _wa._check_secret(x_webhook_secret)
+    _wa._check_webhook_secret(x_webhook_secret)
     result = _wa.pipeline.process(payload.model_dump())
     return {"status": "ok", **result.to_dict()}
 
