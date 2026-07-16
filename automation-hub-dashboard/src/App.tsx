@@ -22,6 +22,7 @@ import LiveTradingPage from "./pages/LiveTrading";
 import PortfolioPage from "./pages/Portfolio";
 import AnalyticsPage from "./pages/Analytics";
 import AIAssistantPage from "./pages/AIAssistant";
+import AIIntelligencePage from "./pages/AIIntelligence";
 import SafetyCenterPage from "./pages/SafetyCenter";
 import JournalPage from "./pages/Journal";
 import DecisionsPage from "./pages/Decisions";
@@ -85,6 +86,7 @@ export default function App() {
       case "Portfolio": return <PortfolioPage />;
       case "Analytics": return <AnalyticsPage />;
       case "Strategy Proof": return <StrategyProofPage />;
+      case "AI Intelligence": return <AIIntelligencePage />;
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
