@@ -190,6 +190,22 @@ export interface AIAlert {
 export interface AIAlerts { alerts: AIAlert[]; count: number; checked: string[]; }
 export interface AIInsight { symbol: string; kind: string; tone: string; text: string; }
 export interface AIInsights { insights: AIInsight[]; symbols: string[]; timeframe: string; }
+export interface AICoach {
+  sample: number; ready: boolean; trades: number; win_rate: number | null;
+  expectancy_r: number | null; avg_hold_seconds: number | null;
+  main_mistake: string | null; suggestion: string; risk_discipline: string;
+  best_session: string | null; worst_setup: string | null; headline: string;
+}
+export interface TradeMemoryInsights {
+  sample?: number;
+  overall?: { trades?: number; win_rate?: number; expectancy?: number };
+  avg_hold_seconds?: number | null;
+  best_session?: { name?: string; expectancy?: number } | null;
+  worst_session?: { name?: string; expectancy?: number } | null;
+  by_symbol?: { name?: string; expectancy?: number; trades?: number }[];
+  by_strategy?: { name?: string; expectancy?: number; trades?: number }[];
+  mistakes?: { mistake?: string; count?: number; repeated?: boolean }[];
+}
 export interface AIConfidenceAccuracy {
   sample: number; ready: boolean; calibrated: boolean; verdict: string;
   high_conf_win_rate: number | null; low_conf_win_rate: number | null; spread_pts: number | null;

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights } from "../lib/api";
+import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights, type AICoach, type TradeMemoryInsights } from "../lib/api";
 
 const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
@@ -27,6 +27,8 @@ export default function AIIntelligencePage() {
   const { data: calib } = useLive<AIConfidenceAccuracy>("/ai/confidence-accuracy", 30000);
   const { data: alerts } = useLive<AIAlerts>("/ai/alerts", 30000);
   const { data: insights } = useLive<AIInsights>("/ai/insights", 30000);
+  const { data: coach } = useLive<AICoach>("/ai/coach", 30000);
+  const { data: patterns } = useLive<TradeMemoryInsights>("/trade-memory/insights", 30000);
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -214,6 +216,46 @@ export default function AIIntelligencePage() {
               <div><span className="dim">Liquidity sweep</span><b>{String(ma.liquidity?.sweep)}</b></div>
               <div><span className="dim">Volume</span><b>{ma.volume?.label}</b></div>
               <div><span className="dim">Volatility</span><b>{ma.volatility?.label}</b></div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* AI coach + pattern detection */}
+      <div className="grid-2-eq">
+        <Card title="AI Coach" subtitle={coach?.headline ?? "Coaching over your closed trades"}>
+          {!coach?.ready ? <div className="dim" style={{ padding: 10 }}>{coach?.headline ?? "No closed trades yet."}</div> : (
+            <>
+              <div className="stat-row">
+                <StatCard label="Trades" value={String(coach.trades)} />
+                <StatCard label="Win Rate" value={coach.win_rate != null ? `${coach.win_rate}%` : "—"}
+                  tone={(coach.win_rate ?? 0) >= 50 ? "green" : "amber"} />
+                <StatCard label="Risk Discipline" value={coach.risk_discipline}
+                  tone={coach.risk_discipline === "Excellent" ? "green" : coach.risk_discipline === "Needs work" ? "red" : "default"} />
+              </div>
+              {coach.main_mistake && <div style={{ marginTop: 10 }}>
+                <span className="dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Main mistake</span>
+                <div className="neg" style={{ fontSize: 13 }}>{coach.main_mistake}</div></div>}
+              <div style={{ marginTop: 10 }}>
+                <span className="dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 }}>Suggestion</span>
+                <div style={{ fontSize: 13 }}>{coach.suggestion}</div></div>
+            </>
+          )}
+        </Card>
+
+        <Card title="Pattern Detection" subtitle="Best/worst sessions, symbols, strategies & repeated mistakes">
+          {!patterns?.overall?.trades ? <div className="dim" style={{ padding: 10 }}>Detecting patterns as trades close…</div> : (
+            <div className="detail-grid">
+              <div><span className="dim">Best session</span><b className="pos">{patterns.best_session?.name ?? "—"}</b></div>
+              <div><span className="dim">Worst session</span><b className="neg">{patterns.worst_session?.name ?? "—"}</b></div>
+              <div><span className="dim">Best symbol</span><b className="pos">{patterns.by_symbol?.[0]?.name ?? "—"}</b></div>
+              <div><span className="dim">Best strategy</span><b>{patterns.by_strategy?.[0]?.name ?? "—"}</b></div>
+              <div><span className="dim">Avg hold</span><b>{patterns.avg_hold_seconds != null ? `${Math.round(patterns.avg_hold_seconds / 60)}m` : "—"}</b></div>
+              <div><span className="dim">Avg expectancy</span><b>{patterns.overall?.expectancy != null ? `${patterns.overall.expectancy}R` : "—"}</b></div>
+              {(patterns.mistakes ?? []).slice(0, 2).map((m, i) => (
+                <div key={i} style={{ gridColumn: "1 / -1" }}><span className="dim">Repeated mistake</span>
+                  <b className="neg">{m.mistake}{m.count ? ` (×${m.count})` : ""}</b></div>
+              ))}
             </div>
           )}
         </Card>

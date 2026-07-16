@@ -143,6 +143,17 @@ def ai_confidence_accuracy():
     return _ai.confidence_accuracy(rows)
 
 
+@router.get("/ai/coach")
+def ai_coach():
+    """Daily-style AI coach over the real closed trades (reuses the trade-memory
+    insights): trade count, win rate, main mistake, a suggestion, risk discipline."""
+    try:
+        insights = _wa.trade_memory.insights()
+    except Exception:  # noqa: BLE001
+        insights = {}
+    return _ai.daily_coach(insights)
+
+
 @router.get("/ai/confidence-levels")
 def ai_confidence_levels():
     """Static legend: the score band each confidence level maps to."""
