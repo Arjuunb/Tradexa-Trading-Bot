@@ -27,6 +27,7 @@ const AnalyticsPage = lazy(() => import("./pages/Analytics"));
 const AIAssistantPage = lazy(() => import("./pages/AIAssistant"));
 const AIIntelligencePage = lazy(() => import("./pages/AIIntelligence"));
 const StrategyStudioPage = lazy(() => import("./pages/StrategyStudio"));
+const GridDCAPage = lazy(() => import("./pages/GridDCA"));
 const SafetyCenterPage = lazy(() => import("./pages/SafetyCenter"));
 const JournalPage = lazy(() => import("./pages/Journal"));
 const DecisionsPage = lazy(() => import("./pages/Decisions"));
@@ -92,6 +93,7 @@ export default function App() {
       case "Analytics": return <AnalyticsPage />;
       case "Strategy Proof": return <StrategyProofPage />;
       case "Strategy Studio": return <StrategyStudioPage />;
+      case "Grid & DCA": return <GridDCAPage />;
       case "AI Intelligence": return <AIIntelligencePage />;
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
