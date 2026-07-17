@@ -215,6 +215,28 @@ export default function BotTerminalPage() {
     : (inRunTrade ? "stop / target / exit rule" : frame?.blocked ? frame.reason : frame?.trigger ? "entry execution" : "a qualifying setup");
 
   const focusTrade = (t: ReplayTrade) => { setSel(t); setPlaying(false); setMode("replay"); setIdx(t.exit_idx ?? t.entry_idx); };
+  // ── "watch how it trades" — step trade-to-trade and see the basis for each ──
+  const tradesByEntry = useMemo(() => [...(data?.trades ?? [])].sort((a, b) => a.entry_idx - b.entry_idx), [data]);
+  const jumpTrade = (dir: 1 | -1) => {
+    if (!tradesByEntry.length) return;
+    setMode("replay"); setPlaying(false);
+    const found = dir === 1
+      ? tradesByEntry.find((t) => t.entry_idx > idx)
+      : [...tradesByEntry].reverse().find((t) => t.entry_idx < idx);
+    const t = found ?? (dir === 1 ? tradesByEntry[0] : tradesByEntry[tradesByEntry.length - 1]);
+    setSel(t); setIdx(t.entry_idx);        // land on the ENTRY candle so the "why" shows
+  };
+  // one click: drop into replay a few bars before the first entry and play it
+  // out at speed — you literally watch the bot take a real trade and why.
+  const watchATrade = () => {
+    setMode("replay");
+    if (!tradesByEntry.length) {
+      toast("No qualifying trades in this run — try a lower timeframe (15m) or another symbol.", "info");
+      return;
+    }
+    const t = tradesByEntry[0];
+    setSel(t); setSpeed(10); setIdx(Math.max(0, t.entry_idx - 5)); setPlaying(true);
+  };
   // item #6: close an open PAPER position through the real execution engine.
   const closePosition = async (po: LedgerPosition) => {
     if (closing) return;
@@ -289,6 +311,18 @@ export default function BotTerminalPage() {
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="info" size={14} />
           No public stream for {symbol} — live view refreshes from Yahoo every 2 minutes instead of tick-by-tick.</div>
       )}
+      {/* live is quiet by design — offer the way to actually SEE a trade + its basis */}
+      {liveMode && !openPos && (
+        <div className="banner" style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <Icon name="info" size={14} />
+          <span style={{ fontSize: 12.5 }}>
+            The engine is <b>selective</b> — on {tf} it may not enter for a while, so live can look quiet.
+            To watch exactly how <b>{strategy}</b> enters and <b>why</b>, replay it on real candles.
+          </span>
+          <button className="btn btn-primary btn-sm" style={{ marginLeft: "auto", flexShrink: 0 }} onClick={watchATrade}>
+            <Icon name="play" size={12} /> Watch it take a trade</button>
+        </div>
+      )}
 
       {/* ── main: chart (70%) + decision engine ─────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 12 }} className="terminal-main">
@@ -343,6 +377,11 @@ export default function BotTerminalPage() {
               <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
                 <Icon name={playing ? "pause" : "play"} size={13} /> {playing ? "Pause" : "Replay"}</button>
               <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx((i) => Math.min((data.candles.length - 1), i + 1)); }} title="Step forward"><Icon name="skipForward" size={13} /></button>
+              <span style={{ width: 6 }} />
+              <button className="btn btn-soft" disabled={!tradesByEntry.length} onClick={() => jumpTrade(-1)} title="Jump to previous trade">◀ Trade</button>
+              <button className="btn btn-soft" disabled={!tradesByEntry.length} onClick={() => jumpTrade(1)} title="Jump to next trade — land on the entry and see why">Trade ▶</button>
+              <span className="dim" style={{ fontSize: 11 }}>{tradesByEntry.length} trades</span>
+              <span style={{ width: 6 }} />
               <span className="dim" style={{ fontSize: 11 }}>Speed</span>
               {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
               {!atLatest && <button className="chip-btn" onClick={() => { setSel(null); setPlaying(false); setIdx(data.candles.length - 1); }}>↦ Latest</button>}
