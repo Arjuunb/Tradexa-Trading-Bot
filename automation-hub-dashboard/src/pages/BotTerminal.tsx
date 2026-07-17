@@ -22,6 +22,16 @@ const TFS = ["15m", "1h", "4h"];
 const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "AAPL", "SPY", "EURUSD", "XAUUSD"];
 const CRYPTO = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
 const SPEEDS = [1, 2, 5, 10, 50, 100];
+// Strategies the replay engine can visualize (each maps to a real entry engine).
+const STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30",
+  "EMA 20/50", "Breakout Retest", "Support/Resistance Rejection", "Liquidity Sweep"];
+// The live engine labels its strategy differently from the replay presets — map
+// it so the terminal defaults to the strategy the engine is actually running.
+const ENGINE_STRAT_MAP: Record<string, string> = {
+  "Decision Brain": "Decision Brain", "Supertrend": "Trend Following",
+  "SMC (Smart Money)": "Supply/Demand", "EMA Crossover": "EMA 8/30",
+  "Donchian Breakout": "Decision Brain", "Confirmation Ensemble": "Decision Brain",
+};
 // Fallback only — used if the backend didn't send a viz spec. Normally the
 // chart is driven entirely by data.meta.viz (the ACTIVE strategy's real inputs).
 const FALLBACK_TOGGLES: ChartToggles = {
@@ -46,6 +56,7 @@ export default function BotTerminalPage() {
   const { toast } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState("1h");
+  const [strategy, setStrategy] = useState("Decision Brain");
   const [mode, setMode] = useState<"live" | "replay">("live");
   const [dev, setDev] = useState(false);
   const [data, setData] = useState<ReplayData | null>(null);
@@ -74,18 +85,26 @@ export default function BotTerminalPage() {
   // refreshes with tick-by-tick updates of the current candle.
   const loadRun = (silent = false) => {
     if (!silent) { setLoading(true); setSel(null); setPlaying(false); }
-    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=500&strategy=Decision Brain&source=binance`)
+    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=500&strategy=${encodeURIComponent(strategy)}&source=binance`)
       .then((d) => { if (d?.candles?.length) { setData(d); setIdx(d.candles.length - 1); } else if (!silent) setData(null); })
       .catch(() => { if (!silent) toast("Could not load the bot run", "error"); })
       .finally(() => { if (!silent) setLoading(false); });
   };
-  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf]);
+  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf, strategy]);
   useEffect(() => {
     if (!liveMode) return;
     const id = window.setInterval(() => loadRun(true), 120_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveMode, symbol, tf]);
+  }, [liveMode, symbol, tf, strategy]);
+  // default the chart to the strategy the live engine is actually running (once)
+  const syncedStrat = useRef(false);
+  useEffect(() => {
+    if (syncedStrat.current || !eng?.strategy) return;
+    const mapped = ENGINE_STRAT_MAP[eng.strategy];
+    if (mapped) setStrategy(mapped);
+    syncedStrat.current = true;
+  }, [eng]);
 
   // LIVE candle stream — Binance public kline WebSocket, straight from the
   // browser (no key). Updates the current candle in place and appends on close.
@@ -172,6 +191,9 @@ export default function BotTerminalPage() {
     return out;
   }, [viz]);
   const liveUPnl = openPos && candle ? (openPos.side === "long" ? candle.c - openPos.entry : openPos.entry - candle.c) * openPos.size : null;
+  // in live mode, flag when the chart's strategy differs from the engine's real one
+  const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
+  const stratMismatch = liveMode && engineStrat != null && engineStrat !== strategy;
   const state = liveMode
     ? (openPos ? `Managing a live ${openPos.side.toUpperCase()}` : eng?.running ? "Scanning live market" : "Engine stopped")
     : (inRunTrade ? `Managing an open ${inRunTrade.side.toUpperCase()}` : frame?.blocked ? "Setup rejected" : frame?.trigger ? "Confirmation received" : "Scanning");
@@ -220,6 +242,10 @@ export default function BotTerminalPage() {
           </div>
           <select className="rule-num" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
             {SYMS.map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <select className="rule-num" value={strategy} title="Strategy the chart visualizes"
+            onChange={(e) => { setStrategy(e.target.value); syncedStrat.current = true; }}>
+            {STRATS.map((s) => <option key={s}>{s}</option>)}
           </select>
           {TFS.map((t) => <button key={t} className={`chip-btn ${tf === t ? "active" : ""}`} onClick={() => setTf(t)}>{t}</button>)}
           <span style={{ width: 10 }} />
@@ -285,6 +311,11 @@ export default function BotTerminalPage() {
                 <span key={u.label} className="viz-chip" title={u.detail}><b>{u.label}</b></span>
               ))}
             </div>
+          )}
+          {stratMismatch && (
+            <div className="banner" style={{ marginBottom: 8, fontSize: 11.5 }}><Icon name="info" size={12} />
+              Chart shows a <b>{strategy}</b> read for comparison — the live engine is running <b>{engineStrat}</b>,
+              so the positions and trades below are from {engineStrat}.</div>
           )}
           {loading || !data?.candles?.length ? (
             <div className="dim ta-center" style={{ padding: 120 }}>{loading ? "Loading real candles…" : "No data."}</div>
