@@ -345,7 +345,10 @@ const SHAPES: [string, unknown][] = [
   ["/markets/watchlist", { rows: [], any_real: false }],
   ["/symbols/asset-classes", { asset_classes: [{ asset_class: "crypto", count: 2 }, { asset_class: "stock", count: 1 }],
     crypto_source: "fallback (seed list)", synced_at: "2026-07-16T00:00:00Z", total: 3 }],
-  ["/symbols/search", { query: "", results: [] }],
+  ["/symbols/search", { query: "b", results: [
+    { symbol: "BTC/USDT", ticker: "BTCUSDT", name: "Bitcoin", asset_class: "crypto", exchange: "Binance", base: "BTC", quote: "USDT", type: "spot", session: "24/7" },
+    { symbol: "BNB/USDT", ticker: "BNBUSDT", name: "BNB", asset_class: "crypto", exchange: "Binance", base: "BNB", quote: "USDT", type: "spot", session: "24/7" },
+    { symbol: "AAPL", ticker: "AAPL", name: "Apple Inc.", asset_class: "stock", exchange: "NASDAQ", base: "AAPL", quote: "USD", type: "equity", session: "regular" }] }],
   ["/symbols/info", { found: true, symbol: "BTC/USDT", ticker: "BTCUSDT", name: "Bitcoin", asset_class: "crypto",
     exchange: "Binance", base: "BTC", quote: "USDT", type: "spot", session: "24/7", market_status: "open",
     price_available: false, note: "mock", favorite: false, pinned: false }],
