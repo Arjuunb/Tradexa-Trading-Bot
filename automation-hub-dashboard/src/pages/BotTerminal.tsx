@@ -16,7 +16,7 @@ import {
  *  engine. The Developer view exposes the per-candle brain state. */
 
 const TFS = ["15m", "1h", "4h"];
-const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"];
+const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "AAPL", "SPY", "EURUSD", "XAUUSD"];
 const TOGGLES: ChartToggles = {
   ema8: true, ema20: false, ema30: true, ema50: false,
   sma20: false, sma50: false, vwap: false, bb: false,

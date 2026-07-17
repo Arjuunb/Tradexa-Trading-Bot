@@ -8,7 +8,7 @@ multi-asset catalog with favorites and watchlists.
 | Class | Symbol source | Live quotes |
 |-------|---------------|-------------|
 | **Crypto** | **Auto-synced from CCXT** (`load_markets` on `HUB_EXCHANGE`, default Binance) — spot + perps, tracks whatever the exchange lists | CCXT cached candle feed |
-| Stocks (NASDAQ / NYSE / LSE) | Curated reference catalog | **Yahoo Finance** (no key) |
+| Stocks (NASDAQ / NYSE / LSE) | Curated reference catalog | **Yahoo Finance** (no key) — quotes **and candles** |
 | ETFs | Curated reference catalog | **Yahoo Finance** (no key) |
 | Indices (S&P 500, NASDAQ 100, Dow, FTSE 100, DAX, Nikkei 225…) | Curated reference catalog | **Yahoo Finance** (no key) |
 | Forex (EUR/USD, GBP/USD…) | Curated reference catalog | **Yahoo Finance** (no key) |
@@ -59,3 +59,12 @@ fallback, search by ticker/name, quote/class/type filters, market status
 (crypto 24/7, equities closed on weekends / open mid-session), honest metadata
 with no fabricated stock price, and favorites / pins / watchlist CRUD +
 persistence. Full backend suite: 780 passed.
+
+## Non-crypto candles (AI analysis on every class)
+
+`data/yahoo_bars.py` fetches real OHLCV bars from the same keyless Yahoo chart
+endpoint (15m/1h/1d intervals; 4h falls back to 1h) and `get_bars` routes any
+non-crypto catalog symbol through it — so `/ai/analyze`, replay and the Bot
+Terminal work on stocks, ETFs, indices, forex and commodities. Fail-closed: if
+Yahoo is unreachable the result is empty with an honest "unavailable" source —
+non-crypto bars are never synthesized. Cached ~5 min.

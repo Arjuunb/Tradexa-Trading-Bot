@@ -52,6 +52,17 @@ def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
     fallbacks entirely (production / replay: never fake data). ``since_ms``
     (epoch ms) selects history from a specific start time.
     """
+    # 0. non-crypto assets (stocks / ETFs / indices / forex / commodities from
+    # the symbol catalog): real candles via Yahoo (no key). Fail-closed — if
+    # Yahoo is unreachable these return EMPTY with an honest source string;
+    # non-crypto bars are never synthesized.
+    from data.yahoo_bars import fetch_yahoo_bars, yahoo_symbol_for
+    if yahoo_symbol_for(symbol):
+        ybars = fetch_yahoo_bars(symbol, timeframe=timeframe, n=n)
+        if ybars:
+            return ybars, "live (yahoo)"
+        return [], "unavailable (yahoo unreachable)"
+
     # 1. local cache of real candles (populated by the /data/sync engine)
     cached = _from_local_store(symbol, n, timeframe, since_ms)
     if cached:
