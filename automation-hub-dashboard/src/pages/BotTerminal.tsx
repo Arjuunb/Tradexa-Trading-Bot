@@ -8,7 +8,7 @@ import { useApp } from "../app-context";
 import {
   apiGet, apiPostJson, useLive,
   type ReplayData, type ReplayTrade, type AIAnalysis, type EngineStatus, type RiskSummary,
-  type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount,
+  type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount, type SymbolRow,
 } from "../lib/api";
 
 /** Paper Trading Bot Terminal — a developer-grade observation lab.
@@ -21,8 +21,9 @@ import {
 // Intraday-first: an automated strategy belongs on low timeframes (1–5m); the
 // higher ones (1h/4h) suit manual swing trading and are kept for those who want it.
 const TFS = ["1m", "3m", "5m", "15m", "1h", "4h"];
-const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "AAPL", "SPY", "EURUSD", "XAUUSD"];
-const CRYPTO = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
+// A Binance-streamable crypto pair (USDT/USDC/BUSD quote). Forex/commodity USD
+// pairs (EURUSD, XAUUSD) end in a plain "USD" and are NOT streamed here.
+const isCryptoStreamable = (s: string) => /(USDT|USDC|BUSD)$/i.test(s);
 const SPEEDS = [1, 2, 5, 10, 50, 100];
 // Strategies the replay engine can visualize (each maps to a real entry engine).
 const STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30",
@@ -63,6 +64,53 @@ const STAGE_ICON: Record<string, string> = { engine: "robot", execution: "play",
 const hhmm = (t?: string) => (t ? t.slice(11, 16) || t.slice(0, 5) : "");
 const hhmmss = (t?: string) => (t ? t.slice(11, 19) || t.slice(0, 8) : "");
 
+/** Search-any-symbol picker — queries the full multi-asset universe
+ *  (/symbols/search) so the terminal can chart/replay any listed symbol, not a
+ *  fixed shortlist. Picks the compact ticker (BTCUSDT / AAPL / XAUUSD). */
+function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) => void }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<SymbolRow[]>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<number | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (timer.current) window.clearTimeout(timer.current);
+    if (!q.trim()) { setResults([]); return; }
+    timer.current = window.setTimeout(() => {
+      apiGet<{ results: SymbolRow[] }>(`/symbols/search?q=${encodeURIComponent(q)}&limit=10`)
+        .then((r) => setResults(r.results ?? [])).catch(() => setResults([]));
+    }, 180);
+    return () => { if (timer.current) window.clearTimeout(timer.current); };
+  }, [q]);
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  const pick = (t: string) => { onPick(t); setOpen(false); setQ(""); };
+  return (
+    <div ref={boxRef} style={{ position: "relative" }}>
+      <button className="rule-num" style={{ minWidth: 96, textAlign: "left", cursor: "pointer" }}
+        title="Search any symbol" onClick={() => setOpen((o) => !o)}>{value} ▾</button>
+      {open && (
+        <div className="sym-pop">
+          <input autoFocus className="sym-search" placeholder="Search symbol or name…"
+            value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="sym-results">
+            {results.map((r) => (
+              <button key={r.symbol} className="sym-row" onClick={() => pick(r.ticker)}>
+                <b>{r.ticker}</b><span className="dim sym-nm">{r.name}</span><span className="sym-cls">{r.asset_class}</span>
+              </button>
+            ))}
+            {q.trim() && !results.length && <div className="dim" style={{ padding: 9, fontSize: 12 }}>No matches.</div>}
+            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, AAPL, gold, EURUSD.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BotTerminalPage() {
   const { toast } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
@@ -81,6 +129,7 @@ export default function BotTerminalPage() {
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [dockTab, setDockTab] = useState<"positions" | "history" | "orders" | "activity" | "performance" | "equity">("positions");
+  const [bars, setBars] = useState(500);   // how much history to load (backend caps at 1500)
   const timer = useRef<number | null>(null);
 
   const liveMode = mode === "live";
@@ -98,18 +147,18 @@ export default function BotTerminalPage() {
   // refreshes with tick-by-tick updates of the current candle.
   const loadRun = (silent = false) => {
     if (!silent) { setLoading(true); setSel(null); setPlaying(false); }
-    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=500&strategy=${encodeURIComponent(strategy)}&source=binance`)
+    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${bars}&strategy=${encodeURIComponent(strategy)}&source=binance`)
       .then((d) => { if (d?.candles?.length) { setData(d); setIdx(d.candles.length - 1); } else if (!silent) setData(null); })
       .catch(() => { if (!silent) toast("Could not load the bot run", "error"); })
       .finally(() => { if (!silent) setLoading(false); });
   };
-  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf, strategy]);
+  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf, strategy, bars]);
   useEffect(() => {
     if (!liveMode) return;
     const id = window.setInterval(() => loadRun(true), 120_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveMode, symbol, tf, strategy]);
+  }, [liveMode, symbol, tf, strategy, bars]);
   // Keep the chart on the strategy the LIVE ENGINE is actually running, so the
   // "Bot is watching" strip always mirrors the real bot — not a stale default.
   // Follows the engine whenever ITS strategy changes; a manual pick is a
@@ -131,7 +180,7 @@ export default function BotTerminalPage() {
   // LIVE candle stream — Binance public kline WebSocket, straight from the
   // browser (no key). Updates the current candle in place and appends on close.
   useEffect(() => {
-    if (!liveMode || !CRYPTO.has(symbol)) { setWsOk(false); return; }
+    if (!liveMode || !isCryptoStreamable(symbol)) { setWsOk(false); return; }
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${tf}`);
@@ -323,9 +372,7 @@ export default function BotTerminalPage() {
             <button className={liveMode ? "on" : ""} onClick={() => setMode("live")}>Live</button>
             <button className={!liveMode ? "on" : ""} onClick={() => { setMode("replay"); setPlaying(false); }}>Replay</button>
           </div>
-          <select className="rule-num" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-            {SYMS.map((s) => <option key={s}>{s}</option>)}
-          </select>
+          <SymbolSearch value={symbol} onPick={setSymbol} />
           <select className="rule-num" value={strategy} title="Strategy the chart visualizes (follows the live engine by default)"
             onChange={(e) => { setStrategy(e.target.value); userOverrodeStrat.current = true; }}>
             {STRATS.map((s) => <option key={s}>{s}</option>)}
@@ -355,7 +402,7 @@ export default function BotTerminalPage() {
       {data?.meta?.data_warning && (
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="warning" size={14} /> {data.meta.data_warning}</div>
       )}
-      {liveMode && !CRYPTO.has(symbol) && (
+      {liveMode && !isCryptoStreamable(symbol) && (
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="info" size={14} />
           No public stream for {symbol} — live view refreshes from Yahoo every 2 minutes instead of tick-by-tick.</div>
       )}
@@ -393,6 +440,10 @@ export default function BotTerminalPage() {
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
               <span className="dim" style={{ fontSize: 11 }}>{viz?.title ?? "strategy view"} · scroll to zoom</span>
+              <span className="dim" style={{ fontSize: 11 }}>Bars</span>
+              <select className="rule-num" value={bars} title="How much history to load" onChange={(e) => setBars(Number(e.target.value))}>
+                {[500, 1000, 1500].map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>

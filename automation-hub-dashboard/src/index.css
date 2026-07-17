@@ -520,6 +520,20 @@ a.brand:hover { opacity: 0.85; }
   border-radius: 999px; padding: 0 6px; min-width: 18px; text-align: center; }
 .dock-tab.on .dock-count { background: rgba(234,181,79,0.22); color: var(--gold); }
 .dock-body { padding: 12px 14px; min-height: 200px; max-height: 320px; overflow-y: auto; }
+/* terminal search-any-symbol popover */
+.sym-pop { position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: 300px;
+  border: 1px solid var(--line-2, #28394d); border-radius: 10px; background: var(--panel, #0c121c);
+  box-shadow: 0 20px 50px -18px rgba(0,0,0,.85); overflow: hidden; }
+.sym-search { width: 100%; border: 0; border-bottom: 1px solid var(--line, #1c2836); background: transparent;
+  color: var(--text); font-size: 13px; padding: 10px 12px; outline: none; }
+.sym-results { max-height: 260px; overflow-y: auto; }
+.sym-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent;
+  border: 0; padding: 8px 12px; cursor: pointer; color: var(--text); font-size: 12.5px; }
+.sym-row:hover { background: rgba(255,255,255,0.05); }
+.sym-row b { font-family: var(--mono, monospace); font-weight: 600; min-width: 72px; }
+.sym-row .sym-nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.sym-row .sym-cls { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint, #5c6980);
+  border: 1px solid var(--line, #1c2836); border-radius: 5px; padding: 1px 6px; flex-shrink: 0; }
 .pulse-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none;
   background: var(--dim-2, #7c8798); animation: pulse-dot 1.6s ease-in-out infinite; }
 .pulse-dot.green { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
