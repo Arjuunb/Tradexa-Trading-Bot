@@ -46,6 +46,7 @@ export function MarketScanner() {
     <section id="selectivity" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#selectivity"
           eyebrow="Selectivity"
           title="Watches everything. Trades almost nothing."
           subtitle="Every candle, the bot scores your whole watchlist and takes only the setups that clear its quality bar — discipline you can't override on a bad day."

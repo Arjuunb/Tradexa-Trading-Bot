@@ -28,17 +28,41 @@ interface SectionHeadingProps {
   title: ReactNode;
   subtitle?: string;
   className?: string;
+  /** Anchor for this section (e.g. "#engine"). When set, the heading becomes a
+   *  clickable deep link: clicking it sets the URL hash and smooth-scrolls the
+   *  section into place, and a gold "#" affordance appears on hover. */
+  link?: string;
 }
 
 /** Consistent centered section header. */
-export function SectionHeading({ eyebrow, title, subtitle, className }: SectionHeadingProps) {
+export function SectionHeading({ eyebrow, title, subtitle, className, link }: SectionHeadingProps) {
+  const heading = (
+    <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
+      {title}
+    </h2>
+  );
   return (
     <Reveal className={className}>
       <div className="mx-auto max-w-2xl text-center">
-        <span className="eyebrow">{eyebrow}</span>
-        <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
-          {title}
-        </h2>
+        {link ? (
+          <a href={link} className="group inline-block no-underline" aria-label={`Link to this section`}>
+            <span className="eyebrow transition-colors group-hover:text-gold">{eyebrow}</span>
+            <span className="relative block">
+              {heading}
+              <span
+                aria-hidden
+                className="absolute -right-6 top-1/2 hidden -translate-y-1/4 text-2xl font-bold text-gold/0 transition-colors group-hover:text-gold/60 sm:inline"
+              >
+                #
+              </span>
+            </span>
+          </a>
+        ) : (
+          <>
+            <span className="eyebrow">{eyebrow}</span>
+            {heading}
+          </>
+        )}
         {subtitle && <p className="mt-4 text-white/55">{subtitle}</p>}
       </div>
     </Reveal>

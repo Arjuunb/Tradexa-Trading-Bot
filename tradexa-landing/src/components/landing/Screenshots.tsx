@@ -201,6 +201,7 @@ export function Screenshots() {
     <section id="product" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#product"
           eyebrow="The product"
           title="One terminal for your entire operation"
           subtitle="A representative look at the running dashboard. Interface preview with sample data — not a live account."

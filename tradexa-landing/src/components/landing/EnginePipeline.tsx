@@ -40,6 +40,7 @@ export function EnginePipeline() {
     <section id="engine" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#engine"
           eyebrow="Decision Engine"
           title="A disciplined pipeline, not a black box"
           subtitle="Every candle runs the same deterministic path — from market data to a journaled trade. You can see each step, and why it fired or didn't."

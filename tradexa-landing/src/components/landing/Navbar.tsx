@@ -9,6 +9,8 @@ import { cn, APP_URL } from "@/lib/utils";
 const LINKS = [
   { label: "Features", href: "#features" },
   { label: "Engine", href: "#engine" },
+  { label: "Live trade", href: "#trade-in-action" },
+  { label: "Selectivity", href: "#selectivity" },
   { label: "How it works", href: "#how" },
   { label: "Security", href: "#security" },
 ];
