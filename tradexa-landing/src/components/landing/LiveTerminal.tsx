@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Engine log terminal — a monospace, rolling feed of the kind of decisions the
- * bot actually makes (feed → structure → brain score → risk gate → execution →
+ * Nexus actually makes (feed → structure → brain score → risk gate → execution →
  * memory). Sample data, clearly labelled a preview. This is the element that
  * makes the page read as a working automation engine, not a brochure.
  */

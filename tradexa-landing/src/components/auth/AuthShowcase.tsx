@@ -40,7 +40,7 @@ export function AuthShowcase() {
         </h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/55">
           Analyze markets, execute strategies, and manage risk — with complete transparency over
-          every decision the bot makes.
+          every decision Nexus makes.
         </p>
       </div>
 

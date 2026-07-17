@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 
 /**
- * Animated product preview of the running bot dashboard. This is a DESIGN DEMO
+ * Animated product preview of the running Nexus dashboard. This is a DESIGN DEMO
  * with representative sample data — it is explicitly labelled as a preview and
  * never presented as a live trading account or a real track record.
  */
@@ -74,7 +74,7 @@ export function DashboardPreview() {
           <span className="text-white/50">BTC · ETH · SOL</span>
           <span className="text-white/30">·</span>
           <span className="text-white/50">4h</span>
-          <span className="ml-auto text-white/35">brain v3</span>
+          <span className="ml-auto text-white/35">nexus v4</span>
         </div>
 
         {/* equity curve */}

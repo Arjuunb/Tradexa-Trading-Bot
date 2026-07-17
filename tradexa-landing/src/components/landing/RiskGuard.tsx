@@ -62,7 +62,7 @@ export function RiskGuard() {
         <SectionHeading
           link="#risk-guard"
           eyebrow="Risk Guard"
-          title="The bot that knows when to stop"
+          title="Intelligence that knows when to stop"
           subtitle="Hard limits are enforced in code — position size, exposure, and a daily-loss kill switch that halts trading before a bad day becomes a terrible one. Watch it trip."
         />
 

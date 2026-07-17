@@ -25,7 +25,7 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: BrainCircuit,
-    title: "Decision Engine",
+    title: "Nexus Engine",
     body: "Reads market structure, scores every setup, and acts only on high-quality entries — explaining every yes and every no.",
     span: true,
   },
@@ -37,12 +37,12 @@ const FEATURES: Feature[] = [
   },
   {
     icon: History,
-    title: "Backtesting",
-    body: "Run your strategies against years of historical data before risking a single dollar.",
+    title: "Nexus Strategy Lab",
+    body: "Backtest and optimise your strategies against years of historical data before risking a single dollar.",
   },
   {
     icon: Radio,
-    title: "Live Monitoring",
+    title: "Nexus Intelligence Feed",
     body: "See everything as it happens.",
     points: ["Real-time logs", "Performance", "Positions", "PnL"],
   },

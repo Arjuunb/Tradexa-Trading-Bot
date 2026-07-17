@@ -11,7 +11,7 @@ interface Metric {
 }
 
 const METRICS: Metric[] = [
-  { value: 99.9, decimals: 1, suffix: "%", label: "Bot Uptime", sub: "Resilient, always-on infrastructure" },
+  { value: 99.9, decimals: 1, suffix: "%", label: "Platform Uptime", sub: "Resilient, always-on infrastructure" },
   { value: 100, prefix: "<", suffix: "ms", label: "Execution", sub: "Order routing latency target" },
   { value: 24, suffix: "/7", label: "Risk Protected", sub: "Guards enforced around the clock" },
 ];

@@ -60,7 +60,7 @@ export function Navbar() {
             </Button>
           </Link>
           <a href={APP_URL}>
-            <Button size="sm">Launch Bot</Button>
+            <Button size="sm">Launch Platform</Button>
           </a>
         </div>
 
@@ -98,7 +98,7 @@ export function Navbar() {
               </Link>
               <a href={APP_URL} className="flex-1">
                 <Button fullWidth size="sm">
-                  Launch Bot
+                  Launch Platform
                 </Button>
               </a>
             </div>

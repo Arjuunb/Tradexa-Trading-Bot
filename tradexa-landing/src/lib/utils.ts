@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Where the "Launch Bot" CTA and post-auth redirect point (the running app). */
+/** Where the "Launch Platform" CTA and post-auth redirect point (the running app). */
 export const APP_URL = (import.meta.env.VITE_APP_URL as string | undefined) || "/app";
 
 /** Format a number with fixed decimals + thousands separators (tabular UI). */

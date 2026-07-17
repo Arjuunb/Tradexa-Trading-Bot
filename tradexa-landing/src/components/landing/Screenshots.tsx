@@ -26,7 +26,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 const VIEWS: View[] = [
   {
     key: "dashboard",
-    label: "Bot Dashboard",
+    label: "Nexus Terminal",
     icon: LayoutDashboard,
     render: () => (
       <div className="grid h-full grid-cols-3 gap-3">
@@ -100,7 +100,7 @@ const VIEWS: View[] = [
   },
   {
     key: "analytics",
-    label: "Analytics",
+    label: "Performance Analytics",
     icon: BarChart3,
     render: () => (
       <div className="grid h-full grid-cols-2 gap-3">
