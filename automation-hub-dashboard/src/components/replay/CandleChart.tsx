@@ -72,9 +72,11 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     const hasVol = toggles.volume;
     const hasOsc = toggles.osc !== "none";
     const sub = (hasVol ? 1 : 0) + (hasOsc ? 1 : 0);
-    const L = sub === 0 ? { price: [6, 80] as [number, number] }
-      : sub === 1 ? { price: [6, 58] as [number, number], a: [70, 18] as [number, number] }
-        : { price: [6, 46] as [number, number], a: [58, 13] as [number, number], b: [75, 16] as [number, number] };
+    // Give the price pane most of the height and keep gaps tight so the chart
+    // fills the card instead of leaving blank bands between panes.
+    const L = sub === 0 ? { price: [4, 88] as [number, number] }
+      : sub === 1 ? { price: [4, 70] as [number, number], a: [78, 16] as [number, number] }
+        : { price: [4, 58] as [number, number], a: [66, 12] as [number, number], b: [81, 14] as [number, number] };
     const seg = (k: "price" | "a" | "b") => (L as any)[k] as [number, number];
     const grids: any[] = [{ left: 56, right: 64, top: `${seg("price")[0]}%`, height: `${seg("price")[1]}%` }];
     let volGrid = -1, oscGrid = -1;

@@ -68,6 +68,7 @@ export default function BotTerminalPage() {
   const [full, setFull] = useState(false);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [dockTab, setDockTab] = useState<"positions" | "history" | "orders" | "activity" | "performance" | "equity">("positions");
   const timer = useRef<number | null>(null);
 
   const liveMode = mode === "live";
@@ -194,6 +195,18 @@ export default function BotTerminalPage() {
   // in live mode, flag when the chart's strategy differs from the engine's real one
   const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
   const stratMismatch = liveMode && engineStrat != null && engineStrat !== strategy;
+  // real order blotter — each paper trade is an entry fill (+ an exit fill when
+  // closed). These are the actual MARKET orders the engine placed, not invented.
+  const orders = useMemo(() => {
+    const rows: { t: string | null; symbol: string; side: string; size: number; price: number; status: string }[] = [];
+    for (const tr of liveTrades ?? []) {
+      rows.push({ t: tr.opened_at, symbol: tr.symbol, side: tr.side === "long" ? "BUY" : "SELL", size: tr.size, price: tr.entry, status: "FILLED" });
+      if (tr.closed_at && tr.exit != null)
+        rows.push({ t: tr.closed_at, symbol: tr.symbol, side: tr.side === "long" ? "SELL" : "BUY", size: tr.size, price: tr.exit, status: "FILLED" });
+    }
+    return rows.sort((a, b) => ((a.t ?? "") < (b.t ?? "") ? 1 : -1)).slice(0, 60);
+  }, [liveTrades]);
+  const tstamp = (s?: string | null) => (s ? s.replace("T", " ").slice(5, 16) : "—");
   const state = liveMode
     ? (openPos ? `Managing a live ${openPos.side.toUpperCase()}` : eng?.running ? "Scanning live market" : "Engine stopped")
     : (inRunTrade ? `Managing an open ${inRunTrade.side.toUpperCase()}` : frame?.blocked ? "Setup rejected" : frame?.trigger ? "Confirmation received" : "Scanning");
@@ -320,7 +333,7 @@ export default function BotTerminalPage() {
           {loading || !data?.candles?.length ? (
             <div className="dim ta-center" style={{ padding: 120 }}>{loading ? "Loading real candles…" : "No data."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} height={full ? Math.max(420, window.innerHeight - 220) : 470} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {/* replay controls (replay mode) / live info line */}
           {data && !liveMode && (
@@ -496,125 +509,168 @@ export default function BotTerminalPage() {
               {sel.loss_analysis && <div className="banner" style={{ marginTop: 8, fontSize: 12 }}><Icon name="info" size={12} /> {sel.loss_analysis}</div>}
             </Card>
           )}
-          <Card title="Equity Curve" subtitle={acct ? `balance $${acct.current_equity.toLocaleString(undefined, { maximumFractionDigits: 2 })} · ${((acct.current_equity - acct.initial_capital) / acct.initial_capital * 100).toFixed(2)}% total return` : "realized paper equity"}>
-            <EquityCurve />
-          </Card>
         </div>
       </div>
 
-      {/* ── bottom: timeline · trade log · performance ───────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.05fr 1.45fr 1fr", gap: 12, marginTop: 12 }} className="terminal-bottom">
-        <Card title="Bot Activity Timeline" subtitle={liveMode ? "the LIVE engine's real activity log" : "what the bot did, candle by candle"}>
-          <div style={{ maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
-            {liveMode ? (
-              (logs ?? []).length ? (logs ?? []).map((l, i) => (
-                <div key={l.id ?? i} className="tl-row" style={{ cursor: "default" }}>
-                  <span className="mono dim" style={{ fontSize: 11, width: 58, flexShrink: 0 }}>{hhmmss(l.ts)}</span>
-                  <span className={`tl-dot ${l.level === "error" ? "veto" : l.level === "warning" ? "signal" : "entry"}`} />
-                  <Icon name={STAGE_ICON[l.stage] ?? "info"} size={12} className="dim" />
-                  <span style={{ fontSize: 12.5 }}>{l.message}</span>
-                </div>
-              )) : <div className="dim" style={{ padding: 10 }}>No live engine activity yet — start the engine from Paper Trading.</div>
-            ) : (
-              runEvents.length ? runEvents.map((e, i) => (
-                <button key={i} className="tl-row" onClick={() => { setPlaying(false); setIdx(e.idx); setSel(null); }}>
-                  <span className="mono dim" style={{ fontSize: 11, width: 44, flexShrink: 0 }}>{hhmm(data?.candles[e.idx]?.t)}</span>
-                  <span className={`tl-dot ${e.kind}`} />
-                  <Icon name={EVT_ICON[e.kind] ?? "info"} size={12} className="dim" />
-                  <span style={{ fontSize: 12.5 }}>{e.text}</span>
-                </button>
-              )) : <div className="dim" style={{ padding: 10 }}>No activity up to this candle.</div>
-            )}
-          </div>
-        </Card>
+      {/* ── bottom dock: tabbed blotter (positions · history · orders · activity · performance · equity) ── */}
+      <div className="dock" style={{ marginTop: 12 }}>
+        <div className="dock-tabs">
+          {([
+            ["positions", "Open Positions", (positions ?? []).length],
+            ["history", "Trade History", (liveMode ? (liveTrades ?? []).length : runTrades.length)],
+            ["orders", "Orders", orders.length],
+            ["activity", "Activity", 0],
+            ["performance", "Performance", 0],
+            ["equity", "Equity Curve", 0],
+          ] as const).map(([k, label, count]) => (
+            <button key={k} className={`dock-tab ${dockTab === k ? "on" : ""}`} onClick={() => setDockTab(k)}>
+              {label}{count ? <span className="dock-count">{count}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div className="dock-body">
+          {/* ── Open Positions ── */}
+          {dockTab === "positions" && (
+            (positions ?? []).length ? (
+              <table className="data-table" style={{ fontSize: 12 }}>
+                <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>Stop</th><th>uPnL</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {(positions ?? []).map((po) => {
+                    const up = po.symbol === symbol && candle ? (po.side === "long" ? candle.c - po.entry : po.entry - candle.c) * po.size : null;
+                    return (
+                      <tr key={po.id}>
+                        <td className="mono">{po.symbol}</td>
+                        <td><Badge text={po.side.toUpperCase()} tone={po.side === "long" ? "green" : "red"} /></td>
+                        <td className="mono dim">{po.size}</td>
+                        <td className="mono">{po.entry}</td>
+                        <td className="mono dim">{po.stop ?? "—"}</td>
+                        <td className={up == null ? "dim" : up >= 0 ? "pos" : "neg"}>{up == null ? "—" : `${up >= 0 ? "+" : "−"}$${Math.abs(up).toFixed(2)}`}</td>
+                        <td><Badge text="OPEN" tone="green" /></td>
+                        <td><button className="btn btn-warn btn-sm" disabled={closing} onClick={() => closePosition(po)}>
+                          <Icon name="close" size={12} /> Close</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : <div className="dim ta-center" style={{ padding: 26 }}>No open positions — the engine holds nothing right now.</div>
+          )}
 
-        <Card title={liveMode ? "Live Trades (real paper engine)" : "Trade History (this run)"}
-          subtitle={liveMode ? `${(liveTrades ?? []).length} trades taken by the live engine` : `${data?.trades?.length ?? 0} trades · click to analyse`}>
-          <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            {liveMode ? (
-              <>
-              {(positions ?? []).length > 0 && (
-                <>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "2px 0 4px" }}>Open positions ({(positions ?? []).length})</div>
-                  <table className="data-table" style={{ fontSize: 11.5, marginBottom: 8 }}>
-                    <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>SL</th><th>uPnL</th><th>Status</th><th></th></tr></thead>
-                    <tbody>
-                      {(positions ?? []).map((po) => {
-                        const up = po.symbol === symbol && candle ? (po.side === "long" ? candle.c - po.entry : po.entry - candle.c) * po.size : null;
-                        return (
-                          <tr key={po.id}>
-                            <td className="mono dim">{po.symbol}</td>
-                            <td><Badge text={po.side.toUpperCase()} tone={po.side === "long" ? "green" : "red"} /></td>
-                            <td className="mono dim">{po.size}</td>
-                            <td className="mono">{po.entry}</td>
-                            <td className="mono dim">{po.stop ?? "—"}</td>
-                            <td className={up == null ? "dim" : up >= 0 ? "pos" : "neg"}>{up == null ? "—" : `${up >= 0 ? "+" : "−"}$${Math.abs(up).toFixed(2)}`}</td>
-                            <td><Badge text="OPEN" tone="green" /></td>
-                            <td><button className="btn btn-ghost btn-sm" disabled={closing} title="Close at market"
-                              onClick={() => closePosition(po)}><Icon name="close" size={12} /></button></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </>
+          {/* ── Trade History ── */}
+          {dockTab === "history" && (liveMode ? (
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead><tr><th>Opened</th><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>PnL</th><th>R</th><th>Status</th></tr></thead>
+              <tbody>
+                {[...(liveTrades ?? [])].reverse().slice(0, 60).map((t) => (
+                  <tr key={t.id}>
+                    <td className="mono dim">{tstamp(t.opened_at)}</td>
+                    <td className="mono">{t.symbol}</td>
+                    <td><Badge text={t.side === "long" ? "LONG" : "SHORT"} tone={t.side === "long" ? "green" : "red"} /></td>
+                    <td className="mono dim">{t.size}</td>
+                    <td className="mono">{t.entry}</td>
+                    <td className="mono dim">{t.exit ?? "open"}</td>
+                    <td className={(t.pnl ?? 0) >= 0 ? "pos" : "neg"}>{t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "—"}</td>
+                    <td className={(t.rr ?? 0) >= 0 ? "pos" : "neg"}>{t.rr ?? "—"}</td>
+                    <td className={t.status === "closed" ? "dim" : "pos"}>{t.status}</td>
+                  </tr>
+                ))}
+                {!(liveTrades ?? []).length && <tr><td colSpan={9} className="dim ta-center" style={{ padding: 26 }}>
+                  No live trades yet — the engine is selective; watch Activity while it scans.</td></tr>}
+              </tbody>
+            </table>
+          ) : (
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead><tr><th>#</th><th>Dir</th><th>Entry</th><th>Exit</th><th>R</th><th>Score</th><th>Duration</th><th>Status</th></tr></thead>
+              <tbody>
+                {runTrades.map((t) => (
+                  <tr key={t.id} style={{ cursor: "pointer" }} className={sel?.id === t.id ? "active-row" : ""} onClick={() => focusTrade(t)}>
+                    <td className="dim">{t.id}</td>
+                    <td><Badge text={t.side === "long" ? "LONG" : "SHORT"} tone={t.side === "long" ? "green" : "red"} /></td>
+                    <td className="mono">{t.entry}</td>
+                    <td className="mono dim">{t.exit ?? "open"}</td>
+                    <td className={(t.rr ?? 0) >= 0 ? "pos" : "neg"}>{t.rr != null ? `${t.rr >= 0 ? "+" : ""}${t.rr}` : "—"}</td>
+                    <td className="dim">{t.score}</td>
+                    <td className="dim">{durationOf(t)}</td>
+                    <td className={t.result === "win" ? "pos" : t.result === "loss" ? "neg" : "dim"}>{t.result || t.status || "open"}</td>
+                  </tr>
+                ))}
+                {runTrades.length === 0 && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 26 }}>No trades this run — the bot was selective.</td></tr>}
+              </tbody>
+            </table>
+          ))}
+
+          {/* ── Orders (real fills the engine placed) ── */}
+          {dockTab === "orders" && (
+            orders.length ? (
+              <table className="data-table" style={{ fontSize: 12 }}>
+                <thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Type</th><th>Size</th><th>Fill price</th><th>Status</th></tr></thead>
+                <tbody>
+                  {orders.map((o, i) => (
+                    <tr key={i}>
+                      <td className="mono dim">{tstamp(o.t)}</td>
+                      <td className="mono">{o.symbol}</td>
+                      <td><Badge text={o.side} tone={o.side === "BUY" ? "green" : "red"} /></td>
+                      <td className="dim">{"MARKET"}</td>
+                      <td className="mono dim">{o.size}</td>
+                      <td className="mono">{o.price}</td>
+                      <td className="pos">{o.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="dim ta-center" style={{ padding: 26 }}>No orders yet — the engine places a market order on each entry and exit.</div>
+          )}
+
+          {/* ── Activity (real engine log / replay timeline) ── */}
+          {dockTab === "activity" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {liveMode ? (
+                (logs ?? []).length ? (logs ?? []).map((l, i) => (
+                  <div key={l.id ?? i} className="tl-row" style={{ cursor: "default" }}>
+                    <span className="mono dim" style={{ fontSize: 11, width: 58, flexShrink: 0 }}>{hhmmss(l.ts)}</span>
+                    <span className={`tl-dot ${l.level === "error" ? "veto" : l.level === "warning" ? "signal" : "entry"}`} />
+                    <Icon name={STAGE_ICON[l.stage] ?? "info"} size={12} className="dim" />
+                    <span style={{ fontSize: 12.5 }}>{l.message}</span>
+                  </div>
+                )) : <div className="dim ta-center" style={{ padding: 26 }}>No live engine activity yet — start the engine from Paper Trading.</div>
+              ) : (
+                runEvents.length ? runEvents.map((e, i) => (
+                  <button key={i} className="tl-row" onClick={() => { setPlaying(false); setIdx(e.idx); setSel(null); }}>
+                    <span className="mono dim" style={{ fontSize: 11, width: 44, flexShrink: 0 }}>{hhmm(data?.candles[e.idx]?.t)}</span>
+                    <span className={`tl-dot ${e.kind}`} />
+                    <Icon name={EVT_ICON[e.kind] ?? "info"} size={12} className="dim" />
+                    <span style={{ fontSize: 12.5 }}>{e.text}</span>
+                  </button>
+                )) : <div className="dim ta-center" style={{ padding: 26 }}>No activity up to this candle.</div>
               )}
-              <table className="data-table" style={{ fontSize: 11.5 }}>
-                <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>PnL</th><th>R</th><th>Status</th></tr></thead>
-                <tbody>
-                  {[...(liveTrades ?? [])].reverse().slice(0, 40).map((t) => (
-                    <tr key={t.id}>
-                      <td className="mono dim">{t.symbol}</td>
-                      <td><Badge text={t.side === "long" ? "LONG" : "SHORT"} tone={t.side === "long" ? "green" : "red"} /></td>
-                      <td className="mono dim">{t.size}</td>
-                      <td className="mono">{t.entry}</td>
-                      <td className="mono dim">{t.exit ?? "open"}</td>
-                      <td className={(t.pnl ?? 0) >= 0 ? "pos" : "neg"}>{t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)}` : "—"}</td>
-                      <td className={(t.rr ?? 0) >= 0 ? "pos" : "neg"}>{t.rr ?? "—"}</td>
-                      <td className={t.status === "closed" ? "dim" : "pos"}>{t.status}</td>
-                    </tr>
-                  ))}
-                  {!(liveTrades ?? []).length && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 14 }}>
-                    No live trades yet — the engine is selective; watch the timeline while it scans.</td></tr>}
-                </tbody>
-              </table>
-              </>
-            ) : (
-              <table className="data-table" style={{ fontSize: 11.5 }}>
-                <thead><tr><th>#</th><th>Dir</th><th>Entry</th><th>Exit</th><th>R</th><th>Score</th><th>Duration</th><th>Status</th></tr></thead>
-                <tbody>
-                  {runTrades.map((t) => (
-                    <tr key={t.id} style={{ cursor: "pointer" }} className={sel?.id === t.id ? "active-row" : ""} onClick={() => focusTrade(t)}>
-                      <td className="dim">{t.id}</td>
-                      <td><Badge text={t.side === "long" ? "LONG" : "SHORT"} tone={t.side === "long" ? "green" : "red"} /></td>
-                      <td className="mono">{t.entry}</td>
-                      <td className="mono dim">{t.exit ?? "open"}</td>
-                      <td className={(t.rr ?? 0) >= 0 ? "pos" : "neg"}>{t.rr != null ? `${t.rr >= 0 ? "+" : ""}${t.rr}` : "—"}</td>
-                      <td className="dim">{t.score}</td>
-                      <td className="dim">{durationOf(t)}</td>
-                      <td className={t.result === "win" ? "pos" : t.result === "loss" ? "neg" : "dim"}>{t.result || t.status || "open"}</td>
-                    </tr>
-                  ))}
-                  {runTrades.length === 0 && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 14 }}>No trades this run — the bot was selective.</td></tr>}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </Card>
+            </div>
+          )}
 
-        <Card title="Strategy Performance" subtitle="this run, real candles">
-          <div className="stat-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <StatCard label="Win Rate" value={data?.stats ? `${data.stats.win_rate}%` : "—"} tone={(data?.stats?.win_rate ?? 0) >= 50 ? "green" : "amber"} />
-            <StatCard label="Net R" value={data?.stats ? `${data.stats.net_r >= 0 ? "+" : ""}${data.stats.net_r}` : "—"} tone={(data?.stats?.net_r ?? 0) >= 0 ? "green" : "red"} />
-            <StatCard label="Profit Factor" value={data?.stats ? String(data.stats.profit_factor) : "—"} tone={(data?.stats?.profit_factor ?? 0) >= 1 ? "green" : "red"} />
-            <StatCard label="Expectancy" value={data?.stats ? `${data.stats.expectancy_r >= 0 ? "+" : ""}${data.stats.expectancy_r}R` : "—"} tone={(data?.stats?.expectancy_r ?? 0) >= 0 ? "green" : "red"} />
-            <StatCard label="Avg RR" value={data?.stats ? `${data.stats.avg_rr}` : "—"} sub={data?.stats ? `${data.stats.trades} trades` : ""} />
-            <StatCard label="Max DD" value={data?.stats ? `${data.stats.max_drawdown_r}R` : "—"} tone="amber" />
-            <StatCard label="Max Consec W / L" value={data?.stats ? `${data.stats.max_consecutive_wins} / ${data.stats.max_consecutive_losses}` : "—"} />
-            <StatCard label="Streak" value={data?.stats ? `${data.stats.current_streak > 0 ? "+" : ""}${data.stats.current_streak}` : "—"}
-              tone={(data?.stats?.current_streak ?? 0) >= 0 ? "green" : "red"} />
-          </div>
-        </Card>
+          {/* ── Performance (this run) ── */}
+          {dockTab === "performance" && (
+            <div className="stat-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+              <StatCard label="Win Rate" value={data?.stats ? `${data.stats.win_rate}%` : "—"} tone={(data?.stats?.win_rate ?? 0) >= 50 ? "green" : "amber"} />
+              <StatCard label="Net R" value={data?.stats ? `${data.stats.net_r >= 0 ? "+" : ""}${data.stats.net_r}` : "—"} tone={(data?.stats?.net_r ?? 0) >= 0 ? "green" : "red"} />
+              <StatCard label="Profit Factor" value={data?.stats ? String(data.stats.profit_factor) : "—"} tone={(data?.stats?.profit_factor ?? 0) >= 1 ? "green" : "red"} />
+              <StatCard label="Expectancy" value={data?.stats ? `${data.stats.expectancy_r >= 0 ? "+" : ""}${data.stats.expectancy_r}R` : "—"} tone={(data?.stats?.expectancy_r ?? 0) >= 0 ? "green" : "red"} />
+              <StatCard label="Avg RR" value={data?.stats ? `${data.stats.avg_rr}` : "—"} sub={data?.stats ? `${data.stats.trades} trades` : ""} />
+              <StatCard label="Max DD" value={data?.stats ? `${data.stats.max_drawdown_r}R` : "—"} tone="amber" />
+              <StatCard label="Max Consec W / L" value={data?.stats ? `${data.stats.max_consecutive_wins} / ${data.stats.max_consecutive_losses}` : "—"} />
+              <StatCard label="Streak" value={data?.stats ? `${data.stats.current_streak > 0 ? "+" : ""}${data.stats.current_streak}` : "—"}
+                tone={(data?.stats?.current_streak ?? 0) >= 0 ? "green" : "red"} />
+            </div>
+          )}
+
+          {/* ── Equity Curve (real realized paper equity) ── */}
+          {dockTab === "equity" && (
+            <div>
+              <div className="dim" style={{ fontSize: 11.5, marginBottom: 6 }}>
+                {acct ? `balance $${acct.current_equity.toLocaleString(undefined, { maximumFractionDigits: 2 })} · ${((acct.current_equity - acct.initial_capital) / acct.initial_capital * 100).toFixed(2)}% total return` : "realized paper equity"}
+              </div>
+              <EquityCurve />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── live status bar (real fields only — nothing invented) ── */}
