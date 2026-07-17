@@ -17,11 +17,11 @@ export default function Privacy() {
 
   return (
     <>
-      <SettingsHeader title="Data & Privacy" description="Control your data and how Tradexa uses it. Autosaves." />
+      <SettingsHeader title="Data & Privacy" description="Control your data and how TradeLogX Nexus uses it. Autosaves." />
 
       <div className="space-y-5">
         <Section title="Your data">
-          <SettingRow label="Export account data" description="Download everything Tradexa stores about you.">
+          <SettingRow label="Export account data" description="Download everything TradeLogX Nexus stores about you.">
             <Button variant="secondary" onClick={() => toast("Your data export is prepared and downloaded when connected to the backend.", "info")}>
               <Download className="h-4 w-4" /> Request export
             </Button>
@@ -43,7 +43,7 @@ export default function Privacy() {
         </Section>
 
         <Section title="Analytics">
-          <SettingRow label="Product analytics" description="Help improve Tradexa with anonymous usage analytics.">
+          <SettingRow label="Product analytics" description="Help improve TradeLogX Nexus with anonymous usage analytics.">
             <Switch label="Product analytics" checked={p.analytics} onChange={(v) => set({ analytics: v })} />
           </SettingRow>
           <SettingRow label="Share anonymized usage data" description="Contribute aggregate, non-identifying data.">

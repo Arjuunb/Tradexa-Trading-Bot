@@ -195,7 +195,7 @@ export default function Trading() {
       <EngineSyncBanner signedIn={signedIn} error={error} />
 
       <div className="space-y-5">
-        <Section title="Market & venue" description="Where and what Tradexa trades by default.">
+        <Section title="Market & venue" description="Where and what TradeLogX Nexus trades by default.">
           <SettingRow
             label="Preferred exchange"
             description={<>Data venue is set by HUB_EXCHANGE on the server.{live && <LocalTag />}</>}

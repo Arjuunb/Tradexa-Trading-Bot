@@ -9,7 +9,7 @@ export default function Billing() {
 
       <div className="space-y-5">
         <Section title="Current plan">
-          <SettingRow label="Self-hosted · Free" description="You run Tradexa on your own infrastructure. There is no subscription and no enforced usage limits.">
+          <SettingRow label="Self-hosted · Free" description="You run TradeLogX Nexus on your own infrastructure. There is no subscription and no enforced usage limits.">
             <Badge tone="emerald">Active</Badge>
           </SettingRow>
           <div className="flex items-start gap-3 border-t border-line/60 py-3 text-[13px] text-white/50">

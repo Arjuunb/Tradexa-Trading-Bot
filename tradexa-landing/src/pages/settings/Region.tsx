@@ -23,7 +23,7 @@ export default function Region() {
 
   return (
     <>
-      <SettingsHeader title="Language & Region" description="Localize how Tradexa displays dates, numbers and currency. Autosaves." />
+      <SettingsHeader title="Language & Region" description="Localize how TradeLogX Nexus displays dates, numbers and currency. Autosaves." />
 
       <div className="space-y-5">
         <Section title="Language">

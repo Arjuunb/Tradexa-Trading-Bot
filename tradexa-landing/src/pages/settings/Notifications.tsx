@@ -91,7 +91,7 @@ export default function Notifications() {
 
   return (
     <>
-      <SettingsHeader title="Notifications" description="Choose how and when Tradexa reaches you. Changes save automatically." />
+      <SettingsHeader title="Notifications" description="Choose how and when TradeLogX Nexus reaches you. Changes save automatically." />
 
       <div className="space-y-5">
         {signedIn && engine && (

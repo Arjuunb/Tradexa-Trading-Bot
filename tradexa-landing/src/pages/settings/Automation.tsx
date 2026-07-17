@@ -35,7 +35,7 @@ export default function Automation() {
     <>
       <SettingsHeader
         title="Automation"
-        description="Let Tradexa manage its own lifecycle and housekeeping so it keeps running unattended. Changes save automatically."
+        description="Let TradeLogX Nexus manage its own lifecycle and housekeeping so it keeps running unattended. Changes save automatically."
       />
 
       <div className="space-y-5">

@@ -83,13 +83,13 @@ export default function ApiKeys() {
     <>
       <SettingsHeader
         title="API Keys"
-        description="Programmatic access to your Tradexa deployment. Everything here is generated locally in your browser — connect the backend to issue real, revocable tokens."
+        description="Programmatic access to your TradeLogX Nexus deployment. Everything here is generated locally in your browser — connect the backend to issue real, revocable tokens."
       />
 
       <div className="space-y-5">
         <Section
           title="Personal access tokens"
-          description="Use these to authenticate requests to the Tradexa API."
+          description="Use these to authenticate requests to the TradeLogX Nexus API."
           action={
             <Button size="sm" onClick={generate}>
               <Plus className="h-4 w-4" /> Generate API token
@@ -132,7 +132,7 @@ export default function ApiKeys() {
               </span>
               <p className="text-sm font-medium text-white/80">No tokens yet</p>
               <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-white/45">
-                Generate a token to see the flow. These are local only until the Tradexa backend is
+                Generate a token to see the flow. These are local only until the TradeLogX Nexus backend is
                 connected.
               </p>
             </div>
@@ -167,7 +167,7 @@ export default function ApiKeys() {
 
         <Section
           title="Webhook secret"
-          description="Tradexa signs every inbound webhook with this secret so your endpoint can verify the payload really came from your bot."
+          description="TradeLogX Nexus signs every inbound webhook with this secret so your endpoint can verify the payload really came from your bot."
         >
           <SettingRow
             label="Signing secret"
@@ -200,7 +200,7 @@ export default function ApiKeys() {
           </SettingRow>
         </Section>
 
-        <Section title="Developer access" description="Controls for building against the Tradexa API.">
+        <Section title="Developer access" description="Controls for building against the TradeLogX Nexus API.">
           <SettingRow
             label="Enable developer API access"
             description={
@@ -221,7 +221,7 @@ export default function ApiKeys() {
           </SettingRow>
           <div className="py-4 text-[13px] leading-relaxed text-white/45">
             Full API reference, rate limits and example requests live in the docs. Endpoints activate once
-            <span className="text-white/60"> VITE_API_BASE</span> points at your running Tradexa backend.
+            <span className="text-white/60"> VITE_API_BASE</span> points at your running TradeLogX Nexus backend.
           </div>
         </Section>
       </div>

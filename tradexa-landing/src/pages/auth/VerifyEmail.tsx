@@ -58,7 +58,7 @@ export default function VerifyEmail() {
         <p className="mt-2 text-sm leading-relaxed text-white/55">
           We&apos;ve sent a verification link to{" "}
           <span className="font-medium text-white">{email ?? "your inbox"}</span>. Click the link to
-          activate your Tradexa Trading Bot account.
+          activate your TradeLogX Nexus account.
         </p>
 
         <Button

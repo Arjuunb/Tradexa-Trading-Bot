@@ -80,7 +80,7 @@ export default function Logs() {
 
       <Section
         title="Log viewer"
-        description={signedIn ? "Live from the engine ledger · refreshes every 6s." : "Live logs are served by the Tradexa backend."}
+        description={signedIn ? "Live from the engine ledger · refreshes every 6s." : "Live logs are served by the TradeLogX Nexus backend."}
         action={
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={load} disabled={!signedIn}>

@@ -42,12 +42,12 @@ export default function Audit() {
           </div>
         </div>
         <div className="pb-3">
-          <NotConnected icon={History} detail="Your audit trail appears here once connected to the Tradexa backend (VITE_API_BASE). Entries are never fabricated." />
+          <NotConnected icon={History} detail="Your audit trail appears here once connected to the TradeLogX Nexus backend (VITE_API_BASE). Entries are never fabricated." />
         </div>
       </Section>
 
       <div className="mt-5">
-        <Section title="Tracked actions" description="Everything Tradexa records to the audit log.">
+        <Section title="Tracked actions" description="Everything TradeLogX Nexus records to the audit log.">
           <div className="flex flex-wrap gap-2 py-4">
             {TRACKED.map((t) => (
               <Badge key={t} tone="neutral">{t}</Badge>
