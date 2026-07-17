@@ -100,14 +100,23 @@ export default function BotTerminalPage() {
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveMode, symbol, tf, strategy]);
-  // default the chart to the strategy the live engine is actually running (once)
-  const syncedStrat = useRef(false);
+  // Keep the chart on the strategy the LIVE ENGINE is actually running, so the
+  // "Bot is watching" strip always mirrors the real bot — not a stale default.
+  // Follows the engine whenever ITS strategy changes; a manual pick is a
+  // temporary override that's released the next time the engine strategy moves.
+  const engStratRef = useRef<string | null>(null);
+  const userOverrodeStrat = useRef(false);
   useEffect(() => {
-    if (syncedStrat.current || !eng?.strategy) return;
-    const mapped = ENGINE_STRAT_MAP[eng.strategy];
-    if (mapped) setStrategy(mapped);
-    syncedStrat.current = true;
-  }, [eng]);
+    const label = eng?.strategy;
+    if (!label) return;
+    const mapped = ENGINE_STRAT_MAP[label] ?? "Decision Brain";
+    if (mapped !== engStratRef.current) {     // engine strategy changed (or first load)
+      engStratRef.current = mapped;
+      userOverrodeStrat.current = false;
+      if (STRATS.includes(mapped)) setStrategy(mapped);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eng?.strategy]);
 
   // LIVE candle stream — Binance public kline WebSocket, straight from the
   // browser (no key). Updates the current candle in place and appends on close.
@@ -280,8 +289,8 @@ export default function BotTerminalPage() {
           <select className="rule-num" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
             {SYMS.map((s) => <option key={s}>{s}</option>)}
           </select>
-          <select className="rule-num" value={strategy} title="Strategy the chart visualizes"
-            onChange={(e) => { setStrategy(e.target.value); syncedStrat.current = true; }}>
+          <select className="rule-num" value={strategy} title="Strategy the chart visualizes (follows the live engine by default)"
+            onChange={(e) => { setStrategy(e.target.value); userOverrodeStrat.current = true; }}>
             {STRATS.map((s) => <option key={s}>{s}</option>)}
           </select>
           {TFS.map((t) => <button key={t} className={`chip-btn ${tf === t ? "active" : ""}`} onClick={() => setTf(t)}>{t}</button>)}
@@ -355,7 +364,7 @@ export default function BotTerminalPage() {
           {viz && (viz.used?.length ?? 0) > 0 && (
             <div className="viz-strip" title={viz.explain}>
               <span className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }}>
-                <Icon name="chart" size={11} /> Bot is watching</span>
+                <Icon name="chart" size={11} /> {strategy} uses</span>
               {viz.used.map((u) => (
                 <span key={u.label} className="viz-chip" title={u.detail}><b>{u.label}</b></span>
               ))}
