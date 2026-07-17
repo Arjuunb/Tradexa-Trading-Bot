@@ -494,6 +494,13 @@ a.brand:hover { opacity: 0.85; }
 }
 
 /* terminal: pulse indicator, status bar, fullscreen chart */
+.signal-banner { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px;
+  border-radius: 9px; font-size: 11px; letter-spacing: 0.8px; font-weight: 700; border: 1px solid; }
+.signal-banner span { opacity: 0.7; }
+.signal-banner b { font-size: 14px; }
+.signal-banner.long { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.4); color: var(--green); }
+.signal-banner.short { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: var(--red); }
+.signal-banner.wait { background: rgba(234,181,79,0.10); border-color: rgba(234,181,79,0.35); color: var(--gold); }
 .pulse-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none;
   background: var(--dim-2, #7c8798); animation: pulse-dot 1.6s ease-in-out infinite; }
 .pulse-dot.green { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
