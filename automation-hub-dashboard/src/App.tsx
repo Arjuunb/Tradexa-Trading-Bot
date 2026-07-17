@@ -9,6 +9,7 @@ const Overview = lazy(() => import("./pages/Overview"));
 const BotsPage = lazy(() => import("./pages/Bots"));
 const StrategiesPage = lazy(() => import("./pages/Strategies"));
 const PaperTradingPage = lazy(() => import("./pages/PaperTrading"));
+const BotTerminalPage = lazy(() => import("./pages/BotTerminal"));
 const BacktestingPage = lazy(() => import("./pages/Backtesting"));
 const RiskCenterPage = lazy(() => import("./pages/RiskCenter"));
 const LogsPage = lazy(() => import("./pages/Logs"));
@@ -85,6 +86,7 @@ export default function App() {
       case "Simulation": return <SimulationPage />;
       case "Replay": return <ReplayPage />;
       case "Paper Trading": return <PaperTradingPage />;
+      case "Bot Terminal": return <BotTerminalPage />;
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;
       case "Analytics": return <AnalyticsPage />;

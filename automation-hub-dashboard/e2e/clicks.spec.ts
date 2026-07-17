@@ -8,7 +8,7 @@ import { mockApi } from "./mock";
 
 const NAV = [
   "Overview", "Markets", "Symbols", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence", "AI Assistant",
+  "Paper Trading", "Bot Terminal", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence", "AI Assistant",
   "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
