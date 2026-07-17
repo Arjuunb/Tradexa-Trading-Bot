@@ -32,7 +32,7 @@ export function AuthShowcase() {
       <div className="absolute bottom-0 right-0 -z-10 h-72 w-72 rounded-full bg-emerald/[0.07] blur-[120px]" />
 
       <div className="p-10 xl:p-14">
-        <p className="eyebrow">Tradexa Trading Bot</p>
+        <p className="eyebrow">TradeLogX Nexus</p>
         <h2 className="mt-5 max-w-md text-3xl font-bold leading-tight tracking-tight text-white xl:text-4xl">
           Automated Trading.
           <br />

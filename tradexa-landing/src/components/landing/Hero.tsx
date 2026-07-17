@@ -38,7 +38,7 @@ export function Hero() {
           </motion.h1>
 
           <motion.p variants={item} className="mt-6 max-w-xl text-lg leading-relaxed text-white/60">
-            Tradexa doesn’t simply execute trades. It remembers every decision, learns from every
+            TradeLogX Nexus doesn’t simply execute trades. It remembers every decision, learns from every
             mistake, and understands how you trade — every trade becomes part of your personal
             trading intelligence.
           </motion.p>

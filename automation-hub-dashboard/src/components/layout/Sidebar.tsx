@@ -54,12 +54,12 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
       <a
         className="brand"
         href={(import.meta.env.VITE_LANDING_URL as string | undefined) || "/"}
-        title="Back to Tradexa home"
+        title="Back to TradeLogX Nexus home"
       >
         <span className="brand-mark"><Logo size={30} /></span>
         <span className="brand-name">
-          Tradexa
-          <span className="brand-sub">Trading Bot</span>
+          TradeLogX
+          <span className="brand-sub">Nexus</span>
         </span>
       </a>
 

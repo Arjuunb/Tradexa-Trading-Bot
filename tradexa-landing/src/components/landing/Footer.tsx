@@ -98,7 +98,7 @@ export function Footer() {
 
         <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-line pt-8 sm:flex-row">
           <p className="text-xs text-white/40">
-            © {new Date().getFullYear()} Tradexa Trading Bot. All rights reserved.
+            © {new Date().getFullYear()} TradeLogX Nexus. All rights reserved.
           </p>
           <div className="flex items-center gap-5 text-xs text-white/40">
             <Link to="/auth/login" className="hover:text-white">

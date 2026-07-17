@@ -37,7 +37,7 @@ export function Navbar() {
       )}
     >
       <nav className="container-x flex h-16 items-center justify-between">
-        <Link to="/" aria-label="Tradexa Trading Bot home">
+        <Link to="/" aria-label="TradeLogX Nexus home">
           <Logo />
         </Link>
 
