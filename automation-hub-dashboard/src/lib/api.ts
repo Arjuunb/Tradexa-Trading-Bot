@@ -225,6 +225,7 @@ export interface AlertRow {
 }
 export interface EngineStatus {
   running: boolean; symbols: string[]; timeframe: string; interval: number;
+  strategy?: string; entry_mode?: string;
   started_at: string | null; bars: number; signals: number; trades: number; rejections: number;
 }
 export interface ControlState { state: "Active" | "Paused" | "Stopped"; }
