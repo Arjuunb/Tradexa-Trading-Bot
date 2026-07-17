@@ -92,12 +92,16 @@ function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) =>
           <div className="sym-results">
             {results.map((r) => {
               const crypto = r.asset_class === "crypto";
-              const perp = crypto && r.type === "futures";   // perpetual futures only
-              const tag = perp ? "perp" : crypto ? "spot · perp only" : "crypto only";
+              // A Binance USDT-M perpetual is a USDT/USDC-quoted crypto pair
+              // (BTCUSDT, ETHUSDT). Detect by the pair's quote, not the catalog's
+              // spot/futures label — that label is unreliable when the live
+              // exchange sync is blocked and only the seed (all "spot") is left.
+              const perp = crypto && isCryptoStreamable(r.ticker);
+              const tag = perp ? "perp" : crypto ? "USDT perp only" : "crypto only";
               return (
                 <button key={r.symbol} className={`sym-row ${perp ? "" : "off"}`} disabled={!perp}
                   title={perp ? "" : crypto
-                    ? "Spot isn't traded here — the terminal uses crypto perpetual futures only"
+                    ? "Only USDT-margined perpetuals stream here (e.g. BTCUSDT)"
                     : "Live streaming is crypto perpetual futures only"}
                   onClick={() => perp && pick(r.ticker)}>
                   <b>{r.ticker}</b><span className="dim sym-nm">{r.name}</span>
