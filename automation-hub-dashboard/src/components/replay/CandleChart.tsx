@@ -8,13 +8,21 @@ export interface ChartToggles {
   sma20: boolean; sma50: boolean; vwap: boolean; bb: boolean; volume: boolean;
   structure: boolean; zones: boolean;
   osc: "none" | "rsi" | "macd" | "atr";
+  supertrend?: boolean;   // draw the strategy's ATR Supertrend line
+  crossovers?: boolean;   // draw the strategy's EMA-cross markers
 }
+
+/** Extra price-pane overlay lines the ACTIVE strategy uses but that aren't one
+ *  of the fixed toggles above (e.g. a custom EMA/SMA period). Each key must be
+ *  present in data.overlays — the series is server-computed and causal. */
+export interface ExtraLine { key: string; name: string; color: string; dashed?: boolean; }
 
 interface Props {
   data: ReplayData;
   index: number; // current replay bar (inclusive); chart shows [0..index]
   toggles: ChartToggles;
   height?: number;
+  extraLines?: ExtraLine[];
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -28,7 +36,7 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520 }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -92,12 +100,17 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
 
     // ---- markers: structure + entry, plus closed-trade exits ----
     const STRUCT = new Set(["Sweep", "BOS/CHoCH", "FVG"]);
+    const showMarker = (t: string) =>
+      t === "EMA Cross" ? !!toggles.crossovers
+        : STRUCT.has(t) ? toggles.structure
+          : true;
     const markPts = data.markers
-      .filter((m) => m.idx < end && (toggles.structure || !STRUCT.has(m.type)))
+      .filter((m) => m.idx < end && showMarker(m.type))
       .map((m) => ({
         name: m.type, coord: [m.idx, m.price],
-        symbol: m.type === "Entry" ? "pin" : "circle",
-        symbolSize: m.type === "Entry" ? 26 : m.type === "TP1" ? 14 : 9,
+        symbol: m.type === "Entry" ? "pin" : m.type === "EMA Cross" ? "triangle" : "circle",
+        symbolSize: m.type === "Entry" ? 26 : m.type === "TP1" ? 14 : m.type === "EMA Cross" ? 11 : 9,
+        symbolRotate: m.type === "EMA Cross" && m.side === "bear" ? 180 : 0,
         itemStyle: { color: m.side === "bull" ? "#089981" : "#f23645" },
         label: { show: m.type === "Entry", formatter: m.type, position: "top", color: "#cfd6e4", fontSize: 9 },
       }));
@@ -157,6 +170,10 @@ export default function CandleChart({ data, index, toggles, height = 520 }: Prop
         smooth: true, lineStyle: { color, width: 1.3, ...(opt.lineStyle || {}) }, name, ...opt });
       legend.push(name);
     };
+    if (toggles.supertrend && ov.supertrend) line("supertrend", "Supertrend", "#eab54f", { smooth: false, lineStyle: { width: 1.6 } });
+    for (const el of extraLines ?? []) {
+      if (ov[el.key]) line(el.key, el.name, el.color, el.dashed ? { smooth: false, lineStyle: { width: 1.2, type: "dashed" } } : {});
+    }
     if (toggles.ema8) line("ema8", "EMA8", "#22d3ee");
     if (toggles.ema20) line("ema20", "EMA20", "#3b82f6");
     if (toggles.ema30) line("ema30", "EMA30", "#a855f7");

@@ -109,6 +109,53 @@ def paper_set_initial_capital(body: InitialCapital,
 def paper_positions():
     return _wa.paper.positions()
 
+
+class ClosePosition(_wa.BaseModel):
+    symbol: str
+    # optional client-observed mark (the terminal already streams the live
+    # price); the server prefers its OWN fetched price and only uses this if it
+    # can't reach a data source — it is never used to fabricate a fill.
+    price: Optional[float] = None
+
+
+@router.post("/paper/close")
+def paper_close(body: ClosePosition,
+                x_webhook_secret: Optional[str] = Header(default=None)):
+    """Manually close an open PAPER position at the current market price through
+    the real paper execution engine (same close path the engine uses on a
+    stop/target). Never touches live trading."""
+    _wa._check_secret(x_webhook_secret)
+    symbol = (body.symbol or "").upper().strip()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    pos = _wa.paper.open_position(symbol)
+    if pos is None:
+        raise HTTPException(404, f"No open paper position for {symbol}.")
+    # real current price: latest candle close (crypto/Yahoo). Fall back to the
+    # client's observed mark only if the server can't fetch one right now.
+    price = None
+    try:
+        from data.market_data import get_bars
+        bars, _src = get_bars(symbol, n=3, timeframe="1h")
+        if bars:
+            price = float(bars[-1].close)
+    except Exception:  # noqa: BLE001 — fetch failure falls through to client mark
+        price = None
+    if price is None and body.price and float(body.price) > 0:
+        price = float(body.price)
+    if price is None or price <= 0:
+        raise HTTPException(503, "Could not determine a current market price to close at. "
+                                 "Try again once market data is reachable.")
+    res = _wa.paper.close(symbol=symbol, exit_price=price)
+    if getattr(res, "action", "") != "closed":
+        raise HTTPException(409, f"Could not close {symbol} — position not open.")
+    _wa.ledger.log(level="info", stage="execution",
+                   message=f"Manual close {symbol} @ {round(price, 6)} — "
+                           f"realized {res.pnl:+.2f}")
+    return {"ok": True, "symbol": symbol, "exit_price": round(price, 6),
+            "pnl": round(res.pnl, 2), "size": res.size, "side": res.side,
+            **paper_account()}
+
 @router.get("/paper/trades")
 def paper_trades():
     return _wa.paper.history()

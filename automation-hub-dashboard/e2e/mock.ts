@@ -232,7 +232,12 @@ const SHAPES: [string, unknown][] = [
   ["/settings", SETTINGS],
   ["/replay/run", {
     meta: { symbol: "BTCUSDT", timeframe: "1h", data_source: "demo", data_source_label: "demo sample",
-      bars: 4, start: null, end: null, htf_available: {}, strategy: "Decision Brain", data_warning: null },
+      bars: 4, start: null, end: null, htf_available: {}, strategy: "Decision Brain", data_warning: null,
+      viz: { title: "Decision Brain · multi-factor", explain: "trend EMAs + RSI + structure/zones",
+        used: [{ label: "EMA 20 / EMA 50", detail: "trend" }, { label: "RSI (14)", detail: "momentum" },
+          { label: "Structure + zones", detail: "confluence" }],
+        overlays: ["ema20", "ema50"], osc: "rsi", structure: true, zones: true,
+        crossovers: false, supertrend: false, volume: true } },
     candles: [
       { t: "2026-07-16T10:00:00", o: 60000, h: 60400, l: 59800, c: 60240, v: 1200 },
       { t: "2026-07-16T11:00:00", o: 60240, h: 60800, l: 60100, c: 60700, v: 1500 },

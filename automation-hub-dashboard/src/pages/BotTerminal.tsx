@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine } from "../components/replay/CandleChart";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
 import {
-  apiGet, useLive,
+  apiGet, apiPostJson, useLive,
   type ReplayData, type ReplayTrade, type AIAnalysis, type EngineStatus, type RiskSummary,
   type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount,
 } from "../lib/api";
@@ -22,11 +22,18 @@ const TFS = ["15m", "1h", "4h"];
 const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "AAPL", "SPY", "EURUSD", "XAUUSD"];
 const CRYPTO = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
 const SPEEDS = [1, 2, 5, 10, 50, 100];
-const TOGGLES: ChartToggles = {
-  ema8: true, ema20: false, ema30: true, ema50: false,
+// Fallback only — used if the backend didn't send a viz spec. Normally the
+// chart is driven entirely by data.meta.viz (the ACTIVE strategy's real inputs).
+const FALLBACK_TOGGLES: ChartToggles = {
+  ema8: false, ema20: false, ema30: false, ema50: false,
   sma20: false, sma50: false, vwap: false, bb: false,
-  volume: true, structure: true, zones: true, osc: "none",
+  volume: true, structure: true, zones: true, osc: "none", supertrend: false, crossovers: false,
 };
+// Overlay keys the chart draws via its fixed toggles; anything else the strategy
+// declares (e.g. a custom EMA period) is passed through as an extra line.
+const KNOWN_OVERLAYS = new Set(["ema8", "ema20", "ema30", "ema50", "sma20", "sma50",
+  "vwap", "bb_upper", "bb_mid", "bb_lower", "supertrend"]);
+const EXTRA_COLORS = ["#22d3ee", "#a855f7", "#f59e0b", "#3b82f6", "#ec4899", "#10b981"];
 const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
 const EVT_ICON: Record<string, string> = { entry: "play", exit: "target", trade: "check", signal: "chart",
   setup: "chart", scan: "search", veto: "warning", blocked: "warning", stop: "close", info: "info" };
@@ -49,6 +56,7 @@ export default function BotTerminalPage() {
   const [speed, setSpeed] = useState(5);
   const [full, setFull] = useState(false);
   const [wsOk, setWsOk] = useState(false);
+  const [closing, setClosing] = useState(false);
   const timer = useRef<number | null>(null);
 
   const liveMode = mode === "live";
@@ -139,6 +147,30 @@ export default function BotTerminalPage() {
   const signal = ai?.decision === "BUY" ? "LONG" : ai?.decision === "SELL" ? "SHORT" : ai?.decision ?? "—";
   const ma = ai?.market_analysis;
   const checks = (ai?.checklist ?? []).filter((c) => c.status !== "N/A");
+
+  // ── item #1: the chart shows ONLY what the ACTIVE strategy uses ──
+  // driven entirely by the engine-declared viz spec, never hardcoded here.
+  const viz = data?.meta?.viz;
+  const chartToggles = useMemo<ChartToggles>(() => {
+    if (!viz) return FALLBACK_TOGGLES;
+    const ov = new Set(viz.overlays ?? []);
+    return {
+      ema8: ov.has("ema8"), ema20: ov.has("ema20"), ema30: ov.has("ema30"), ema50: ov.has("ema50"),
+      sma20: ov.has("sma20"), sma50: ov.has("sma50"), vwap: ov.has("vwap"),
+      bb: ov.has("bb_upper") || ov.has("bb"),
+      volume: viz.volume ?? true, structure: !!viz.structure, zones: !!viz.zones,
+      osc: viz.osc ?? "none", supertrend: !!viz.supertrend, crossovers: !!viz.crossovers,
+    };
+  }, [viz]);
+  const extraLines = useMemo<ExtraLine[]>(() => {
+    const out: ExtraLine[] = [];
+    (viz?.overlays ?? []).forEach((k, i) => {
+      if (KNOWN_OVERLAYS.has(k)) return;
+      const name = k.replace(/^ema/, "EMA ").replace(/^sma/, "SMA ").toUpperCase();
+      out.push({ key: k, name, color: EXTRA_COLORS[i % EXTRA_COLORS.length], dashed: k.startsWith("sma") });
+    });
+    return out;
+  }, [viz]);
   const liveUPnl = openPos && candle ? (openPos.side === "long" ? candle.c - openPos.entry : openPos.entry - candle.c) * openPos.size : null;
   const state = liveMode
     ? (openPos ? `Managing a live ${openPos.side.toUpperCase()}` : eng?.running ? "Scanning live market" : "Engine stopped")
@@ -148,6 +180,22 @@ export default function BotTerminalPage() {
     : (inRunTrade ? "stop / target / exit rule" : frame?.blocked ? frame.reason : frame?.trigger ? "entry execution" : "a qualifying setup");
 
   const focusTrade = (t: ReplayTrade) => { setSel(t); setPlaying(false); setMode("replay"); setIdx(t.exit_idx ?? t.entry_idx); };
+  // item #6: close an open PAPER position through the real execution engine.
+  const closePosition = async (po: LedgerPosition) => {
+    if (closing) return;
+    if (!window.confirm(`Close the ${po.side.toUpperCase()} ${po.symbol} paper position at market?`)) return;
+    setClosing(true);
+    try {
+      const r = await apiPostJson<{ pnl: number; exit_price: number }>("/paper/close",
+        { symbol: po.symbol, price: candle?.c });
+      toast(`Closed ${po.symbol} @ ${r.exit_price} · ${r.pnl >= 0 ? "+" : ""}${r.pnl} realized`,
+        r.pnl >= 0 ? "success" : "info");
+    } catch {
+      toast("Could not close the position — is the backend reachable?", "error");
+    } finally {
+      setClosing(false);
+    }
+  };
   const durationOf = (t: ReplayTrade) => {
     const a = data?.candles?.[t.entry_idx]?.t, b = t.exit_idx != null ? data?.candles?.[t.exit_idx]?.t : undefined;
     if (!a || !b) return t.bars_held != null ? `${t.bars_held} bars` : "—";
@@ -223,15 +271,25 @@ export default function BotTerminalPage() {
             </div>
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
-              <span className="dim" style={{ fontSize: 11 }}>EMA8 · EMA30 · structure · zones · scroll to zoom</span>
+              <span className="dim" style={{ fontSize: 11 }}>{viz?.title ?? "strategy view"} · scroll to zoom</span>
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
           </div>
+          {/* item #1: exactly what the ACTIVE strategy is watching — engine-declared */}
+          {viz && (viz.used?.length ?? 0) > 0 && (
+            <div className="viz-strip" title={viz.explain}>
+              <span className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                <Icon name="chart" size={11} /> Bot is watching</span>
+              {viz.used.map((u) => (
+                <span key={u.label} className="viz-chip" title={u.detail}><b>{u.label}</b></span>
+              ))}
+            </div>
+          )}
           {loading || !data?.candles?.length ? (
             <div className="dim ta-center" style={{ padding: 120 }}>{loading ? "Loading real candles…" : "No data."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={TOGGLES} height={full ? Math.max(420, window.innerHeight - 220) : 470} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} height={full ? Math.max(420, window.innerHeight - 220) : 470} />
           )}
           {/* replay controls (replay mode) / live info line */}
           {data && !liveMode && (
@@ -318,9 +376,16 @@ export default function BotTerminalPage() {
                   <div className="risk-list" style={{ fontSize: 12.5 }}>
                     {openPos ? (
                       <>
+                        {kv("Direction", <Badge text={openPos.side.toUpperCase()} tone={openPos.side === "long" ? "green" : "red"} />)}
                         {kv("Entry", openPos.entry)}
                         {kv("Stop Loss", openPos.stop != null ? `${openPos.stop} (${(((openPos.stop - openPos.entry) / openPos.entry) * 100).toFixed(2)}%)` : "—")}
+                        {kv("Position Size", `${openPos.size} ${openPos.symbol.replace(/USDT?$/, "")}`)}
+                        {kv("Unrealized", <span className={(liveUPnl ?? 0) >= 0 ? "pos" : "neg"}>
+                          {liveUPnl != null ? `${liveUPnl >= 0 ? "+" : "−"}$${Math.abs(liveUPnl).toFixed(2)}` : "—"}</span>)}
                         {kv("Status", <Badge text="OPEN" tone="green" />)}
+                        <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }}
+                          disabled={closing} onClick={() => closePosition(openPos)}>
+                          <Icon name="close" size={13} /> {closing ? "Closing…" : "Close Position"}</button>
                       </>
                     ) : ai?.setup ? (
                       <>
@@ -441,7 +506,7 @@ export default function BotTerminalPage() {
                 <>
                   <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "2px 0 4px" }}>Open positions ({(positions ?? []).length})</div>
                   <table className="data-table" style={{ fontSize: 11.5, marginBottom: 8 }}>
-                    <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>SL</th><th>uPnL</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>SL</th><th>uPnL</th><th>Status</th><th></th></tr></thead>
                     <tbody>
                       {(positions ?? []).map((po) => {
                         const up = po.symbol === symbol && candle ? (po.side === "long" ? candle.c - po.entry : po.entry - candle.c) * po.size : null;
@@ -454,6 +519,8 @@ export default function BotTerminalPage() {
                             <td className="mono dim">{po.stop ?? "—"}</td>
                             <td className={up == null ? "dim" : up >= 0 ? "pos" : "neg"}>{up == null ? "—" : `${up >= 0 ? "+" : "−"}$${Math.abs(up).toFixed(2)}`}</td>
                             <td><Badge text="OPEN" tone="green" /></td>
+                            <td><button className="btn btn-ghost btn-sm" disabled={closing} title="Close at market"
+                              onClick={() => closePosition(po)}><Icon name="close" size={12} /></button></td>
                           </tr>
                         );
                       })}

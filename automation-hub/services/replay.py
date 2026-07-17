@@ -265,6 +265,143 @@ def _bollinger_series(closes, n=20, k=2.0):
     return {"mid": mid, "upper": up, "lower": lo}
 
 
+def _supertrend_series(bars, period=10, mult=3.0):
+    """Causal ATR Supertrend line + trend direction (+1 up / -1 down). The value
+    at bar i uses only bars[:i+1]. This is the REAL line the trend-following
+    strategy flips on — computed by the indicator engine, not the chart."""
+    n = len(bars)
+    line = [None] * n
+    direction = [None] * n
+    atrs = _atr_series(bars, period)
+    final_upper = final_lower = None
+    trend = 1
+    for i, b in enumerate(bars):
+        a = atrs[i]
+        if a is None:
+            continue
+        hl2 = (b.high + b.low) / 2.0
+        basic_upper = hl2 + mult * a
+        basic_lower = hl2 - mult * a
+        prev_close = bars[i - 1].close if i > 0 else b.close
+        if final_upper is None:
+            final_upper, final_lower = basic_upper, basic_lower
+        else:
+            final_upper = basic_upper if (basic_upper < final_upper or prev_close > final_upper) else final_upper
+            final_lower = basic_lower if (basic_lower > final_lower or prev_close < final_lower) else final_lower
+        if trend > 0 and b.close < final_lower:
+            trend = -1
+        elif trend < 0 and b.close > final_upper:
+            trend = 1
+        line[i] = round(final_lower if trend > 0 else final_upper, 6)
+        direction[i] = trend
+    return line, direction
+
+
+def _collect_viz(strategy_id: str, is_smc: bool, spec_rules: list):
+    """Declare EXACTLY the chart elements the ACTIVE strategy uses — its real
+    inputs and nothing else — so the terminal is a transparent window into the
+    bot, never a decorative overlay. Derived from the resolved strategy (builtin
+    key or the custom strategy's real rule types). Returns
+    ``(viz_dict, extra_series)`` where ``extra_series`` is a set of
+    ``("ema"|"sma", period)`` the caller must make sure are computed."""
+    overlays: list = []          # ordered price-pane overlay keys to draw
+    used: list = []              # [{label, detail}] "what the bot is watching" rows
+    osc = "none"
+    structure = zones = crossovers = supertrend = False
+    extra: set = set()
+
+    def line(key, label, detail):
+        if key not in overlays:
+            overlays.append(key)
+        used.append({"label": label, "detail": detail})
+
+    if is_smc or strategy_id == "supply_demand":
+        structure = zones = True
+        used += [{"label": "Liquidity sweeps", "detail": "stop-hunts of prior highs / lows"},
+                 {"label": "Structure BOS / CHoCH", "detail": "break / change of character"},
+                 {"label": "Fair-value gaps", "detail": "price imbalances"},
+                 {"label": "Supply / demand zones", "detail": "order blocks + swing S/R"}]
+        title = "Smart-Money Concepts"
+        explain = ("Reads market structure. The chart marks the liquidity sweeps, BOS/CHoCH "
+                   "shifts, fair-value gaps and supply/demand zones the bot used — and shows "
+                   "no moving averages, because this strategy doesn't use them.")
+    elif strategy_id == "trend_following":
+        supertrend = True
+        osc = "atr"
+        used += [{"label": "Supertrend line", "detail": "ATR trend band the bot follows"},
+                 {"label": "ATR (14)", "detail": "volatility the band is sized from"}]
+        title = "Supertrend · ATR trend-following"
+        explain = ("Follows an ATR Supertrend. The chart draws the real Supertrend line the "
+                   "bot flips long / short on, over the ATR it is built from.")
+    elif strategy_id == "decision_brain":
+        line("ema20", "EMA 20", "fast trend line")
+        line("ema50", "EMA 50", "slow trend line")
+        osc = "rsi"
+        structure = zones = True
+        used += [{"label": "RSI (14)", "detail": "momentum factor the brain scores"},
+                 {"label": "Structure + zones", "detail": "confluence the brain weighs"}]
+        title = "Decision Brain · multi-factor"
+        explain = ("The confluence brain aligns trend, momentum and structure. The chart shows "
+                   "its trend EMAs (20 / 50), the RSI it reads and the structure / zones it scores.")
+    else:
+        # custom rule-based strategy — derive purely from its REAL rule types
+        title = "Rule-based strategy"
+        pieces: list = []
+        for r in (spec_rules or []):
+            if not isinstance(r, dict):
+                continue
+            t = r.get("type")
+            if t == "ema_cross":
+                f, s = int(r.get("fast", 20)), int(r.get("slow", 50))
+                extra.add(("ema", f)); extra.add(("ema", s))
+                line(f"ema{f}", f"EMA {f}", "fast EMA in the cross")
+                line(f"ema{s}", f"EMA {s}", "slow EMA in the cross")
+                crossovers = True
+                pieces.append(f"EMA {f}/{s} crossover")
+            elif t == "sma_trend":
+                nn = int(r.get("period", 200)); extra.add(("sma", nn))
+                line(f"sma{nn}", f"SMA {nn}", "trend filter")
+                pieces.append(f"price vs SMA {nn}")
+            elif t == "pullback":
+                nn = int(r.get("period", 20)); extra.add(("ema", nn))
+                line(f"ema{nn}", f"EMA {nn}", "pullback reference")
+                pieces.append(f"pullback to EMA {nn}")
+            elif t == "rsi":
+                osc = "rsi"; used.append({"label": "RSI", "detail": "momentum filter"}); pieces.append("RSI")
+            elif t == "macd":
+                osc = "macd"; used.append({"label": "MACD", "detail": "momentum trigger"}); pieces.append("MACD")
+            elif t in ("atr_filter", "supertrend"):
+                if osc == "none":
+                    osc = "atr"
+                if t == "supertrend":
+                    supertrend = True
+                    used.append({"label": "Supertrend line", "detail": "ATR trend band"})
+                    pieces.append("Supertrend")
+                else:
+                    used.append({"label": "ATR", "detail": "volatility filter"}); pieces.append("ATR filter")
+            elif t == "vwap":
+                line("vwap", "VWAP", "value reference"); pieces.append("VWAP")
+            elif t == "bollinger":
+                line("bb_upper", "Bollinger Bands", "volatility bands"); pieces.append("Bollinger")
+            elif t in ("liquidity_sweep", "bos", "choch", "fair_value_gap"):
+                structure = True
+                if not any(u["label"] == "Structure events" for u in used):
+                    used.append({"label": "Structure events", "detail": "sweeps / BOS / CHoCH / FVG"})
+                pieces.append("market structure")
+            elif t == "support_bounce":
+                zones = True; used.append({"label": "S/R zones", "detail": "support / resistance levels"}); pieces.append("S/R rejection")
+            elif t == "breakout":
+                zones = True; used.append({"label": "Breakout levels", "detail": "range high / low"}); pieces.append("breakout")
+            elif t == "volume":
+                used.append({"label": "Volume", "detail": "confirmation"}); pieces.append("volume")
+        explain = ("Trades " + ", ".join(dict.fromkeys(pieces)) + ". The chart shows only those inputs."
+                   if pieces else "Custom rule strategy — the chart shows only the inputs it evaluates.")
+
+    return ({"title": title, "explain": explain, "used": used, "overlays": overlays,
+             "osc": osc, "structure": structure, "zones": zones,
+             "crossovers": crossovers, "supertrend": supertrend, "volume": True}, extra)
+
+
 _TF_SECONDS = {"5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
 
 
@@ -350,7 +487,10 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                          "data_source_label": sl["label"], "data_is_real": sl["is_real"],
                          "data_warning": sl["warning"] or note, "needs_download": needs_dl,
                          "strategy": strategy, "bars": 0, "start": None, "end": None,
-                         "htf_available": {}, "note": note},
+                         "htf_available": {}, "note": note,
+                         "viz": {"title": "", "explain": "", "used": [], "overlays": [],
+                                 "osc": "none", "structure": False, "zones": False,
+                                 "crossovers": False, "supertrend": False, "volume": True}},
                 "candles": [], "overlays": {}, "markers": [], "zones": [],
                 "frames": [], "events": [], "trades": [], "stats": _stats([], symbol)}
 
@@ -394,11 +534,28 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
         or ("Weekly", "Daily", "4H")
 
     detector = RegimeDetector()
-    from services.strategy_presets import make_replay_strategy
+    from services.strategy_presets import make_replay_strategy, resolve as _resolve_strat
     strat, strat_err, strategy_id = make_replay_strategy(strategy, symbol, exec_tf, custom_spec)
     if strat is None:                      # bad strategy name / missing custom spec
         strat, strategy_id, strat_err = SMCStrategy(symbol), "supply_demand", strat_err
     is_smc = isinstance(strat, SMCStrategy)
+
+    # --- visualization spec: the chart elements THIS strategy actually uses ---
+    # (declared by the strategy engine, so the terminal shows the bot's real
+    #  inputs and never draws an indicator the active strategy doesn't use).
+    _desc = _resolve_strat(strategy, symbol, exec_tf, {}, custom_spec)
+    _spec_rules = (((_desc.get("spec") or {}).get("entry") or {}).get("rules") or []) \
+        if isinstance(_desc, dict) and "error" not in _desc else []
+    viz, _extra = _collect_viz(strategy_id, is_smc, _spec_rules)
+    # make sure every overlay the viz spec references is actually computed
+    for _kind, _n in _extra:
+        _key = f"{_kind}{_n}"
+        if _key not in overlays and closes_view:
+            overlays[_key] = ([round(x, 6) for x in ema(closes_view, _n)] if _kind == "ema"
+                              else _sma_series(closes_view, _n))
+    if viz["supertrend"]:
+        overlays["supertrend"], _ = _supertrend_series(view, 10, 3.0)
+
     # warm the strategy on the pre-view bars WITHOUT recording (no trading history)
     for b in warm:
         strat.on_bar(b)
@@ -603,6 +760,29 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                 t["rr"] = round(t["rr"] - cost_r, 2)
                 t["result"] = "Winner" if t["rr"] > 0 else "Break Even" if t["rr"] == 0 else "Loser"
 
+    # --- EMA crossover events the strategy trades on (causal, from the real
+    #     EMA series the strategy uses) — "what the bot saw" on the chart ---
+    if viz["crossovers"]:
+        xrule = next((r for r in _spec_rules if isinstance(r, dict) and r.get("type") == "ema_cross"), None)
+        if xrule is not None:
+            f, s = int(xrule.get("fast", 20)), int(xrule.get("slow", 50))
+            ef, es = overlays.get(f"ema{f}"), overlays.get(f"ema{s}")
+            if ef and es:
+                prev_dir = None
+                for i in range(len(view)):
+                    a, b = ef[i], es[i]
+                    if a is None or b is None:
+                        continue
+                    d = 1 if a > b else -1 if a < b else 0
+                    if d != 0 and prev_dir is not None and d != prev_dir:
+                        markers.append({"idx": i, "price": round(view[i].close, 6),
+                                        "type": "EMA Cross", "side": "bull" if d > 0 else "bear"})
+                        events.append({"idx": i, "kind": "signal",
+                                       "text": f"EMA{f} crossed {'above' if d > 0 else 'below'} EMA{s} "
+                                               f"— {'bullish' if d > 0 else 'bearish'} signal."})
+                    if d != 0:
+                        prev_dir = d
+
     # keep the most recent supply/demand zones + current swing S/R levels
     zones = zones[-8:] + (_zones_from_strategy(strat, offset, len(view)) if is_smc else [])
     stats = _stats(trades, symbol)
@@ -615,6 +795,9 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                  "bars": len(view), "start": view[0].timestamp.isoformat() if view else None,
                  "end": view[-1].timestamp.isoformat() if view else None,
                  "htf_available": {HTF_LABEL[k]: (v[2] >= MIN_HTF_CANDLES) for k, v in htf_trends.items()},
+                 # what the ACTIVE strategy uses — drives the chart annotations so
+                 # the terminal shows only the bot's real inputs (never anything else)
+                 "viz": viz,
                  # debug panel — proves the UI is wired to the real engine
                  "debug": {"strategy_id": strategy_id, "strategy_class": type(strat).__name__,
                            "candles_loaded": len(view), "warmup_bars": len(warm),

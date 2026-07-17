@@ -466,6 +466,22 @@ export interface EngineDiagnostics {
 
 export interface ReplayCandle { t: string; o: number; h: number; l: number; c: number; v: number; }
 export interface ReplayMarker { idx: number; price: number; type: string; side: "bull" | "bear"; }
+
+/** What the ACTIVE strategy actually uses — declared by the strategy engine so
+ *  the chart shows only the bot's real inputs (item #1: strategy-based
+ *  annotations). Every listed overlay key exists in ReplayData.overlays. */
+export interface ReplayViz {
+  title: string;
+  explain: string;
+  used: { label: string; detail: string }[];
+  overlays: string[];
+  osc: "none" | "rsi" | "macd" | "atr";
+  structure: boolean;
+  zones: boolean;
+  crossovers: boolean;
+  supertrend: boolean;
+  volume: boolean;
+}
 export interface ReplayFrame {
   regime: string; market_regime?: string; trends: Record<string, string>; trigger: string;
   score: number; breakdown: Record<string, number> | null; blocked: boolean;
@@ -500,6 +516,7 @@ export interface ReplayData {
           start: string | null; end: string | null; htf_available: Record<string, boolean>;
           strategy?: string; data_source_label?: string; data_is_real?: boolean;
           data_warning?: string | null; needs_download?: boolean; note?: string;
+          viz?: ReplayViz;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;
                     mtf_timeframes: string[]; gate_timeframes?: string[]; indicators?: string[]; memory_filter?: string[];
