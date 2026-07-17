@@ -32,6 +32,7 @@ from bot.types import Bar
 # Step seconds per common timeframe label.
 _TF_SECONDS = {
     "1m": 60,
+    "3m": 180,
     "5m": 300,
     "15m": 900,
     "30m": 1800,

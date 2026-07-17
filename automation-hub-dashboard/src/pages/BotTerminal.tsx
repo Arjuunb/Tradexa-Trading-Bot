@@ -18,7 +18,9 @@ import {
  *  REPLAY mode: a no-lookahead run of the strategy over real candles with
  *  play/step/speed controls. Nothing on this page is fabricated. */
 
-const TFS = ["15m", "1h", "4h"];
+// Intraday-first: an automated strategy belongs on low timeframes (1–5m); the
+// higher ones (1h/4h) suit manual swing trading and are kept for those who want it.
+const TFS = ["1m", "3m", "5m", "15m", "1h", "4h"];
 const SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "AAPL", "SPY", "EURUSD", "XAUUSD"];
 const CRYPTO = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
 const SPEEDS = [1, 2, 5, 10, 50, 100];
@@ -55,7 +57,7 @@ const hhmmss = (t?: string) => (t ? t.slice(11, 19) || t.slice(0, 8) : "");
 export default function BotTerminalPage() {
   const { toast } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
-  const [tf, setTf] = useState("1h");
+  const [tf, setTf] = useState("5m");
   const [strategy, setStrategy] = useState("Decision Brain");
   const [mode, setMode] = useState<"live" | "replay">("live");
   const [dev, setDev] = useState(false);
