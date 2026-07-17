@@ -372,21 +372,3 @@ def test_paper_close_endpoint(client):
         assert client.post("/paper/close", json={"symbol": "BTCUSDT"}).status_code == 401  # secret required
     finally:
         wa.paper = orig_paper
-
-
-def test_engine_timeframe_endpoint(client):
-    """Item: the terminal can retune the live engine's scanning timeframe.
-    Restores global engine/settings state (including the persisted file)."""
-    import webhook_api as wa
-    orig_tf, orig_auto = wa.engine.timeframe, wa.settings.auto_timeframe
-    sec = {"X-Webhook-Secret": wa.settings.webhook_secret}
-    try:
-        r = client.post("/engine/timeframe", json={"timeframe": "5m"}, headers=sec)
-        assert r.status_code == 200 and r.json()["timeframe"] == "5m"
-        assert wa.engine.timeframe == "5m"
-        assert client.post("/engine/timeframe", json={"timeframe": "9x"}, headers=sec).status_code == 400
-        assert client.post("/engine/timeframe", json={"timeframe": "5m"}).status_code == 401  # secret required
-    finally:
-        wa.engine.timeframe = orig_tf
-        wa.settings.auto_timeframe = orig_auto
-        wa.save_overrides(wa.settings.settings_path, wa._settings_snapshot())

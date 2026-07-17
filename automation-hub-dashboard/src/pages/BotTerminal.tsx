@@ -6,7 +6,7 @@ import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
 import {
-  apiGet, apiPostJson, useLive,
+  apiGet, apiPost, apiPostJson, useLive,
   type ReplayData, type AIAnalysis, type EngineStatus, type RiskSummary, type StrategyPerformance,
   type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount, type SymbolRow,
 } from "../lib/api";
@@ -257,7 +257,7 @@ export default function BotTerminalPage() {
     setApplying(true);
     try {
       if (stratNeedsApply) await apiPostJson("/strategy/select", { strategy: deployTarget!.key });
-      if (tfNeedsApply) await apiPostJson("/engine/timeframe", { timeframe: tf });
+      if (tfNeedsApply) await apiPost(`/engine/timeframe?timeframe=${encodeURIComponent(tf)}`);
       toast(`Live engine now running ${parts.join(" · ")}`, "success");
       refetchEng?.();
     } catch {
