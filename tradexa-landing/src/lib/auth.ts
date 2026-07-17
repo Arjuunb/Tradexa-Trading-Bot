@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { APP_URL } from "./utils";
 
 /**
  * Typed authentication service. Every method calls Supabase when it is
@@ -21,6 +22,13 @@ const OK = (message: string): AuthResult => ({ ok: true, demo: false, message })
 
 const redirectTo =
   typeof window !== "undefined" ? `${window.location.origin}/auth/reset-password` : undefined;
+
+// Where the app lives after auth — VITE_APP_URL (e.g. the Render dashboard),
+// resolved to an absolute URL for OAuth redirects. Falls back to <origin>/app.
+const appUrl =
+  typeof window !== "undefined"
+    ? (APP_URL.startsWith("http") ? APP_URL : `${window.location.origin}${APP_URL}`)
+    : undefined;
 
 export interface SignUpInput {
   firstName: string;
@@ -62,7 +70,7 @@ export const auth = {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/app` : undefined,
+        redirectTo: appUrl,
       },
     });
     return error ? FAIL(error.message) : OK(`Redirecting to ${provider}…`);
