@@ -34,6 +34,15 @@ const ENGINE_STRAT_MAP: Record<string, string> = {
   "SMC (Smart Money)": "Supply/Demand", "EMA Crossover": "EMA 8/30",
   "Donchian Breakout": "Decision Brain", "Confirmation Ensemble": "Decision Brain",
 };
+// The reverse: terminal presets that map to a real built-in engine strategy, so
+// selecting them here can actually reconfigure the live bot. The other presets
+// are chart-only replay views (no matching built-in engine strategy).
+const STRAT_TO_ENGINE: Record<string, { key: string; label: string }> = {
+  "Decision Brain": { key: "brain", label: "Decision Brain" },
+  "Trend Following": { key: "supertrend", label: "Supertrend" },
+  "Supply/Demand": { key: "smc", label: "SMC (Smart Money)" },
+  "EMA 8/30": { key: "ema", label: "EMA Crossover" },
+};
 // Fallback only — used if the backend didn't send a viz spec. Normally the
 // chart is driven entirely by data.meta.viz (the ACTIVE strategy's real inputs).
 const FALLBACK_TOGGLES: ChartToggles = {
@@ -70,11 +79,12 @@ export default function BotTerminalPage() {
   const [full, setFull] = useState(false);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [dockTab, setDockTab] = useState<"positions" | "history" | "orders" | "activity" | "performance" | "equity">("positions");
   const timer = useRef<number | null>(null);
 
   const liveMode = mode === "live";
-  const { data: eng } = useLive<EngineStatus>("/engine/status", liveMode ? 5000 : 10000);
+  const { data: eng, refetch: refetchEng } = useLive<EngineStatus>("/engine/status", liveMode ? 5000 : 10000);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
   const { data: acct } = useLive<PaperAccount>("/paper/account", liveMode ? 8000 : 30000);
   const { data: ai } = useLive<AIAnalysis>(`/ai/analyze?symbol=${symbol}&timeframe=${tf}`, 30000);
@@ -205,7 +215,34 @@ export default function BotTerminalPage() {
   const liveUPnl = openPos && candle ? (openPos.side === "long" ? candle.c - openPos.entry : openPos.entry - candle.c) * openPos.size : null;
   // in live mode, flag when the chart's strategy differs from the engine's real one
   const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
-  const stratMismatch = liveMode && engineStrat != null && engineStrat !== strategy;
+  const engineTf = eng?.timeframe;
+  // Make the terminal the control surface: when a DEPLOYABLE strategy or the
+  // timeframe differs from what the live engine runs, offer to reconfigure it.
+  const deployTarget = STRAT_TO_ENGINE[strategy];
+  const stratNeedsApply = liveMode && !!deployTarget && !!eng?.strategy && eng.strategy !== deployTarget.label;
+  const tfNeedsApply = liveMode && !!engineTf && tf !== engineTf;
+  const canApplyToBot = !!deployTarget && (stratNeedsApply || tfNeedsApply);
+  // non-deployable preset shown against a different live engine strategy
+  const chartOnlyMismatch = liveMode && !deployTarget && engineStrat != null && engineStrat !== strategy;
+  const applyToBot = async () => {
+    if (applying) return;
+    const parts = [stratNeedsApply ? deployTarget!.label : null, tfNeedsApply ? tf : null].filter(Boolean);
+    const confirmMsg = openPos
+      ? `Reconfigure the live engine to ${parts.join(" · ")}? This restarts the engine; your open ${openPos.symbol} position stays open and is re-adopted.`
+      : `Reconfigure the live engine to ${parts.join(" · ")}?`;
+    if (!window.confirm(confirmMsg)) return;
+    setApplying(true);
+    try {
+      if (stratNeedsApply) await apiPostJson("/strategy/select", { strategy: deployTarget!.key });
+      if (tfNeedsApply) await apiPostJson("/engine/timeframe", { timeframe: tf });
+      toast(`Live engine now running ${parts.join(" · ")}`, "success");
+      refetchEng?.();
+    } catch {
+      toast("Could not reconfigure the engine — is the backend reachable?", "error");
+    } finally {
+      setApplying(false);
+    }
+  };
   // real order blotter — each paper trade is an entry fill (+ an exit fill when
   // closed). These are the actual MARKET orders the engine placed, not invented.
   const orders = useMemo(() => {
@@ -370,10 +407,23 @@ export default function BotTerminalPage() {
               ))}
             </div>
           )}
-          {stratMismatch && (
+          {canApplyToBot && (
+            <div className="banner" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Icon name="info" size={12} />
+              <span style={{ fontSize: 11.5 }}>
+                You're viewing <b>{strategy}{tfNeedsApply ? ` · ${tf}` : ""}</b>. The live engine is running
+                <b> {engineStrat ?? eng?.strategy}{engineTf ? ` · ${engineTf}` : ""}</b>.
+              </span>
+              <button className="btn btn-primary btn-sm" style={{ marginLeft: "auto", flexShrink: 0 }}
+                disabled={applying} onClick={applyToBot}>
+                <Icon name="play" size={12} /> {applying ? "Applying…" : "Run this on the bot"}</button>
+            </div>
+          )}
+          {chartOnlyMismatch && (
             <div className="banner" style={{ marginBottom: 8, fontSize: 11.5 }}><Icon name="info" size={12} />
-              Chart shows a <b>{strategy}</b> read for comparison — the live engine is running <b>{engineStrat}</b>,
-              so the positions and trades below are from {engineStrat}.</div>
+              Chart shows a <b>{strategy}</b> read for comparison — the live engine is running <b>{engineStrat}</b>.
+              This preset is a chart-only view; pick a built-in strategy (Decision Brain, Trend Following,
+              Supply/Demand or EMA 8/30) to run it on the bot.</div>
           )}
           {loading || !data?.candles?.length ? (
             <div className="dim ta-center" style={{ padding: 120 }}>{loading ? "Loading real candles…" : "No data."}</div>

@@ -339,7 +339,7 @@ const SHAPES: [string, unknown][] = [
   ["/auth/status", { authenticated: true, user: "admin", signup_open: false }],
   ["/notifications/status", { notify_trades: true, notify_risk: true, configured: false }],
   ["/execution/fill-model", { model: "perfect" }],
-  ["/engine/status", { running: false, symbols: ["BTCUSDT"], entry_mode: "limit", timeframe: "4h" }],
+  ["/engine/status", { running: false, symbols: ["BTCUSDT"], entry_mode: "limit", timeframe: "4h", strategy: "Decision Brain" }],
   ["/control/options", { symbols: ["BTCUSDT", "ETHUSDT"], timeframes: ["1h", "4h", "1d"],
     strategies: ["Decision Brain"], default_tuning: {} }],
   ["/markets/watchlist", { rows: [], any_real: false }],
