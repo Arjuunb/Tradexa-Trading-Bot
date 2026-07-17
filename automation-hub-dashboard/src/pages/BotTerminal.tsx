@@ -91,18 +91,22 @@ function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) =>
             value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="sym-results">
             {results.map((r) => {
-              const live = r.asset_class === "crypto";   // live streaming is crypto-only
+              const crypto = r.asset_class === "crypto";
+              const perp = crypto && r.type === "futures";   // perpetual futures only
+              const tag = perp ? "perp" : crypto ? "spot · perp only" : "crypto only";
               return (
-                <button key={r.symbol} className={`sym-row ${live ? "" : "off"}`} disabled={!live}
-                  title={live ? "" : "Live streaming is crypto-only — stocks / forex aren't supported on the live terminal"}
-                  onClick={() => live && pick(r.ticker)}>
+                <button key={r.symbol} className={`sym-row ${perp ? "" : "off"}`} disabled={!perp}
+                  title={perp ? "" : crypto
+                    ? "Spot isn't traded here — the terminal uses crypto perpetual futures only"
+                    : "Live streaming is crypto perpetual futures only"}
+                  onClick={() => perp && pick(r.ticker)}>
                   <b>{r.ticker}</b><span className="dim sym-nm">{r.name}</span>
-                  <span className="sym-cls">{live ? r.asset_class : "crypto only"}</span>
+                  <span className="sym-cls">{tag}</span>
                 </button>
               );
             })}
             {q.trim() && !results.length && <div className="dim" style={{ padding: 9, fontSize: 12 }}>No matches.</div>}
-            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, ETH, SOL. Live is crypto-only.</div>}
+            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker — crypto perpetual futures only (e.g. BTC, ETH, SOL).</div>}
           </div>
         </div>
       )}
@@ -169,13 +173,14 @@ export default function BotTerminalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eng?.strategy]);
 
-  // LIVE candle stream — Binance public kline WebSocket, from the browser (no
-  // key). Updates the current candle in place and appends on close.
+  // LIVE candle stream — Binance USDT-M FUTURES (perpetual) public kline
+  // WebSocket, from the browser (no key). Updates the current candle in place
+  // and appends on close. Perp market, not spot.
   useEffect(() => {
     if (!streaming) { setWsOk(false); return; }
     let ws: WebSocket | null = null;
     try {
-      ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${tf}`);
+      ws = new WebSocket(`wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${tf}`);
     } catch { setWsOk(false); return; }
     ws.onopen = () => setWsOk(true);
     ws.onerror = () => setWsOk(false);
@@ -333,7 +338,7 @@ export default function BotTerminalPage() {
 
       {!streaming && (
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="info" size={14} />
-          Live tick streaming is available for crypto pairs. {symbol} isn't a crypto pair, so the chart
+          The terminal streams crypto perpetual futures. {symbol} isn't a crypto perp, so the chart
           refreshes about every 2 minutes instead of tick-by-tick.</div>
       )}
 
@@ -343,7 +348,7 @@ export default function BotTerminalPage() {
         <Card title="">
           <div className="toolbar" style={{ marginBottom: 6 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
-              <b>{symbol}</b><span className="dim">{tf} · Binance</span>
+              <b>{symbol}</b><span className="dim">{tf} · Binance Perp</span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <span className={`pulse-dot ${wsOk ? "green" : "gold"}`} />
                 <b style={{ fontSize: 11.5, color: wsOk ? "var(--green)" : "var(--gold)" }}>
@@ -643,7 +648,7 @@ export default function BotTerminalPage() {
       {/* ── live status bar (real fields only — nothing invented) ── */}
       <div className="term-status">
         <span><span className="dim">Mode</span> {wsOk ? "LIVE · WS stream" : "LIVE · REST poll"}</span>
-        <span><span className="dim">Data</span> Binance live</span>
+        <span><span className="dim">Data</span> Binance Futures (perp)</span>
         <span><span className="dim">Feed</span> <span className={eng?.running ? "pos" : "dim"}>{(eng as any)?.feed_status ?? (eng?.running ? "running" : "stopped")}</span></span>
         <span><span className="dim">Bars</span> {data?.candles?.length ?? 0}</span>
         <span><span className="dim">Last candle</span> {hhmmss(data?.candles?.[data.candles.length - 1]?.t) || "—"}</span>
