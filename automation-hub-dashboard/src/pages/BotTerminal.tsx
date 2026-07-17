@@ -90,13 +90,19 @@ function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) =>
           <input autoFocus className="sym-search" placeholder="Search symbol or name…"
             value={q} onChange={(e) => setQ(e.target.value)} />
           <div className="sym-results">
-            {results.map((r) => (
-              <button key={r.symbol} className="sym-row" onClick={() => pick(r.ticker)}>
-                <b>{r.ticker}</b><span className="dim sym-nm">{r.name}</span><span className="sym-cls">{r.asset_class}</span>
-              </button>
-            ))}
+            {results.map((r) => {
+              const live = r.asset_class === "crypto";   // live streaming is crypto-only
+              return (
+                <button key={r.symbol} className={`sym-row ${live ? "" : "off"}`} disabled={!live}
+                  title={live ? "" : "Live streaming is crypto-only — stocks / forex aren't supported on the live terminal"}
+                  onClick={() => live && pick(r.ticker)}>
+                  <b>{r.ticker}</b><span className="dim sym-nm">{r.name}</span>
+                  <span className="sym-cls">{live ? r.asset_class : "crypto only"}</span>
+                </button>
+              );
+            })}
             {q.trim() && !results.length && <div className="dim" style={{ padding: 9, fontSize: 12 }}>No matches.</div>}
-            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, ETH, SOL.</div>}
+            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, ETH, SOL. Live is crypto-only.</div>}
           </div>
         </div>
       )}
