@@ -3,11 +3,12 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import CandleChart, { type ChartToggles } from "../components/replay/CandleChart";
 import { Badge, StatCard } from "../components/common/ui";
+import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
 import {
   apiGet, useLive,
   type ReplayData, type ReplayTrade, type AIAnalysis, type EngineStatus, type RiskSummary,
-  type LedgerPosition, type PaperTradeRow, type LogRow,
+  type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount,
 } from "../lib/api";
 
 /** Paper Trading Bot Terminal — a developer-grade observation lab.
@@ -23,7 +24,7 @@ const CRYPTO = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]);
 const SPEEDS = [1, 2, 5, 10, 50, 100];
 const TOGGLES: ChartToggles = {
   ema8: true, ema20: false, ema30: true, ema50: false,
-  sma20: false, sma50: false, vwap: true, bb: false,
+  sma20: false, sma50: false, vwap: false, bb: false,
   volume: true, structure: true, zones: true, osc: "none",
 };
 const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
@@ -53,6 +54,7 @@ export default function BotTerminalPage() {
   const liveMode = mode === "live";
   const { data: eng } = useLive<EngineStatus>("/engine/status", liveMode ? 5000 : 10000);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
+  const { data: acct } = useLive<PaperAccount>("/paper/account", liveMode ? 8000 : 30000);
   const { data: ai } = useLive<AIAnalysis>(`/ai/analyze?symbol=${symbol}&timeframe=${tf}`, 30000);
   // the LIVE engine's real state (only polled fast in live mode)
   const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", liveMode ? 5000 : 30000);
@@ -180,6 +182,19 @@ export default function BotTerminalPage() {
         </div>
       </div>
 
+      {/* account bar — real paper-account values */}
+      <div className="stat-row" style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: 12 }}>
+        <StatCard label="Account Balance" value={acct ? `$${acct.current_equity.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
+          sub={acct ? `initial $${acct.initial_capital.toLocaleString()}` : ""} />
+        <StatCard label="Unrealized PnL" value={acct ? `${acct.unrealized_pnl >= 0 ? "+" : "−"}$${Math.abs(acct.unrealized_pnl).toFixed(2)}` : "—"}
+          tone={(acct?.unrealized_pnl ?? 0) >= 0 ? "green" : "red"} sub={openPos ? `${openPos.side} ${openPos.symbol}` : "no open position"} />
+        <StatCard label="Total Return" value={acct ? `${((acct.current_equity - acct.initial_capital) / acct.initial_capital * 100).toFixed(2)}%`
+          : "—"} tone={(acct ? acct.current_equity - acct.initial_capital : 0) >= 0 ? "green" : "red"}
+          sub={acct ? `${acct.realized_pnl >= 0 ? "+" : "−"}$${Math.abs(acct.realized_pnl).toFixed(2)} realized` : ""} />
+        <StatCard label="Risk / Trade" value={risk?.risk_per_trade_pct != null ? `${(risk.risk_per_trade_pct * 100).toFixed(1)}%` : "—"}
+          sub={`${risk?.open_positions ?? 0} of ${risk?.max_open_positions ?? "—"} positions`} />
+      </div>
+
       {data?.meta?.data_warning && (
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="warning" size={14} /> {data.meta.data_warning}</div>
       )}
@@ -208,7 +223,7 @@ export default function BotTerminalPage() {
             </div>
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
-              <span className="dim" style={{ fontSize: 11 }}>EMA8 · EMA30 · VWAP · zones · scroll to zoom</span>
+              <span className="dim" style={{ fontSize: 11 }}>EMA8 · EMA30 · structure · zones · scroll to zoom</span>
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
@@ -256,6 +271,22 @@ export default function BotTerminalPage() {
                 <b style={{ fontSize: 13 }}>{state}</b>
                 <span className="dim" style={{ fontSize: 11.5, marginLeft: "auto" }}>waiting for: {waiting}</span>
               </div>
+              {/* trade signal banner + confidence gauge */}
+              <div className={`signal-banner ${signal === "LONG" ? "long" : signal === "SHORT" ? "short" : "wait"}`}>
+                <span>TRADE SIGNAL</span><b>{signal}</b>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "10px 0 6px" }}>
+                <svg viewBox="0 0 64 64" width="72" height="72">
+                  <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+                  <circle cx="32" cy="32" r="26" fill="none"
+                    stroke={CONF_TONE[ai?.confidence_level ?? ""] === "green" ? "var(--green)" : CONF_TONE[ai?.confidence_level ?? ""] === "red" ? "var(--red)" : "var(--gold)"}
+                    strokeWidth="6" strokeLinecap="round" pathLength={100}
+                    strokeDasharray={`${ai?.confidence_pct ?? 0} 100`} transform="rotate(-90 32 32)"
+                    style={{ transition: "stroke-dasharray 0.6s" }} />
+                  <text x="32" y="36" textAnchor="middle" fill="#fff" fontSize="13" fontWeight="700">{ai ? `${ai.confidence_pct}%` : "—"}</text>
+                </svg>
+                <div style={{ fontSize: 11.5 }} className="dim">Confidence score<br /><b style={{ color: "var(--text)" }}>{ai?.confidence_level ?? "—"}</b></div>
+              </div>
               <div className="risk-list" style={{ fontSize: 12.5 }}>
                 {kv("Strategy", data?.meta?.strategy ?? eng?.strategy ?? "Decision Brain")}
                 {kv("Market Bias", <Badge text={ma?.bias ?? "—"} tone={ma?.bias === "Bullish" ? "green" : ma?.bias === "Bearish" ? "red" : "default"} />)}
@@ -278,6 +309,28 @@ export default function BotTerminalPage() {
                     {kv("Stop", openPos.stop ?? "—")}
                     {kv("Unrealized", <span className={(liveUPnl ?? 0) >= 0 ? "pos" : "neg"}>
                       {liveUPnl != null ? `${liveUPnl >= 0 ? "+" : "−"}$${Math.abs(liveUPnl).toFixed(2)}` : "—"}</span>)}
+                  </div>
+                </>
+              )}
+              {(openPos || ai?.setup) && (
+                <>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Trade details</div>
+                  <div className="risk-list" style={{ fontSize: 12.5 }}>
+                    {openPos ? (
+                      <>
+                        {kv("Entry", openPos.entry)}
+                        {kv("Stop Loss", openPos.stop != null ? `${openPos.stop} (${(((openPos.stop - openPos.entry) / openPos.entry) * 100).toFixed(2)}%)` : "—")}
+                        {kv("Status", <Badge text="OPEN" tone="green" />)}
+                      </>
+                    ) : ai?.setup ? (
+                      <>
+                        {kv("Entry", ai.setup.entry)}
+                        {kv("Stop Loss", `${ai.setup.stop} (${(((ai.setup.stop - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
+                        {kv("Take Profit", `${ai.setup.target} (${(((ai.setup.target - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
+                        {kv("Risk / Reward", ai.risk_analysis ? `1 : ${ai.risk_analysis.risk_reward}` : "—")}
+                        {kv("Status", <Badge text={ai.allowed ? "PROPOSED" : "NOT QUALIFIED"} tone={ai.allowed ? "amber" : "default"} />)}
+                      </>
+                    ) : null}
                   </div>
                 </>
               )}
@@ -347,6 +400,9 @@ export default function BotTerminalPage() {
               {sel.loss_analysis && <div className="banner" style={{ marginTop: 8, fontSize: 12 }}><Icon name="info" size={12} /> {sel.loss_analysis}</div>}
             </Card>
           )}
+          <Card title="Equity Curve" subtitle={acct ? `balance $${acct.current_equity.toLocaleString(undefined, { maximumFractionDigits: 2 })} · ${((acct.current_equity - acct.initial_capital) / acct.initial_capital * 100).toFixed(2)}% total return` : "realized paper equity"}>
+            <EquityCurve />
+          </Card>
         </div>
       </div>
 
@@ -380,6 +436,31 @@ export default function BotTerminalPage() {
           subtitle={liveMode ? `${(liveTrades ?? []).length} trades taken by the live engine` : `${data?.trades?.length ?? 0} trades · click to analyse`}>
           <div style={{ maxHeight: 260, overflowY: "auto" }}>
             {liveMode ? (
+              <>
+              {(positions ?? []).length > 0 && (
+                <>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "2px 0 4px" }}>Open positions ({(positions ?? []).length})</div>
+                  <table className="data-table" style={{ fontSize: 11.5, marginBottom: 8 }}>
+                    <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>SL</th><th>uPnL</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {(positions ?? []).map((po) => {
+                        const up = po.symbol === symbol && candle ? (po.side === "long" ? candle.c - po.entry : po.entry - candle.c) * po.size : null;
+                        return (
+                          <tr key={po.id}>
+                            <td className="mono dim">{po.symbol}</td>
+                            <td><Badge text={po.side.toUpperCase()} tone={po.side === "long" ? "green" : "red"} /></td>
+                            <td className="mono dim">{po.size}</td>
+                            <td className="mono">{po.entry}</td>
+                            <td className="mono dim">{po.stop ?? "—"}</td>
+                            <td className={up == null ? "dim" : up >= 0 ? "pos" : "neg"}>{up == null ? "—" : `${up >= 0 ? "+" : "−"}$${Math.abs(up).toFixed(2)}`}</td>
+                            <td><Badge text="OPEN" tone="green" /></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
+              )}
               <table className="data-table" style={{ fontSize: 11.5 }}>
                 <thead><tr><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>PnL</th><th>R</th><th>Status</th></tr></thead>
                 <tbody>
@@ -399,6 +480,7 @@ export default function BotTerminalPage() {
                     No live trades yet — the engine is selective; watch the timeline while it scans.</td></tr>}
                 </tbody>
               </table>
+              </>
             ) : (
               <table className="data-table" style={{ fontSize: 11.5 }}>
                 <thead><tr><th>#</th><th>Dir</th><th>Entry</th><th>Exit</th><th>R</th><th>Score</th><th>Duration</th><th>Status</th></tr></thead>
