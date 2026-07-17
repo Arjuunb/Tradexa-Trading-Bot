@@ -113,7 +113,7 @@ export function useEngineSettings(onSaved?: (ok: boolean, message: string) => vo
         const body = pending.current;
         pending.current = {};
         hubFetch("/settings", { method: "POST", body: JSON.stringify(body) })
-          .then(() => cb.current?.(true, "Engine updated — now enforced on the bot."))
+          .then(() => cb.current?.(true, "Engine updated — now enforced on Nexus."))
           .catch(() => {
             cb.current?.(false, "Engine rejected the change — value restored.");
             reload();

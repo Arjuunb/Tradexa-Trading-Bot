@@ -10,7 +10,7 @@ const GROUPS: { title: string; links: { label: string; href: string; external?: 
       { label: "Features", href: "#features" },
       { label: "How it works", href: "#how" },
       { label: "Performance", href: "#performance" },
-      { label: "Launch Bot", href: APP_URL },
+      { label: "Launch Platform", href: APP_URL },
     ],
   },
   {

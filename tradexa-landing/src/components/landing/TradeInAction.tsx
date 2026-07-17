@@ -5,7 +5,7 @@ import { Reveal, SectionHeading } from "@/components/Reveal";
 import { cn } from "@/lib/utils";
 
 /**
- * "Watch the bot take a trade" — the third landing animation. A looping,
+ * "Watch Nexus take a trade" — the third landing animation. A looping,
  * self-driving visualization of one real decision cycle: candles stream in, a
  * setup is detected, the Decision Brain scores it, the risk gate sizes it, the
  * order fills, and the trade is managed to its take-profit — the steps light up
@@ -78,7 +78,7 @@ export function TradeInAction() {
         <SectionHeading
           link="#trade-in-action"
           eyebrow="How it trades"
-          title="Watch the bot take a trade"
+          title="Watch Nexus take a trade"
           subtitle="One decision cycle, start to finish — a setup is spotted, scored, risk-sized, executed, and managed to target. Every step is the same logic the live engine runs."
         />
 

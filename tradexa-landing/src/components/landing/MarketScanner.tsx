@@ -4,7 +4,7 @@ import { Reveal, SectionHeading } from "@/components/Reveal";
 import { cn } from "@/lib/utils";
 
 /**
- * "Selectivity" — the fourth landing animation. The bot scans the whole
+ * "Selectivity" — the fourth landing animation. Nexus scans the whole
  * watchlist, scores each symbol, and skips almost everything: an animated
  * scanner runs down the list (score bar fills, TAKE / SKIP verdict lands), while
  * an illustrative equity curve draws in beside it. Reinforces the core promise —
@@ -49,7 +49,7 @@ export function MarketScanner() {
           link="#selectivity"
           eyebrow="Selectivity"
           title="Watches everything. Trades almost nothing."
-          subtitle="Every candle, the bot scores your whole watchlist and takes only the setups that clear its quality bar — discipline you can't override on a bad day."
+          subtitle="Every candle, Nexus scores your whole watchlist and takes only the setups that clear its quality bar — discipline you can't override on a bad day."
         />
 
         <div className="mt-14 grid gap-6 lg:grid-cols-[1fr_1fr] lg:gap-10">
