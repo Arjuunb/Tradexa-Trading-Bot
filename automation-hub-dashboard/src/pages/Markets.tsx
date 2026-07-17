@@ -6,11 +6,13 @@ import Sparkline from "../components/chart/Sparkline";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { apiGet, useLive, hhmmss, type LedgerPosition, type SystemStatus, type Watchlist, type ScanResult } from "../lib/api";
 import LoadDataButton from "../components/common/LoadDataButton";
+import { useApp } from "../app-context";
 
 const TFS = ["1d", "4h", "1h"] as const;
 const fmt = (n?: number) => (n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: n >= 100 ? 2 : 4 }));
 
 export default function MarketsPage() {
+  const { go } = useApp();
   const { data: sys } = useLive<SystemStatus>("/system/status", 3000);
   const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 3000);
   const [tf, setTf] = usePref<(typeof TFS)[number]>("markets.chartTf", "1d");
@@ -24,7 +26,11 @@ export default function MarketsPage() {
 
   return (
     <>
-      <PageHeader title="Markets" subtitle="Symbols the engine tracks · real Binance quotes from the cached candle store" />
+      <PageHeader
+        title="Markets"
+        subtitle="Symbols the engine tracks · real Binance quotes from the cached candle store"
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Symbols")}><Icon name="info" size={13} /> Symbol Explorer</button>}
+      />
 
       <div className="stat-row">
         <StatCard label="Engine" value={sys?.engine_running ? "Running" : "Stopped"} tone={sys?.engine_running ? "green" : "red"} />

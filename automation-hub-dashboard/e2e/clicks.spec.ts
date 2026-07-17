@@ -7,10 +7,13 @@ import { mockApi } from "./mock";
  *  mock backend so nothing hits a live service. */
 
 const NAV = [
-  "Overview", "Markets", "Symbols", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Bot Terminal", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
+  "Overview", "Markets", "Strategies", "Backtesting",
+  "Paper Trading", "Bot Terminal", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence",
+  "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
+// Pages demoted from the sidebar but still routable by hash (linked from their
+// sibling pages) — they keep full button-sweep coverage below.
+const HIDDEN = ["Symbols", "Simulation", "Replay", "Live Trading", "AI Assistant", "Decisions"];
 const slug = (p: string) => p.toLowerCase().replace(/ /g, "-");
 
 // ── every sidebar link navigates and every page renders without crashing ──
@@ -34,11 +37,41 @@ test("every sidebar link opens a page with no uncaught error or 4xx", async ({ p
   expect(bad, bad.join("\n")).toHaveLength(0);
 });
 
+// ── demoted pages stay reachable by hash and via their sibling-page links ──
+test("hidden routes still render by hash", async ({ page }) => {
+  await mockApi(page);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  for (const label of HIDDEN) {
+    await page.goto(`/#/${slug(label)}`);
+    await expect(page.locator("h1.pagehead-title, h1.page-title").first()).toBeVisible();
+    await page.waitForTimeout(200);
+  }
+  expect(errors, errors.join("\n")).toHaveLength(0);
+});
+
+test("sibling-page cross-links open the demoted pages", async ({ page }) => {
+  await mockApi(page);
+  for (const [from, btn, target] of [
+    ["markets", "Symbol Explorer", "symbols"],
+    ["backtesting", "Simulation", "simulation"],
+    ["backtesting", "Replay", "replay"],
+    ["ai-intelligence", "AI Assistant", "ai-assistant"],
+    ["journal", "Decisions", "decisions"],
+    ["safety-center", "Live Trading", "live-trading"],
+  ] as const) {
+    await page.goto(`/#/${from}`);
+    await page.waitForTimeout(250);
+    await page.locator(".pagehead-actions button", { hasText: btn }).click();
+    await expect(page).toHaveURL(new RegExp(`#/${target}$`));
+  }
+});
+
 // ── click every content button on every page; none may throw ──
 // One test PER PAGE (not a single monolithic sweep) so each has its own timeout
 // budget and they run in parallel — the old single test grew slow enough to time
 // out as pages and lazy-loaded chunks were added.
-for (const label of NAV) {
+for (const label of [...NAV, ...HIDDEN]) {
   test(`clicking every content button on ${label} never throws`, async ({ page }) => {
     await mockApi(page);
     const errors: string[] = [];

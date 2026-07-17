@@ -11,6 +11,7 @@ import { markDone } from "../lib/progress";
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function BacktestingPage() {
+  const { go } = useApp();
   const { data, error } = useLive<StrategyPerformance>("/strategy/performance", 3000);
   const offline = error && !data;
 
@@ -27,7 +28,13 @@ export default function BacktestingPage() {
       <PageHeader
         title="Strategy Performance"
         subtitle={data ? `${data.strategy} · ${data.mode} · live paper-trading track record` : "live paper-trading track record"}
-        actions={data ? <Badge text={`${data.trades} trades`} tone="blue" /> : undefined}
+        actions={
+          <>
+            {data && <Badge text={`${data.trades} trades`} tone="blue" />}
+            <button className="btn btn-soft btn-sm" onClick={() => go("Simulation")}><Icon name="history" size={13} /> Simulation</button>
+            <button className="btn btn-soft btn-sm" onClick={() => go("Replay")}><Icon name="chart" size={13} /> Replay</button>
+          </>
+        }
       />
 
       {offline && (

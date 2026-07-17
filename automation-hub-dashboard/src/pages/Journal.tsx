@@ -5,6 +5,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import DecisionJournalPanel from "../components/journal/DecisionJournalPanel";
 import { useLive, hhmmss, API_BASE } from "../lib/api";
+import { useApp } from "../app-context";
 
 /** Bot Trade Journal — a dedicated, searchable record of every decision the
  *  bot made. Each row is one journaled trade; expand it for the full
@@ -32,6 +33,7 @@ const MODES = ["all", "paper", "live", "sim"] as const;
 const RESULTS = ["all", "win", "loss"] as const;
 
 export default function JournalPage() {
+  const { go } = useApp();
   const [mode, setMode] = usePref<(typeof MODES)[number]>("journal.mode", "all");
   const [result, setResult] = usePref<(typeof RESULTS)[number]>("journal.result", "all");
   const [query, setQuery] = useState("");
@@ -74,6 +76,7 @@ export default function JournalPage() {
       <PageHeader
         title="Bot Trade Journal"
         subtitle="Every bot decision — explainable, reviewable, searchable. Real strategy data only."
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Decisions")}><Icon name="history" size={13} /> Decisions</button>}
       />
 
       {offline && (

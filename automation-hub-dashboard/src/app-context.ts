@@ -19,14 +19,20 @@ export const useApp = () => useContext(AppContext);
 
 // The sidebar pages (the standalone trading-bot workspace layout).
 export const NAV_LABELS = [
-  "Overview", "Markets", "Symbols", "Strategies", "Backtesting", "Simulation", "Replay",
-  "Paper Trading", "Bot Terminal", "Live Trading", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence", "AI Assistant",
-  "Risk Manager", "Evolution", "Journal", "Decisions", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
+  "Overview", "Markets", "Strategies", "Backtesting",
+  "Paper Trading", "Bot Terminal", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence",
+  "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ] as const;
 
-// Extra routes reachable by hash but not shown in the main nav (kept so the
-// existing Bots / Alerts / BotDetail views still work).
-const EXTRA_ROUTES = ["Bots", "Alerts"] as const;
+// Extra routes reachable by hash but not shown in the main nav. Every page
+// still works — these are linked from their sibling pages instead of taking
+// a sidebar slot (Symbols from Markets, Simulation/Replay from Backtesting,
+// Live Trading from Safety Center, AI Assistant from AI Intelligence,
+// Decisions from Journal).
+const EXTRA_ROUTES = [
+  "Bots", "Alerts", "Symbols", "Simulation", "Replay",
+  "Live Trading", "AI Assistant", "Decisions",
+] as const;
 
 export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");
 
