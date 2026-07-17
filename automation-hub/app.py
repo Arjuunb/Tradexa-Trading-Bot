@@ -121,7 +121,7 @@ async def _frame_ancestors(request, call_next):
 # TradingView webhook (it authenticates with the secret in its own handler),
 # static assets, and "/" (which redirects anonymous visitors to /login).
 _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
-                "/favicon", "/docs", "/openapi.json", "/redoc", "/health")
+                "/favicon", "/docs", "/openapi.json", "/redoc", "/health", "/version")
 
 
 @app.middleware("http")
@@ -1139,6 +1139,27 @@ def events_stream(request: Request):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _deploy_info() -> dict:
+    """What version is actually deployed — from the env vars Render/host inject
+    at build time, so you can confirm which commit is live without the dashboard.
+    Empty strings when running locally (no CI env)."""
+    import os
+    commit = os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT", "")
+    return {
+        "commit": commit,
+        "commit_short": commit[:7],
+        "branch": os.environ.get("RENDER_GIT_BRANCH") or os.environ.get("GIT_BRANCH", ""),
+        "service": os.environ.get("RENDER_SERVICE_NAME", ""),
+        "deployed_at": os.environ.get("RENDER_DEPLOY_ID", ""),
+    }
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name}
+    return {"status": "ok", "app": settings.app_name, **_deploy_info()}
+
+
+@app.get("/version")
+def version():
+    """The deployed build's commit/branch — match commit_short to `git log`."""
+    return {"app": settings.app_name, **_deploy_info()}
