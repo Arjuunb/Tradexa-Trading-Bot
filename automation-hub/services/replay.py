@@ -30,7 +30,11 @@ from services.regime import RegimeDetector
 from strategies.smc_strategy import SMCStrategy
 
 # Execution timeframe -> how many execution bars make one higher-tf candle.
+# Intraday timeframes (1m/3m/5m) are where an automated strategy belongs; higher
+# timeframes suit manual swing trading. Higher-tf keys reuse the labels below.
 TF_FACTORS = {
+    "1m": {"15m": 15, "4h": 240, "1d": 1440, "1w": 10080},
+    "3m": {"15m": 5, "4h": 80, "1d": 480, "1w": 3360},
     "5m": {"15m": 3, "4h": 48, "1d": 288, "1w": 2016},
     "15m": {"4h": 16, "1d": 96, "1w": 672},
 }
@@ -402,7 +406,7 @@ def _collect_viz(strategy_id: str, is_smc: bool, spec_rules: list):
              "crossovers": crossovers, "supertrend": supertrend, "volume": True}, extra)
 
 
-_TF_SECONDS = {"5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
+_TF_SECONDS = {"1m": 60, "3m": 180, "5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
 
 
 def _parse_date(s):
