@@ -58,13 +58,33 @@ class SupabaseSettingsStore:
             pass
 
 
+# Truthful status so the boot log / a status endpoint can say whether the mirror
+# ACTUALLY works — not just "env vars are present". Updated by make_settings_mirror.
+SETTINGS_MIRROR_STATUS: dict = {"configured": False, "connected": False, "error": None}
+
+
 def make_settings_mirror() -> Optional[SupabaseSettingsStore]:
-    """Build the mirror from env (SUPABASE_URL + SUPABASE_KEY), else None."""
+    """Build the mirror from env (SUPABASE_URL + SUPABASE_KEY) and PROBE it with a
+    real round-trip write/read, so we only report it working when it truly does
+    (wrong key, missing `user_settings` table or RLS blocking all show up here).
+    Returns the store only when the probe passes, else None."""
     import os
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY")
+    SETTINGS_MIRROR_STATUS.update({"configured": bool(url and key), "connected": False, "error": None})
     if not (url and key):
         return None
     try:
-        return SupabaseSettingsStore(url, key)
-    except Exception:  # noqa: BLE001 — supabase-py missing / bad creds -> no mirror
+        store = SupabaseSettingsStore(url, key)
+        # round-trip probe on a reserved key — proves the table exists and the
+        # key can read AND write it (catches RLS / anon-key / missing-table).
+        store.set("__probe__", "__probe__", {"ok": True})
+        got = store.get("__probe__", "__probe__")
+        if not got or got.get("ok") is not True:
+            raise RuntimeError("write/read probe failed — check the user_settings "
+                               "table exists and the key can write it (RLS off, or "
+                               "use the service_role key).")
+        SETTINGS_MIRROR_STATUS["connected"] = True
+        return store
+    except Exception as e:  # noqa: BLE001 — supabase-py missing / bad creds / RLS -> no mirror
+        SETTINGS_MIRROR_STATUS["error"] = f"{type(e).__name__}: {e}"
         return None
