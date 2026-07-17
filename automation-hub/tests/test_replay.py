@@ -331,3 +331,44 @@ def test_memory_dna_filter_blocks_avoided_regimes():
     # a DNA-filter block is recorded when it bites
     if len(filt["trades"]) < len(base["trades"]):
         assert any("DNA filter" in e["text"] for e in filt["events"] if e["kind"] == "blocked")
+
+
+def test_viz_spec_matches_active_strategy():
+    """Item #1: the chart annotation spec (meta.viz) must declare EXACTLY the
+    elements the ACTIVE strategy uses — SMC shows structure/zones and NO EMAs,
+    EMA strategies show their two EMAs + crossovers and NO structure, and every
+    declared overlay key is actually present in overlays."""
+    smc = build_replay("BTCUSDT", "15m", 400, strategy="Supply/Demand", source="demo")["meta"]["viz"]
+    assert smc["structure"] and smc["zones"] and smc["overlays"] == [] and not smc["crossovers"]
+
+    ema = build_replay("BTCUSDT", "15m", 400, strategy="EMA 8/30", source="demo")
+    v = ema["meta"]["viz"]
+    assert v["overlays"] == ["ema8", "ema30"] and v["crossovers"] and not v["structure"]
+    assert all(k in ema["overlays"] for k in v["overlays"])   # declared => computed
+    assert any(m["type"] == "EMA Cross" for m in ema["markers"])   # real crossover markers
+
+    st = build_replay("BTCUSDT", "15m", 400, strategy="Trend Following", source="demo")
+    assert st["meta"]["viz"]["supertrend"] and st["overlays"].get("supertrend")
+    assert not st["meta"]["viz"]["structure"] and st["meta"]["viz"]["overlays"] == []
+
+
+def test_paper_close_endpoint(client):
+    """Item #6: manual close routes through the real paper engine and realizes
+    P&L; guards missing position (404) and bad symbol (400). Runs on an isolated
+    in-memory paper engine so it never pollutes the shared account state."""
+    import webhook_api as wa
+    from data.ledger import SqliteLedger
+    from execution.paper_engine import PaperExecutionEngine
+    orig_paper = wa.paper
+    wa.paper = PaperExecutionEngine(SqliteLedger(":memory:"), starting_balance=10_000)
+    try:
+        wa.paper.open(symbol="BTCUSDT", side="long", size=0.5, entry=100.0, stop=95.0)
+        sec = {"X-Webhook-Secret": wa.settings.webhook_secret}
+        r = client.post("/paper/close", json={"symbol": "BTCUSDT", "price": 120.0}, headers=sec)
+        assert r.status_code == 200 and r.json()["ok"] is True
+        assert not any(p["symbol"] == "BTCUSDT" for p in wa.paper.positions())   # flattened
+        assert client.post("/paper/close", json={"symbol": "NOPE"}, headers=sec).status_code == 404
+        assert client.post("/paper/close", json={"symbol": ""}, headers=sec).status_code == 400
+        assert client.post("/paper/close", json={"symbol": "BTCUSDT"}).status_code == 401  # secret required
+    finally:
+        wa.paper = orig_paper
