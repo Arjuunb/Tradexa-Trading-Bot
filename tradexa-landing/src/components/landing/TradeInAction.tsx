@@ -76,6 +76,7 @@ export function TradeInAction() {
     <section id="trade-in-action" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#trade-in-action"
           eyebrow="How it trades"
           title="Watch the bot take a trade"
           subtitle="One decision cycle, start to finish — a setup is spotted, scored, risk-sized, executed, and managed to target. Every step is the same logic the live engine runs."

@@ -69,6 +69,7 @@ export function Features() {
     <section id="features" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#features"
           eyebrow="Capabilities"
           title="Built to remember, decide and protect"
           subtitle="A long-term trading companion — disciplined execution today, and a memory of your trading that compounds over time."

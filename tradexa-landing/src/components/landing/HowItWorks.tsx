@@ -21,6 +21,7 @@ export function HowItWorks() {
     <section id="how" className="section">
       <div className="container-x">
         <SectionHeading
+          link="#how"
           eyebrow="Workflow"
           title="Live in four steps"
           subtitle="From connecting an exchange to watching it learn — no code, no guesswork."

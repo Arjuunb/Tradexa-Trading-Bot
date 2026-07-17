@@ -8,6 +8,7 @@ import { MarketScanner } from "@/components/landing/MarketScanner";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { Screenshots } from "@/components/landing/Screenshots";
 import { Performance } from "@/components/landing/Performance";
+import { RiskGuard } from "@/components/landing/RiskGuard";
 import { Security } from "@/components/landing/Security";
 import { FinalCta } from "@/components/landing/FinalCta";
 import { Footer } from "@/components/landing/Footer";
@@ -27,6 +28,7 @@ export default function Landing() {
       <HowItWorks />
       <Screenshots />
       <Performance />
+      <RiskGuard />
       <Security />
       <FinalCta />
       <Footer />
