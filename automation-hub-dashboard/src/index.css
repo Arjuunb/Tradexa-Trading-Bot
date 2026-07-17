@@ -534,6 +534,9 @@ a.brand:hover { opacity: 0.85; }
 .sym-row .sym-nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
 .sym-row .sym-cls { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint, #5c6980);
   border: 1px solid var(--line, #1c2836); border-radius: 5px; padding: 1px 6px; flex-shrink: 0; }
+.sym-row.off { opacity: .5; cursor: not-allowed; }
+.sym-row.off:hover { background: transparent; }
+.sym-row.off .sym-cls { color: var(--down, #e4614c); border-color: rgba(228,97,76,.35); }
 .pulse-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none;
   background: var(--dim-2, #7c8798); animation: pulse-dot 1.6s ease-in-out infinite; }
 .pulse-dot.green { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
