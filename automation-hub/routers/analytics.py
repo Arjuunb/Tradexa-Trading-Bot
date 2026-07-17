@@ -1009,34 +1009,6 @@ def strategy_select(body: _wa.StrategySelect, x_webhook_secret: _wa.Optional[str
     return {"applied": True, "active": _wa.settings.auto_strategy,
             "label": entry["label"], "status": _wa.engine.status()}
 
-_ENGINE_TFS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
-
-
-@router.post("/engine/timeframe")
-def engine_timeframe(timeframe: str = Body(..., embed=True),
-                     x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
-    """Switch the live (paper) engine's scanning timeframe and persist it. An
-    automated strategy belongs on low timeframes; this reconfigures the running
-    engine so it acts on the chosen interval. Live trading stays locked (paper)."""
-    _wa._check_secret(x_webhook_secret)
-    tf = (timeframe or "").strip()
-    if tf not in _ENGINE_TFS:
-        raise _wa.HTTPException(400, f"Unsupported timeframe '{tf}'. "
-                                     f"Choose one of: {', '.join(sorted(_ENGINE_TFS))}.")
-    if tf == _wa.engine.timeframe:
-        return {"applied": True, "timeframe": tf, "unchanged": True, "status": _wa.engine.status()}
-    _wa.settings.auto_timeframe = tf
-    if _wa.engine.running:                                    # swap on the running engine
-        _wa.engine.reconfigure(symbols=_wa.engine.symbols, timeframe=tf,
-                               strategy_factory=_wa.engine.strategy_factory,
-                               label=_wa.engine.strategy_label)
-    else:                                                     # respect a stopped engine
-        _wa.engine.timeframe = tf
-    _wa.save_overrides(_wa.settings.settings_path, _wa._settings_snapshot())
-    _wa.ledger.log(level="info", stage="audit", message=f"Engine timeframe set to {tf}")
-    return {"applied": True, "timeframe": tf, "status": _wa.engine.status()}
-
-
 @router.get("/strategy/performance")
 def strategy_performance():
     """The bot's live paper-trading track record (real executed trades)."""

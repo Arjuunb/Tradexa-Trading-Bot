@@ -280,7 +280,7 @@ def engine_cycle(cid: int):
 
 
 # Timeframes the data layer supports end-to-end (live fetch, synthetic, engine).
-_TIMEFRAMES = ("1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
+_TIMEFRAMES = ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d")
 
 
 @router.post("/engine/timeframe")
