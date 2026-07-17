@@ -12,13 +12,13 @@ export default function Appearance() {
 
   return (
     <>
-      <SettingsHeader title="Appearance" description="Personalise how Tradexa looks. Changes apply and save instantly." />
+      <SettingsHeader title="Appearance" description="Personalise how TradeLogX Nexus looks. Changes apply and save instantly." />
 
       <div className="space-y-5">
         <Section title="Theme">
           <SettingRow
             label="Color theme"
-            description="Tradexa is tuned for dark. Light is experimental."
+            description="TradeLogX Nexus is tuned for dark. Light is experimental."
           >
             <SegmentedControl
               value={a.theme}

@@ -28,7 +28,7 @@ export default function Account() {
     <>
       <SettingsHeader
         title="Account"
-        description="Your account identity, plan and lifecycle. Identity fields are managed by the Tradexa backend."
+        description="Your account identity, plan and lifecycle. Identity fields are managed by the TradeLogX Nexus backend."
       />
 
       <div className="space-y-5">
@@ -121,7 +121,7 @@ export default function Account() {
 
       <div className="mt-5 flex items-center gap-2 text-[13px] text-white/35">
         <ShieldCheck className="h-3.5 w-3.5" />
-        Identity and lifecycle actions are processed by the Tradexa backend when connected.
+        Identity and lifecycle actions are processed by the TradeLogX Nexus backend when connected.
       </div>
     </>
   );

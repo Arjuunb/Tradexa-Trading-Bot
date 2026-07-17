@@ -53,7 +53,7 @@ export default function Backup() {
 
   return (
     <>
-      <SettingsHeader title="Backup & Restore" description="Export, import and back up your Tradexa configuration." />
+      <SettingsHeader title="Backup & Restore" description="Export, import and back up your TradeLogX Nexus configuration." />
 
       <div className="space-y-5">
         <Section title="Configuration">
@@ -87,7 +87,7 @@ export default function Backup() {
 
         <Section title="Restore points">
           <div className="py-3">
-            <NotConnected icon={DatabaseBackup} detail="Server-side restore points (versioned snapshots you can roll back to) appear here once connected to the Tradexa backend." />
+            <NotConnected icon={DatabaseBackup} detail="Server-side restore points (versioned snapshots you can roll back to) appear here once connected to the TradeLogX Nexus backend." />
           </div>
         </Section>
       </div>

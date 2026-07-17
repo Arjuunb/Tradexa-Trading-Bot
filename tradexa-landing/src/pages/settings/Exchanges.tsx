@@ -61,7 +61,7 @@ export default function Exchanges() {
     toast("Connection test runs against the venue when the backend is connected.", "info");
 
   const save = (ex: Exchange) => {
-    // Live trading is not wired yet — Tradexa runs in paper mode. Keys entered
+    // Live trading is not wired yet — TradeLogX Nexus runs in paper mode. Keys entered
     // here stay in this browser session only; they are NOT stored or transmitted.
     setConnected((prev) => ({ ...prev, [ex.id]: true }));
     setOpen((prev) => ({ ...prev, [ex.id]: false }));
@@ -79,12 +79,12 @@ export default function Exchanges() {
     <>
       <SettingsHeader
         title="Exchange Connections"
-        description="Link your exchange accounts with API keys. Tradexa trades on your behalf — it never holds your funds."
+        description="Link your exchange accounts with API keys. TradeLogX Nexus trades on your behalf — it never holds your funds."
       />
 
       <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[13px] text-white/60">
         <b className="text-white/80">Preview.</b> Exchange connections aren’t wired to the engine yet —
-        Tradexa runs in <b>paper mode</b>. Keys entered here are not stored or transmitted; live execution
+        TradeLogX Nexus runs in <b>paper mode</b>. Keys entered here are not stored or transmitted; live execution
         is a future release.
       </div>
 
@@ -94,9 +94,9 @@ export default function Exchanges() {
         </span>
         <div className="min-w-0 text-sm">
           <p className="font-medium text-white/90">
-            Tradexa only needs trade permissions. NEVER enable withdrawal permissions on your API keys.
+            TradeLogX Nexus only needs trade permissions. NEVER enable withdrawal permissions on your API keys.
           </p>
-          <p className="mt-0.5 text-[13px] text-white/55">Tradexa runs in paper mode and never holds your funds.</p>
+          <p className="mt-0.5 text-[13px] text-white/55">TradeLogX Nexus runs in paper mode and never holds your funds.</p>
         </div>
       </div>
 
@@ -233,7 +233,7 @@ export default function Exchanges() {
       <ConfirmDialog
         open={disconnectTarget !== null}
         title={disconnectTarget ? `Disconnect ${disconnectTarget.name}?` : "Disconnect exchange?"}
-        description="Tradexa will stop trading on this venue and the stored keys will be removed. You can reconnect at any time."
+        description="TradeLogX Nexus will stop trading on this venue and the stored keys will be removed. You can reconnect at any time."
         confirmLabel="Disconnect"
         danger
         onConfirm={() => {

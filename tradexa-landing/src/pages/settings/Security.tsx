@@ -164,11 +164,11 @@ export default function Security() {
           <div className="space-y-4 py-3">
             <NotConnected
               icon={Monitor}
-              detail="Session, device and login-history data appears here once connected to the Tradexa backend (VITE_API_BASE)."
+              detail="Session, device and login-history data appears here once connected to the TradeLogX Nexus backend (VITE_API_BASE)."
             />
             <NotConnected
               icon={ShieldCheck}
-              detail="Session, device and login-history data appears here once connected to the Tradexa backend (VITE_API_BASE)."
+              detail="Session, device and login-history data appears here once connected to the TradeLogX Nexus backend (VITE_API_BASE)."
             />
           </div>
         </Section>
@@ -177,7 +177,7 @@ export default function Security() {
           <div className="py-3">
             <NotConnected
               icon={ScrollText}
-              detail="Session, device and login-history data appears here once connected to the Tradexa backend (VITE_API_BASE)."
+              detail="Session, device and login-history data appears here once connected to the TradeLogX Nexus backend (VITE_API_BASE)."
             />
           </div>
         </Section>

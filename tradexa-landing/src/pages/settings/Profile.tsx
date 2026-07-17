@@ -40,7 +40,7 @@ export default function Profile() {
 
   return (
     <>
-      <SettingsHeader title="Profile" description="Your personal information and how you appear across Tradexa." />
+      <SettingsHeader title="Profile" description="Your personal information and how you appear across TradeLogX Nexus." />
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         <Section title="Profile picture" description="PNG or JPG, up to 2MB.">

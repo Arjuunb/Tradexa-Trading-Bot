@@ -42,7 +42,7 @@ export default function Login() {
       </div>
 
       <h1 className="text-2xl font-bold tracking-tight text-white">Welcome back</h1>
-      <p className="mt-1.5 text-sm text-white/50">Sign in to your Tradexa Trading Bot workspace.</p>
+      <p className="mt-1.5 text-sm text-white/50">Sign in to your TradeLogX Nexus workspace.</p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-7 space-y-4" noValidate>
         <Field label="Email" htmlFor="email" error={errors.email?.message}>

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * The complete, typed settings model for the Tradexa Trading Bot. Every field
+ * The complete, typed settings model for the TradeLogX Nexus. Every field
  * is a real, purposeful setting — no placeholders. The schema is the single
  * source of truth: the store validates against it, forms derive from it, and
  * the (optional) backend receives exactly this shape.
