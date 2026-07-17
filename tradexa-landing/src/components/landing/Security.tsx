@@ -33,7 +33,7 @@ export function Security() {
             </Reveal>
             <Reveal delay={0.1}>
               <p className="mt-4 max-w-md text-white/55">
-                Automated trading only earns its place when the security is uncompromising. Tradexa
+                Automated trading only earns its place when the security is uncompromising. TradeLogX Nexus
                 is architected so the bot can execute — and nothing more.
               </p>
               <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-emerald/25 bg-emerald/[0.07] px-4 py-2 text-sm text-emerald-soft">

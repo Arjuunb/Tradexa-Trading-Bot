@@ -21,9 +21,15 @@ export default {
         },
         // Brand
         gold: {
-          DEFAULT: "#C8A94B",
-          soft: "#D8BE6E",
-          deep: "#A98E3A",
+          DEFAULT: "#C9A24B",
+          soft: "#E7CE86",
+          deep: "#8A7233",
+        },
+        // Secondary brand accent — TradeLogX Nexus "signal blue" (data / links)
+        signal: {
+          DEFAULT: "#3E7BD6",
+          soft: "#6EA3EC",
+          deep: "#13233F",
         },
         emerald: {
           DEFAULT: "#2FBF71",
