@@ -77,3 +77,29 @@ def test_delete_clears_both(tmp_path):
     st.delete_user_settings("owner", "dashboard")
     assert st.get_user_settings("owner", "dashboard") == {}
     assert m.get("owner", "dashboard") is None
+
+
+def test_runtime_overrides_survive_redeploy_via_mirror(tmp_path):
+    """The REAL settings path (save/load_overrides) must mirror to Supabase and
+    restore after an ephemeral-disk wipe — the bug where settings reset on every
+    login because the mirror was never wired to this path."""
+    import services.runtime_settings as rs
+
+    class FakeMirror:
+        def __init__(self): self.db = {}
+        def get(self, u, ns): return self.db.get((u, ns))
+        def set(self, u, ns, data): self.db[(u, ns)] = dict(data)
+
+    orig = rs._mirror_cache
+    rs._mirror_cache = {"built": True, "store": FakeMirror()}
+    try:
+        path = str(tmp_path / "settings.json")
+        rs.save_overrides(path, {"auto_strategy": "smc", "risk_per_trade_pct": 0.02})
+        import os
+        os.remove(path)                                  # simulate ephemeral redeploy
+        loaded = rs.load_overrides(path)
+        assert loaded["auto_strategy"] == "smc"
+        assert loaded["risk_per_trade_pct"] == 0.02
+        assert os.path.exists(path)                      # local cache re-warmed
+    finally:
+        rs._mirror_cache = orig

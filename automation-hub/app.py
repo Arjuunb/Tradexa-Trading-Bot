@@ -47,10 +47,16 @@ store = SqliteStore(settings.db_path)
 # settings persist to Supabase so they survive an ephemeral-disk restart (no
 # more "defaults on every login") without needing a paid disk. No-op otherwise.
 try:
-    from data.settings_store import make_settings_mirror  # noqa: E402
+    from data.settings_store import make_settings_mirror, SETTINGS_MIRROR_STATUS  # noqa: E402
     store.settings_mirror = make_settings_mirror()
     if store.settings_mirror is not None:
-        print("[settings] durable Supabase mirror enabled — settings survive redeploys.", flush=True)
+        print("[settings] durable Supabase mirror CONNECTED — settings survive redeploys.", flush=True)
+    elif SETTINGS_MIRROR_STATUS["configured"]:
+        print(f"[settings] Supabase configured but NOT working: {SETTINGS_MIRROR_STATUS['error']} "
+              f"— settings will still reset on redeploy until this is fixed.", flush=True)
+    else:
+        print("[settings] no Supabase (SUPABASE_URL/KEY unset) — settings are local only "
+              "and reset on an ephemeral-disk redeploy.", flush=True)
 except Exception:  # noqa: BLE001 — never let settings persistence break boot
     pass
 store.seed_admin(settings.username, settings.password)
@@ -1154,9 +1160,29 @@ def _deploy_info() -> dict:
     }
 
 
+def _persistence_info() -> dict:
+    """Whether durable storage actually works — the honest answer to 'why do my
+    settings reset?'. Both must be connected for settings + account to survive a
+    free-tier redeploy."""
+    try:
+        from data.settings_store import SETTINGS_MIRROR_STATUS
+        from data import ledger as _led
+        return {
+            "settings_supabase": {"configured": SETTINGS_MIRROR_STATUS["configured"],
+                                  "connected": SETTINGS_MIRROR_STATUS["connected"],
+                                  "error": SETTINGS_MIRROR_STATUS["error"]},
+            "ledger_supabase": {"configured": _led.SUPABASE_STATUS.get("configured"),
+                                "connected": _led.SUPABASE_STATUS.get("connected"),
+                                "error": _led.SUPABASE_STATUS.get("error")},
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.app_name, **_deploy_info()}
+    return {"status": "ok", "app": settings.app_name, **_deploy_info(),
+            "persistence": _persistence_info()}
 
 
 @app.get("/version")
