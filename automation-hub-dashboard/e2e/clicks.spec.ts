@@ -8,7 +8,7 @@ import { mockApi } from "./mock";
 
 const NAV = [
   "Overview", "Markets", "Strategies", "Backtesting",
-  "Paper Trading", "Bot Terminal", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "AI Intelligence",
+  "Paper Trading", "Bot Terminal", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "Grid & DCA", "AI Intelligence",
   "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
 ];
 // Pages demoted from the sidebar but still routable by hash (linked from their
