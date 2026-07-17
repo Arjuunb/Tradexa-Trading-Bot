@@ -7,66 +7,59 @@ import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
 import {
   apiGet, apiPostJson, useLive,
-  type ReplayData, type ReplayTrade, type AIAnalysis, type EngineStatus, type RiskSummary,
+  type ReplayData, type AIAnalysis, type EngineStatus, type RiskSummary, type StrategyPerformance,
   type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount, type SymbolRow,
 } from "../lib/api";
 
-/** Paper Trading Bot Terminal — a developer-grade observation lab.
- *  LIVE mode: candles stream tick-by-tick from Binance's public WebSocket
- *  (straight into the browser, like TradingView), while the panels show the
- *  LIVE engine's real open position, real trades and real activity log.
- *  REPLAY mode: a no-lookahead run of the strategy over real candles with
- *  play/step/speed controls. Nothing on this page is fabricated. */
+/** Bot Terminal — a LIVE, crypto-first paper-trading observation lab.
+ *  Candles stream tick-by-tick from Binance's public WebSocket (straight into
+ *  the browser, like TradingView); the panels show the LIVE engine's real open
+ *  position, real trades, real orders and real activity. No historical replay,
+ *  no demo data — every value is a real engine / market read. */
 
 // Intraday-first: an automated strategy belongs on low timeframes (1–5m); the
 // higher ones (1h/4h) suit manual swing trading and are kept for those who want it.
 const TFS = ["1m", "3m", "5m", "15m", "1h", "4h"];
+const LIMIT = 500;   // live candles loaded for context (warmup fetched behind them)
 // A Binance-streamable crypto pair (USDT/USDC/BUSD quote). Forex/commodity USD
 // pairs (EURUSD, XAUUSD) end in a plain "USD" and are NOT streamed here.
 const isCryptoStreamable = (s: string) => /(USDT|USDC|BUSD)$/i.test(s);
-const SPEEDS = [1, 2, 5, 10, 50, 100];
-// Strategies the replay engine can visualize (each maps to a real entry engine).
+// Strategies the terminal can visualize (each maps to a real entry engine).
 const STRATS = ["Decision Brain", "Trend Following", "Supply/Demand", "EMA 8/30",
   "EMA 20/50", "Breakout Retest", "Support/Resistance Rejection", "Liquidity Sweep"];
-// The live engine labels its strategy differently from the replay presets — map
-// it so the terminal defaults to the strategy the engine is actually running.
+// The live engine labels its strategy differently from the presets — map it so
+// the terminal defaults to the strategy the engine is actually running.
 const ENGINE_STRAT_MAP: Record<string, string> = {
   "Decision Brain": "Decision Brain", "Supertrend": "Trend Following",
   "SMC (Smart Money)": "Supply/Demand", "EMA Crossover": "EMA 8/30",
   "Donchian Breakout": "Decision Brain", "Confirmation Ensemble": "Decision Brain",
 };
-// The reverse: terminal presets that map to a real built-in engine strategy, so
-// selecting them here can actually reconfigure the live bot. The other presets
-// are chart-only replay views (no matching built-in engine strategy).
+// The reverse: presets that map to a real built-in engine strategy, so selecting
+// them here can reconfigure the live bot. Others are chart-only views.
 const STRAT_TO_ENGINE: Record<string, { key: string; label: string }> = {
   "Decision Brain": { key: "brain", label: "Decision Brain" },
   "Trend Following": { key: "supertrend", label: "Supertrend" },
   "Supply/Demand": { key: "smc", label: "SMC (Smart Money)" },
   "EMA 8/30": { key: "ema", label: "EMA Crossover" },
 };
-// Fallback only — used if the backend didn't send a viz spec. Normally the
-// chart is driven entirely by data.meta.viz (the ACTIVE strategy's real inputs).
+// Fallback only — used if the backend didn't send a viz spec. Normally the chart
+// is driven entirely by data.meta.viz (the ACTIVE strategy's real inputs).
 const FALLBACK_TOGGLES: ChartToggles = {
   ema8: false, ema20: false, ema30: false, ema50: false,
   sma20: false, sma50: false, vwap: false, bb: false,
   volume: true, structure: true, zones: true, osc: "none", supertrend: false, crossovers: false,
 };
-// Overlay keys the chart draws via its fixed toggles; anything else the strategy
-// declares (e.g. a custom EMA period) is passed through as an extra line.
 const KNOWN_OVERLAYS = new Set(["ema8", "ema20", "ema30", "ema50", "sma20", "sma50",
   "vwap", "bb_upper", "bb_mid", "bb_lower", "supertrend"]);
 const EXTRA_COLORS = ["#22d3ee", "#a855f7", "#f59e0b", "#3b82f6", "#ec4899", "#10b981"];
 const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
-const EVT_ICON: Record<string, string> = { entry: "play", exit: "target", trade: "check", signal: "chart",
-  setup: "chart", scan: "search", veto: "warning", blocked: "warning", stop: "close", info: "info" };
 const STAGE_ICON: Record<string, string> = { engine: "robot", execution: "play", brain: "bot", risk: "shield",
   controls: "settings", webhook: "external", account: "wallet", market: "globe", bots: "robot" };
-const hhmm = (t?: string) => (t ? t.slice(11, 16) || t.slice(0, 5) : "");
 const hhmmss = (t?: string) => (t ? t.slice(11, 19) || t.slice(0, 8) : "");
 
 /** Search-any-symbol picker — queries the full multi-asset universe
- *  (/symbols/search) so the terminal can chart/replay any listed symbol, not a
- *  fixed shortlist. Picks the compact ticker (BTCUSDT / AAPL / XAUUSD). */
+ *  (/symbols/search). Live tick streaming is crypto-only; non-crypto refreshes
+ *  every ~2 min. Picks the compact ticker (BTCUSDT / AAPL). */
 function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<SymbolRow[]>([]);
@@ -103,7 +96,7 @@ function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) =>
               </button>
             ))}
             {q.trim() && !results.length && <div className="dim" style={{ padding: 9, fontSize: 12 }}>No matches.</div>}
-            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, AAPL, gold, EURUSD.</div>}
+            {!q.trim() && <div className="dim" style={{ padding: 9, fontSize: 11.5 }}>Type a ticker or name — e.g. BTC, ETH, SOL.</div>}
           </div>
         </div>
       )}
@@ -116,60 +109,53 @@ export default function BotTerminalPage() {
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState("5m");
   const [strategy, setStrategy] = useState("Decision Brain");
-  const [mode, setMode] = useState<"live" | "replay">("live");
   const [dev, setDev] = useState(false);
   const [data, setData] = useState<ReplayData | null>(null);
   const [idx, setIdx] = useState(0);
-  const [sel, setSel] = useState<ReplayTrade | null>(null);
   const [loading, setLoading] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(5);
   const [full, setFull] = useState(false);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [dockTab, setDockTab] = useState<"positions" | "history" | "orders" | "activity" | "performance" | "equity">("positions");
-  const [bars, setBars] = useState(500);   // how much history to load (backend caps at 1500)
-  const timer = useRef<number | null>(null);
 
-  const liveMode = mode === "live";
-  const { data: eng, refetch: refetchEng } = useLive<EngineStatus>("/engine/status", liveMode ? 5000 : 10000);
+  const { data: eng, refetch: refetchEng } = useLive<EngineStatus>("/engine/status", 5000);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
-  const { data: acct } = useLive<PaperAccount>("/paper/account", liveMode ? 8000 : 30000);
+  const { data: acct } = useLive<PaperAccount>("/paper/account", 8000);
   const { data: ai } = useLive<AIAnalysis>(`/ai/analyze?symbol=${symbol}&timeframe=${tf}`, 30000);
-  // the LIVE engine's real state (only polled fast in live mode)
-  const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", liveMode ? 5000 : 30000);
-  const { data: liveTrades } = useLive<PaperTradeRow[]>("/paper/trades", liveMode ? 8000 : 60000);
-  const { data: logs } = useLive<LogRow[]>("/ledger/logs?limit=40", liveMode ? 8000 : 60000);
+  const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 5000);
+  const { data: liveTrades } = useLive<PaperTradeRow[]>("/paper/trades", 8000);
+  const { data: logs } = useLive<LogRow[]>("/ledger/logs?limit=40", 8000);
+  const { data: perf } = useLive<StrategyPerformance>("/strategy/performance", 10000);
 
-  // base run: real candles up to NOW + the strategy's no-lookahead read of them.
-  // In live mode this refreshes every 2 min; the WebSocket fills the gap between
-  // refreshes with tick-by-tick updates of the current candle.
+  const streaming = isCryptoStreamable(symbol);
+
+  // Load real candles up to NOW + the strategy's causal read of them. Refreshes
+  // every 2 min; the WebSocket fills the gap with tick-by-tick current-candle
+  // updates. source=binance + real-data-only — never demo/synthetic.
   const loadRun = (silent = false) => {
-    if (!silent) { setLoading(true); setSel(null); setPlaying(false); }
-    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${bars}&strategy=${encodeURIComponent(strategy)}&source=binance`)
+    if (!silent) setLoading(true);
+    return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${LIMIT}&strategy=${encodeURIComponent(strategy)}&source=binance`)
       .then((d) => { if (d?.candles?.length) { setData(d); setIdx(d.candles.length - 1); } else if (!silent) setData(null); })
-      .catch(() => { if (!silent) toast("Could not load the bot run", "error"); })
+      .catch(() => { if (!silent) toast("Could not load live candles", "error"); })
       .finally(() => { if (!silent) setLoading(false); });
   };
-  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf, strategy, bars]);
+  useEffect(() => { loadRun(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [symbol, tf, strategy]);
   useEffect(() => {
-    if (!liveMode) return;
     const id = window.setInterval(() => loadRun(true), 120_000);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveMode, symbol, tf, strategy, bars]);
+  }, [symbol, tf, strategy]);
   // Keep the chart on the strategy the LIVE ENGINE is actually running, so the
-  // "Bot is watching" strip always mirrors the real bot — not a stale default.
-  // Follows the engine whenever ITS strategy changes; a manual pick is a
-  // temporary override that's released the next time the engine strategy moves.
+  // "…uses" strip always mirrors the real bot. A manual pick is a temporary
+  // override, released the next time the engine's strategy changes.
   const engStratRef = useRef<string | null>(null);
   const userOverrodeStrat = useRef(false);
   useEffect(() => {
     const label = eng?.strategy;
     if (!label) return;
     const mapped = ENGINE_STRAT_MAP[label] ?? "Decision Brain";
-    if (mapped !== engStratRef.current) {     // engine strategy changed (or first load)
+    if (mapped !== engStratRef.current) {
       engStratRef.current = mapped;
       userOverrodeStrat.current = false;
       if (STRATS.includes(mapped)) setStrategy(mapped);
@@ -177,10 +163,10 @@ export default function BotTerminalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eng?.strategy]);
 
-  // LIVE candle stream — Binance public kline WebSocket, straight from the
-  // browser (no key). Updates the current candle in place and appends on close.
+  // LIVE candle stream — Binance public kline WebSocket, from the browser (no
+  // key). Updates the current candle in place and appends on close.
   useEffect(() => {
-    if (!liveMode || !isCryptoStreamable(symbol)) { setWsOk(false); return; }
+    if (!streaming) { setWsOk(false); return; }
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${tf}`);
@@ -203,43 +189,21 @@ export default function BotTerminalPage() {
             : [...cs, bar];                                 // a new candle opened
           return { ...d, candles: next };
         });
-        setIdx((i) => i);   // keep cursor; the follow effect below pins to latest
       } catch { /* malformed frame — ignore */ }
     };
     return () => { try { ws?.close(); } catch { /* noop */ } };
-  }, [liveMode, symbol, tf]);
-  // in live mode the cursor always follows the newest candle
-  useEffect(() => {
-    if (liveMode && data?.candles?.length) setIdx(data.candles.length - 1);
-  }, [liveMode, data]);
-
-  // replay playback (replay mode only)
-  useEffect(() => {
-    if (!playing || !data || liveMode) return;
-    timer.current = window.setInterval(() => {
-      setIdx((i) => { if (i >= data.candles.length - 1) { setPlaying(false); return i; } return i + 1; });
-    }, Math.max(8, 900 / speed));
-    return () => { if (timer.current) window.clearInterval(timer.current); };
-  }, [playing, speed, data, liveMode]);
+  }, [symbol, tf, streaming]);
+  // the cursor always follows the newest candle
+  useEffect(() => { if (data?.candles?.length) setIdx(data.candles.length - 1); }, [data]);
 
   const frame = data?.frames?.[Math.min(idx, (data?.frames?.length ?? 1) - 1)];
   const candle = data?.candles?.[idx];
-  const runEvents = useMemo(() => (data?.events ?? []).filter((e) => e.idx <= idx).slice(-60).reverse(), [data, idx]);
-  const runTrades = useMemo(() => [...(data?.trades ?? [])].reverse(), [data]);
-  const rejections = useMemo(() => {
-    const out: { idx: number; reason: string }[] = [];
-    (data?.frames ?? []).forEach((f, i) => { if (f?.blocked && f.reason && i <= idx) out.push({ idx: i, reason: f.reason }); });
-    return out.slice(-8).reverse();
-  }, [data, idx]);
   const openPos = useMemo(() => (positions ?? []).find((p) => p.symbol === symbol), [positions, symbol]);
-  const inRunTrade = useMemo(() => (data?.trades ?? []).find((t) => t.entry_idx <= idx && (t.exit_idx == null || t.exit_idx > idx)), [data, idx]);
-  const atLatest = data ? idx >= data.candles.length - 1 : true;
   const signal = ai?.decision === "BUY" ? "LONG" : ai?.decision === "SELL" ? "SHORT" : ai?.decision ?? "—";
   const ma = ai?.market_analysis;
   const checks = (ai?.checklist ?? []).filter((c) => c.status !== "N/A");
 
-  // ── item #1: the chart shows ONLY what the ACTIVE strategy uses ──
-  // driven entirely by the engine-declared viz spec, never hardcoded here.
+  // the chart shows ONLY what the ACTIVE strategy uses — engine-declared viz spec
   const viz = data?.meta?.viz;
   const chartToggles = useMemo<ChartToggles>(() => {
     if (!viz) return FALLBACK_TOGGLES;
@@ -262,17 +226,16 @@ export default function BotTerminalPage() {
     return out;
   }, [viz]);
   const liveUPnl = openPos && candle ? (openPos.side === "long" ? candle.c - openPos.entry : openPos.entry - candle.c) * openPos.size : null;
-  // in live mode, flag when the chart's strategy differs from the engine's real one
-  const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
-  const engineTf = eng?.timeframe;
+
   // Make the terminal the control surface: when a DEPLOYABLE strategy or the
   // timeframe differs from what the live engine runs, offer to reconfigure it.
+  const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
+  const engineTf = eng?.timeframe;
   const deployTarget = STRAT_TO_ENGINE[strategy];
-  const stratNeedsApply = liveMode && !!deployTarget && !!eng?.strategy && eng.strategy !== deployTarget.label;
-  const tfNeedsApply = liveMode && !!engineTf && tf !== engineTf;
+  const stratNeedsApply = !!deployTarget && !!eng?.strategy && eng.strategy !== deployTarget.label;
+  const tfNeedsApply = !!engineTf && tf !== engineTf;
   const canApplyToBot = !!deployTarget && (stratNeedsApply || tfNeedsApply);
-  // non-deployable preset shown against a different live engine strategy
-  const chartOnlyMismatch = liveMode && !deployTarget && engineStrat != null && engineStrat !== strategy;
+  const chartOnlyMismatch = !deployTarget && engineStrat != null && engineStrat !== strategy;
   const applyToBot = async () => {
     if (applying) return;
     const parts = [stratNeedsApply ? deployTarget!.label : null, tfNeedsApply ? tf : null].filter(Boolean);
@@ -293,7 +256,7 @@ export default function BotTerminalPage() {
     }
   };
   // real order blotter — each paper trade is an entry fill (+ an exit fill when
-  // closed). These are the actual MARKET orders the engine placed, not invented.
+  // closed). These are the actual MARKET orders the engine placed.
   const orders = useMemo(() => {
     const rows: { t: string | null; symbol: string; side: string; size: number; price: number; status: string }[] = [];
     for (const tr of liveTrades ?? []) {
@@ -304,36 +267,9 @@ export default function BotTerminalPage() {
     return rows.sort((a, b) => ((a.t ?? "") < (b.t ?? "") ? 1 : -1)).slice(0, 60);
   }, [liveTrades]);
   const tstamp = (s?: string | null) => (s ? s.replace("T", " ").slice(5, 16) : "—");
-  const state = liveMode
-    ? (openPos ? `Managing a live ${openPos.side.toUpperCase()}` : eng?.running ? "Scanning live market" : "Engine stopped")
-    : (inRunTrade ? `Managing an open ${inRunTrade.side.toUpperCase()}` : frame?.blocked ? "Setup rejected" : frame?.trigger ? "Confirmation received" : "Scanning");
-  const waiting = liveMode
-    ? (openPos ? "stop / target / exit rule" : eng?.running ? `next ${eng?.timeframe ?? tf} candle close` : "engine start")
-    : (inRunTrade ? "stop / target / exit rule" : frame?.blocked ? frame.reason : frame?.trigger ? "entry execution" : "a qualifying setup");
+  const state = openPos ? `Managing a live ${openPos.side.toUpperCase()}` : eng?.running ? "Scanning live market" : "Engine stopped";
+  const waiting = openPos ? "stop / target / exit rule" : eng?.running ? `next ${eng?.timeframe ?? tf} candle close` : "engine start";
 
-  const focusTrade = (t: ReplayTrade) => { setSel(t); setPlaying(false); setMode("replay"); setIdx(t.exit_idx ?? t.entry_idx); };
-  // ── "watch how it trades" — step trade-to-trade and see the basis for each ──
-  const tradesByEntry = useMemo(() => [...(data?.trades ?? [])].sort((a, b) => a.entry_idx - b.entry_idx), [data]);
-  const jumpTrade = (dir: 1 | -1) => {
-    if (!tradesByEntry.length) return;
-    setMode("replay"); setPlaying(false);
-    const found = dir === 1
-      ? tradesByEntry.find((t) => t.entry_idx > idx)
-      : [...tradesByEntry].reverse().find((t) => t.entry_idx < idx);
-    const t = found ?? (dir === 1 ? tradesByEntry[0] : tradesByEntry[tradesByEntry.length - 1]);
-    setSel(t); setIdx(t.entry_idx);        // land on the ENTRY candle so the "why" shows
-  };
-  // one click: drop into replay a few bars before the first entry and play it
-  // out at speed — you literally watch the bot take a real trade and why.
-  const watchATrade = () => {
-    setMode("replay");
-    if (!tradesByEntry.length) {
-      toast("No qualifying trades in this run — try a lower timeframe (15m) or another symbol.", "info");
-      return;
-    }
-    const t = tradesByEntry[0];
-    setSel(t); setSpeed(10); setIdx(Math.max(0, t.entry_idx - 5)); setPlaying(true);
-  };
   // item #6: close an open PAPER position through the real execution engine.
   const closePosition = async (po: LedgerPosition) => {
     if (closing) return;
@@ -350,12 +286,6 @@ export default function BotTerminalPage() {
       setClosing(false);
     }
   };
-  const durationOf = (t: ReplayTrade) => {
-    const a = data?.candles?.[t.entry_idx]?.t, b = t.exit_idx != null ? data?.candles?.[t.exit_idx]?.t : undefined;
-    if (!a || !b) return t.bars_held != null ? `${t.bars_held} bars` : "—";
-    const mins = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000);
-    return mins >= 60 ? `${(mins / 60).toFixed(1)}h` : `${mins}m`;
-  };
   const kv = (label: string, value: ReactNode) => (
     <div className="risk-item"><span className="dim">{label}</span><b>{value}</b></div>);
 
@@ -364,14 +294,10 @@ export default function BotTerminalPage() {
       {/* ── header strip ─────────────────────────────────────────── */}
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <h1 className="pagehead-title" style={{ margin: 0, fontSize: 19 }}>Paper Trading Bot Terminal</h1>
-          <span className="dim" style={{ fontSize: 11.5 }}>observation lab · every value is a real engine read</span>
+          <h1 className="pagehead-title" style={{ margin: 0, fontSize: 19 }}>Bot Terminal</h1>
+          <span className="dim" style={{ fontSize: 11.5 }}>live crypto · paper trading · every value is a real engine read</span>
         </div>
         <div className="chips" style={{ alignItems: "center" }}>
-          <div className="seg-toggle">
-            <button className={liveMode ? "on" : ""} onClick={() => setMode("live")}>Live</button>
-            <button className={!liveMode ? "on" : ""} onClick={() => { setMode("replay"); setPlaying(false); }}>Replay</button>
-          </div>
           <SymbolSearch value={symbol} onPick={setSymbol} />
           <select className="rule-num" value={strategy} title="Strategy the chart visualizes (follows the live engine by default)"
             onChange={(e) => { setStrategy(e.target.value); userOverrodeStrat.current = true; }}>
@@ -399,56 +325,35 @@ export default function BotTerminalPage() {
           sub={`${risk?.open_positions ?? 0} of ${risk?.max_open_positions ?? "—"} positions`} />
       </div>
 
-      {data?.meta?.data_warning && (
-        <div className="banner" style={{ marginBottom: 10 }}><Icon name="warning" size={14} /> {data.meta.data_warning}</div>
-      )}
-      {liveMode && !isCryptoStreamable(symbol) && (
+      {!streaming && (
         <div className="banner" style={{ marginBottom: 10 }}><Icon name="info" size={14} />
-          No public stream for {symbol} — live view refreshes from Yahoo every 2 minutes instead of tick-by-tick.</div>
-      )}
-      {/* live is quiet by design — offer the way to actually SEE a trade + its basis */}
-      {liveMode && !openPos && (
-        <div className="banner" style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <Icon name="info" size={14} />
-          <span style={{ fontSize: 12.5 }}>
-            The engine is <b>selective</b> — on {tf} it may not enter for a while, so live can look quiet.
-            To watch exactly how <b>{strategy}</b> enters and <b>why</b>, replay it on real candles.
-          </span>
-          <button className="btn btn-primary btn-sm" style={{ marginLeft: "auto", flexShrink: 0 }} onClick={watchATrade}>
-            <Icon name="play" size={12} /> Watch it take a trade</button>
-        </div>
+          Live tick streaming is available for crypto pairs. {symbol} isn't a crypto pair, so the chart
+          refreshes about every 2 minutes instead of tick-by-tick.</div>
       )}
 
-      {/* ── main: chart (70%) + decision engine ─────────────────── */}
+      {/* ── main: chart + decision engine ─────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 12 }} className="terminal-main">
         <div className={full ? "chart-full" : ""}>
         <Card title="">
           <div className="toolbar" style={{ marginBottom: 6 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12.5 }}>
-              <b>{symbol}</b><span className="dim">{tf} · {data?.meta?.data_source_label ?? data?.meta?.data_source ?? ""}</span>
-              {liveMode && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span className={`pulse-dot ${wsOk ? "green" : "gold"}`} />
-                  <b style={{ fontSize: 11.5, color: wsOk ? "var(--green)" : "var(--gold)" }}>
-                    {wsOk ? "LIVE · streaming" : "LIVE · polling"}</b>
-                </span>
-              )}
+              <b>{symbol}</b><span className="dim">{tf} · Binance</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className={`pulse-dot ${wsOk ? "green" : "gold"}`} />
+                <b style={{ fontSize: 11.5, color: wsOk ? "var(--green)" : "var(--gold)" }}>
+                  {wsOk ? "LIVE · streaming" : "LIVE · polling"}</b>
+              </span>
               <Badge text={eng?.running ? "engine live" : "engine stopped"} tone={eng?.running ? "green" : "default"} />
-              {liveMode && openPos && <Badge text={`live ${openPos.side} open`} tone={openPos.side === "long" ? "green" : "red"} />}
-              {!liveMode && inRunTrade && <Badge text={`in ${inRunTrade.side} trade`} tone={inRunTrade.side === "long" ? "green" : "red"} />}
+              {openPos && <Badge text={`live ${openPos.side} open`} tone={openPos.side === "long" ? "green" : "red"} />}
             </div>
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
               <span className="dim" style={{ fontSize: 11 }}>{viz?.title ?? "strategy view"} · scroll to zoom</span>
-              <span className="dim" style={{ fontSize: 11 }}>Bars</span>
-              <select className="rule-num" value={bars} title="How much history to load" onChange={(e) => setBars(Number(e.target.value))}>
-                {[500, 1000, 1500].map((b) => <option key={b} value={b}>{b}</option>)}
-              </select>
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
           </div>
-          {/* item #1: exactly what the ACTIVE strategy is watching — engine-declared */}
+          {/* exactly what the ACTIVE strategy uses — engine-declared */}
           {viz && (viz.used?.length ?? 0) > 0 && (
             <div className="viz-strip" title={viz.explain}>
               <span className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }}>
@@ -477,35 +382,12 @@ export default function BotTerminalPage() {
               Supply/Demand or EMA 8/30) to run it on the bot.</div>
           )}
           {loading || !data?.candles?.length ? (
-            <div className="dim ta-center" style={{ padding: 120 }}>{loading ? "Loading real candles…" : "No data."}</div>
+            <div className="dim ta-center" style={{ padding: 120 }}>
+              {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
             <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
-          {/* replay controls (replay mode) / live info line */}
-          {data && !liveMode && (
-            <div className="row-actions" style={{ gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-              <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx(0); }} title="Restart"><Icon name="refresh" size={13} /></button>
-              <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx((i) => Math.max(0, i - 1)); }} title="Step back"><Icon name="skipBack" size={13} /></button>
-              <button className="btn btn-primary" onClick={() => setPlaying((p) => !p)}>
-                <Icon name={playing ? "pause" : "play"} size={13} /> {playing ? "Pause" : "Replay"}</button>
-              <button className="btn btn-soft" onClick={() => { setPlaying(false); setIdx((i) => Math.min((data.candles.length - 1), i + 1)); }} title="Step forward"><Icon name="skipForward" size={13} /></button>
-              <span style={{ width: 6 }} />
-              <button className="btn btn-soft" disabled={!tradesByEntry.length} onClick={() => jumpTrade(-1)} title="Jump to previous trade">◀ Trade</button>
-              <button className="btn btn-soft" disabled={!tradesByEntry.length} onClick={() => jumpTrade(1)} title="Jump to next trade — land on the entry and see why">Trade ▶</button>
-              <span className="dim" style={{ fontSize: 11 }}>{tradesByEntry.length} trades</span>
-              <span style={{ width: 6 }} />
-              <span className="dim" style={{ fontSize: 11 }}>Speed</span>
-              {SPEEDS.map((s) => <button key={s} className={`chip-btn ${speed === s ? "active" : ""}`} onClick={() => setSpeed(s)}>{s}x</button>)}
-              {!atLatest && <button className="chip-btn" onClick={() => { setSel(null); setPlaying(false); setIdx(data.candles.length - 1); }}>↦ Latest</button>}
-              <span className="dim mono" style={{ marginLeft: "auto", fontSize: 11 }}>
-                {idx + 1} / {data.candles.length} · {(candle?.t ?? "").replace("T", " ").slice(0, 16)}</span>
-            </div>
-          )}
-          {data && !liveMode && (
-            <input type="range" min={0} max={data.candles.length - 1} value={idx}
-              onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} style={{ width: "100%", marginTop: 6 }} />
-          )}
-          {data && liveMode && (
+          {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
               <span className="dim">Watching the live market — the engine acts when a {tf} candle closes.</span>
               <span className="dim mono" style={{ marginLeft: "auto" }}>
@@ -518,13 +400,12 @@ export default function BotTerminalPage() {
         {/* right panel: Bot Decision Engine / Developer view */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
           {!dev ? (
-            <Card title="Bot Decision Engine" subtitle={liveMode ? "live AI reasoning on the current market" : "AI reasoning at the replay cursor"}>
+            <Card title="Bot Decision Engine" subtitle="live AI reasoning on the current market">
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span className={`pulse-dot ${openPos || inRunTrade ? "green" : frame?.blocked && !liveMode ? "red" : "gold"}`} />
+                <span className={`pulse-dot ${openPos ? "green" : "gold"}`} />
                 <b style={{ fontSize: 13 }}>{state}</b>
                 <span className="dim" style={{ fontSize: 11.5, marginLeft: "auto" }}>waiting for: {waiting}</span>
               </div>
-              {/* trade signal banner + confidence gauge */}
               <div className={`signal-banner ${signal === "LONG" ? "long" : signal === "SHORT" ? "short" : "wait"}`}>
                 <span>TRADE SIGNAL</span><b>{signal}</b>
               </div>
@@ -553,47 +434,34 @@ export default function BotTerminalPage() {
                   {ai ? `${ai.confidence_pct}% · ${ai.confidence_level}` : "—"}</span>)}
                 {kv("Decision", <Badge text={signal} tone={signal === "LONG" ? "green" : signal === "SHORT" ? "red" : "amber"} />)}
               </div>
-              {liveMode && openPos && (
+              {openPos ? (
                 <>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Live position (real)</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Trade details (live position)</div>
                   <div className="risk-list" style={{ fontSize: 12.5 }}>
-                    {kv("Side / size", `${openPos.side.toUpperCase()} · ${openPos.size}`)}
+                    {kv("Direction", <Badge text={openPos.side.toUpperCase()} tone={openPos.side === "long" ? "green" : "red"} />)}
                     {kv("Entry", openPos.entry)}
-                    {kv("Stop", openPos.stop ?? "—")}
+                    {kv("Stop Loss", openPos.stop != null ? `${openPos.stop} (${(((openPos.stop - openPos.entry) / openPos.entry) * 100).toFixed(2)}%)` : "—")}
+                    {kv("Position Size", `${openPos.size} ${openPos.symbol.replace(/USDT?$/, "")}`)}
                     {kv("Unrealized", <span className={(liveUPnl ?? 0) >= 0 ? "pos" : "neg"}>
                       {liveUPnl != null ? `${liveUPnl >= 0 ? "+" : "−"}$${Math.abs(liveUPnl).toFixed(2)}` : "—"}</span>)}
+                    {kv("Status", <Badge text="OPEN" tone="green" />)}
                   </div>
+                  <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }}
+                    disabled={closing} onClick={() => closePosition(openPos)}>
+                    <Icon name="close" size={13} /> {closing ? "Closing…" : "Close Position"}</button>
                 </>
-              )}
-              {(openPos || ai?.setup) && (
+              ) : ai?.setup ? (
                 <>
-                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Trade details</div>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Proposed setup</div>
                   <div className="risk-list" style={{ fontSize: 12.5 }}>
-                    {openPos ? (
-                      <>
-                        {kv("Direction", <Badge text={openPos.side.toUpperCase()} tone={openPos.side === "long" ? "green" : "red"} />)}
-                        {kv("Entry", openPos.entry)}
-                        {kv("Stop Loss", openPos.stop != null ? `${openPos.stop} (${(((openPos.stop - openPos.entry) / openPos.entry) * 100).toFixed(2)}%)` : "—")}
-                        {kv("Position Size", `${openPos.size} ${openPos.symbol.replace(/USDT?$/, "")}`)}
-                        {kv("Unrealized", <span className={(liveUPnl ?? 0) >= 0 ? "pos" : "neg"}>
-                          {liveUPnl != null ? `${liveUPnl >= 0 ? "+" : "−"}$${Math.abs(liveUPnl).toFixed(2)}` : "—"}</span>)}
-                        {kv("Status", <Badge text="OPEN" tone="green" />)}
-                        <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }}
-                          disabled={closing} onClick={() => closePosition(openPos)}>
-                          <Icon name="close" size={13} /> {closing ? "Closing…" : "Close Position"}</button>
-                      </>
-                    ) : ai?.setup ? (
-                      <>
-                        {kv("Entry", ai.setup.entry)}
-                        {kv("Stop Loss", `${ai.setup.stop} (${(((ai.setup.stop - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
-                        {kv("Take Profit", `${ai.setup.target} (${(((ai.setup.target - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
-                        {kv("Risk / Reward", ai.risk_analysis ? `1 : ${ai.risk_analysis.risk_reward}` : "—")}
-                        {kv("Status", <Badge text={ai.allowed ? "PROPOSED" : "NOT QUALIFIED"} tone={ai.allowed ? "amber" : "default"} />)}
-                      </>
-                    ) : null}
+                    {kv("Entry", ai.setup.entry)}
+                    {kv("Stop Loss", `${ai.setup.stop} (${(((ai.setup.stop - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
+                    {kv("Take Profit", `${ai.setup.target} (${(((ai.setup.target - ai.setup.entry) / ai.setup.entry) * 100).toFixed(2)}%)`)}
+                    {kv("Risk / Reward", ai.risk_analysis ? `1 : ${ai.risk_analysis.risk_reward}` : "—")}
+                    {kv("Status", <Badge text={ai.allowed ? "PROPOSED" : "NOT QUALIFIED"} tone={ai.allowed ? "amber" : "default"} />)}
                   </div>
                 </>
-              )}
+              ) : null}
               <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Reasoning</div>
               <ul style={{ margin: 0, paddingLeft: 4, listStyle: "none", fontSize: 12.5, lineHeight: 1.7 }}>
                 {checks.slice(0, 7).map((c) => (
@@ -603,7 +471,7 @@ export default function BotTerminalPage() {
               </ul>
             </Card>
           ) : (
-            <Card title="Developer View" subtitle={`brain state @ candle ${idx + 1}${data ? ` / ${data.candles.length}` : ""}`}>
+            <Card title="Developer View" subtitle="brain state · latest candle">
               <div className="risk-list" style={{ fontSize: 12.5 }}>
                 {kv("Strategy score", <span className={(frame?.score ?? 0) >= 60 ? "pos" : "neg"}>{frame ? `${frame.score}/100` : "—"}</span>)}
                 {kv("Regime", frame?.regime ?? "—")}
@@ -630,45 +498,17 @@ export default function BotTerminalPage() {
                 </div>
               ))}
               {frame?.blocked && <div className="banner" style={{ marginTop: 8, fontSize: 12 }}><Icon name="warning" size={12} /> Blocked: {frame.reason}</div>}
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "10px 0 4px" }}>Recent rejected trades</div>
-              {rejections.length === 0 && <div className="dim" style={{ fontSize: 12 }}>None up to this candle.</div>}
-              {rejections.map((r) => (
-                <button key={r.idx} className="dev-reject" onClick={() => { setPlaying(false); setMode("replay"); setIdx(r.idx); setSel(null); }}>
-                  <span className="mono dim">{hhmmss(data?.candles[r.idx]?.t)}</span> <span className="neg">✗</span> {r.reason}
-                </button>
-              ))}
-            </Card>
-          )}
-
-          {/* selected-trade analysis */}
-          {sel && (
-            <Card title={`Trade #${sel.id} — ${sel.side.toUpperCase()}`} subtitle={`${symbol} · ${hhmm(data?.candles?.[sel.entry_idx]?.t)} UTC`}>
-              <div className="risk-list" style={{ fontSize: 12.5 }}>
-                {kv("Result", <Badge text={sel.result || sel.status || "open"} tone={(sel.rr ?? 0) > 0 ? "green" : sel.exit_idx == null ? "amber" : "red"} />)}
-                {kv("Entry → Exit", `${sel.entry} → ${sel.exit ?? "…"}`)}
-                {kv("SL / TP", `${sel.sl} / ${sel.tp}`)}
-                {kv("R multiple", <span className={(sel.rr ?? 0) >= 0 ? "pos" : "neg"}>{sel.rr != null ? `${sel.rr >= 0 ? "+" : ""}${sel.rr}R` : "—"}</span>)}
-                {kv("Setup score", `${sel.score}/100`)}
-                {kv("Duration", durationOf(sel))}
-                {kv("Exit reason", sel.exit_reason ?? "—")}
-                {kv("Risk / trade", risk?.risk_per_trade_pct != null ? `${(risk.risk_per_trade_pct * 100).toFixed(1)}%` : "—")}
-              </div>
-              <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "10px 0 4px" }}>Why it entered</div>
-              <ul style={{ margin: 0, paddingLeft: 4, listStyle: "none", fontSize: 12, lineHeight: 1.7 }}>
-                {(sel.entry_reasons ?? []).map((r, i) => <li key={i}><span className="pos">✔</span> {r}</li>)}
-              </ul>
-              {sel.loss_analysis && <div className="banner" style={{ marginTop: 8, fontSize: 12 }}><Icon name="info" size={12} /> {sel.loss_analysis}</div>}
             </Card>
           )}
         </div>
       </div>
 
-      {/* ── bottom dock: tabbed blotter (positions · history · orders · activity · performance · equity) ── */}
+      {/* ── bottom dock: live blotter ── */}
       <div className="dock" style={{ marginTop: 12 }}>
         <div className="dock-tabs">
           {([
             ["positions", "Open Positions", (positions ?? []).length],
-            ["history", "Trade History", (liveMode ? (liveTrades ?? []).length : runTrades.length)],
+            ["history", "Trade History", (liveTrades ?? []).length],
             ["orders", "Orders", orders.length],
             ["activity", "Activity", 0],
             ["performance", "Performance", 0],
@@ -707,8 +547,8 @@ export default function BotTerminalPage() {
             ) : <div className="dim ta-center" style={{ padding: 26 }}>No open positions — the engine holds nothing right now.</div>
           )}
 
-          {/* ── Trade History ── */}
-          {dockTab === "history" && (liveMode ? (
+          {/* ── Trade History (real live paper trades) ── */}
+          {dockTab === "history" && (
             <table className="data-table" style={{ fontSize: 12 }}>
               <thead><tr><th>Opened</th><th>Symbol</th><th>Dir</th><th>Size</th><th>Entry</th><th>Exit</th><th>PnL</th><th>R</th><th>Status</th></tr></thead>
               <tbody>
@@ -729,26 +569,7 @@ export default function BotTerminalPage() {
                   No live trades yet — the engine is selective; watch Activity while it scans.</td></tr>}
               </tbody>
             </table>
-          ) : (
-            <table className="data-table" style={{ fontSize: 12 }}>
-              <thead><tr><th>#</th><th>Dir</th><th>Entry</th><th>Exit</th><th>R</th><th>Score</th><th>Duration</th><th>Status</th></tr></thead>
-              <tbody>
-                {runTrades.map((t) => (
-                  <tr key={t.id} style={{ cursor: "pointer" }} className={sel?.id === t.id ? "active-row" : ""} onClick={() => focusTrade(t)}>
-                    <td className="dim">{t.id}</td>
-                    <td><Badge text={t.side === "long" ? "LONG" : "SHORT"} tone={t.side === "long" ? "green" : "red"} /></td>
-                    <td className="mono">{t.entry}</td>
-                    <td className="mono dim">{t.exit ?? "open"}</td>
-                    <td className={(t.rr ?? 0) >= 0 ? "pos" : "neg"}>{t.rr != null ? `${t.rr >= 0 ? "+" : ""}${t.rr}` : "—"}</td>
-                    <td className="dim">{t.score}</td>
-                    <td className="dim">{durationOf(t)}</td>
-                    <td className={t.result === "win" ? "pos" : t.result === "loss" ? "neg" : "dim"}>{t.result || t.status || "open"}</td>
-                  </tr>
-                ))}
-                {runTrades.length === 0 && <tr><td colSpan={8} className="dim ta-center" style={{ padding: 26 }}>No trades this run — the bot was selective.</td></tr>}
-              </tbody>
-            </table>
-          ))}
+          )}
 
           {/* ── Orders (real fills the engine placed) ── */}
           {dockTab === "orders" && (
@@ -772,43 +593,32 @@ export default function BotTerminalPage() {
             ) : <div className="dim ta-center" style={{ padding: 26 }}>No orders yet — the engine places a market order on each entry and exit.</div>
           )}
 
-          {/* ── Activity (real engine log / replay timeline) ── */}
+          {/* ── Activity (real engine log) ── */}
           {dockTab === "activity" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {liveMode ? (
-                (logs ?? []).length ? (logs ?? []).map((l, i) => (
-                  <div key={l.id ?? i} className="tl-row" style={{ cursor: "default" }}>
-                    <span className="mono dim" style={{ fontSize: 11, width: 58, flexShrink: 0 }}>{hhmmss(l.ts)}</span>
-                    <span className={`tl-dot ${l.level === "error" ? "veto" : l.level === "warning" ? "signal" : "entry"}`} />
-                    <Icon name={STAGE_ICON[l.stage] ?? "info"} size={12} className="dim" />
-                    <span style={{ fontSize: 12.5 }}>{l.message}</span>
-                  </div>
-                )) : <div className="dim ta-center" style={{ padding: 26 }}>No live engine activity yet — start the engine from Paper Trading.</div>
-              ) : (
-                runEvents.length ? runEvents.map((e, i) => (
-                  <button key={i} className="tl-row" onClick={() => { setPlaying(false); setIdx(e.idx); setSel(null); }}>
-                    <span className="mono dim" style={{ fontSize: 11, width: 44, flexShrink: 0 }}>{hhmm(data?.candles[e.idx]?.t)}</span>
-                    <span className={`tl-dot ${e.kind}`} />
-                    <Icon name={EVT_ICON[e.kind] ?? "info"} size={12} className="dim" />
-                    <span style={{ fontSize: 12.5 }}>{e.text}</span>
-                  </button>
-                )) : <div className="dim ta-center" style={{ padding: 26 }}>No activity up to this candle.</div>
-              )}
+              {(logs ?? []).length ? (logs ?? []).map((l, i) => (
+                <div key={l.id ?? i} className="tl-row" style={{ cursor: "default" }}>
+                  <span className="mono dim" style={{ fontSize: 11, width: 58, flexShrink: 0 }}>{hhmmss(l.ts)}</span>
+                  <span className={`tl-dot ${l.level === "error" ? "veto" : l.level === "warning" ? "signal" : "entry"}`} />
+                  <Icon name={STAGE_ICON[l.stage] ?? "info"} size={12} className="dim" />
+                  <span style={{ fontSize: 12.5 }}>{l.message}</span>
+                </div>
+              )) : <div className="dim ta-center" style={{ padding: 26 }}>No live engine activity yet — start the engine from Paper Trading.</div>}
             </div>
           )}
 
-          {/* ── Performance (this run) ── */}
+          {/* ── Performance (the engine's real live track record) ── */}
           {dockTab === "performance" && (
             <div className="stat-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-              <StatCard label="Win Rate" value={data?.stats ? `${data.stats.win_rate}%` : "—"} tone={(data?.stats?.win_rate ?? 0) >= 50 ? "green" : "amber"} />
-              <StatCard label="Net R" value={data?.stats ? `${data.stats.net_r >= 0 ? "+" : ""}${data.stats.net_r}` : "—"} tone={(data?.stats?.net_r ?? 0) >= 0 ? "green" : "red"} />
-              <StatCard label="Profit Factor" value={data?.stats ? String(data.stats.profit_factor) : "—"} tone={(data?.stats?.profit_factor ?? 0) >= 1 ? "green" : "red"} />
-              <StatCard label="Expectancy" value={data?.stats ? `${data.stats.expectancy_r >= 0 ? "+" : ""}${data.stats.expectancy_r}R` : "—"} tone={(data?.stats?.expectancy_r ?? 0) >= 0 ? "green" : "red"} />
-              <StatCard label="Avg RR" value={data?.stats ? `${data.stats.avg_rr}` : "—"} sub={data?.stats ? `${data.stats.trades} trades` : ""} />
-              <StatCard label="Max DD" value={data?.stats ? `${data.stats.max_drawdown_r}R` : "—"} tone="amber" />
-              <StatCard label="Max Consec W / L" value={data?.stats ? `${data.stats.max_consecutive_wins} / ${data.stats.max_consecutive_losses}` : "—"} />
-              <StatCard label="Streak" value={data?.stats ? `${data.stats.current_streak > 0 ? "+" : ""}${data.stats.current_streak}` : "—"}
-                tone={(data?.stats?.current_streak ?? 0) >= 0 ? "green" : "red"} />
+              <StatCard label="Win Rate" value={perf ? `${(perf.win_rate ?? 0).toFixed(1)}%` : "—"} tone={(perf?.win_rate ?? 0) >= 50 ? "green" : "amber"} />
+              <StatCard label="Profit Factor" value={perf ? (perf.profit_factor ?? 0).toFixed(2) : "—"} tone={(perf?.profit_factor ?? 0) >= 1 ? "green" : "red"} />
+              <StatCard label="Realized P&L" value={perf ? `${(perf.realized_pnl ?? 0) >= 0 ? "+" : "−"}$${Math.abs(perf.realized_pnl ?? 0).toFixed(2)}` : "—"}
+                tone={(perf?.realized_pnl ?? 0) >= 0 ? "green" : "red"} />
+              <StatCard label="Max Drawdown" value={perf ? `${(perf.max_drawdown_pct ?? 0).toFixed(1)}%` : "—"} tone="amber" />
+              <StatCard label="Trades" value={perf ? String(perf.trades ?? 0) : "—"} sub="closed" />
+              <StatCard label="Balance" value={perf ? `$${(perf.balance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"} />
+              <StatCard label="Worst Streak" value={perf ? String(perf.longest_losing_streak ?? 0) : "—"} sub="losses in a row" />
+              <StatCard label="Strategy" value={perf?.strategy ?? eng?.strategy ?? "—"} />
             </div>
           )}
 
@@ -826,8 +636,8 @@ export default function BotTerminalPage() {
 
       {/* ── live status bar (real fields only — nothing invented) ── */}
       <div className="term-status">
-        <span><span className="dim">Mode</span> {liveMode ? (wsOk ? "LIVE · WS stream" : "LIVE · REST poll") : "replay"}</span>
-        <span><span className="dim">Data</span> {data?.meta?.data_source_label ?? data?.meta?.data_source ?? "—"}</span>
+        <span><span className="dim">Mode</span> {wsOk ? "LIVE · WS stream" : "LIVE · REST poll"}</span>
+        <span><span className="dim">Data</span> Binance live</span>
         <span><span className="dim">Feed</span> <span className={eng?.running ? "pos" : "dim"}>{(eng as any)?.feed_status ?? (eng?.running ? "running" : "stopped")}</span></span>
         <span><span className="dim">Bars</span> {data?.candles?.length ?? 0}</span>
         <span><span className="dim">Last candle</span> {hhmmss(data?.candles?.[data.candles.length - 1]?.t) || "—"}</span>
