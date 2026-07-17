@@ -35,7 +35,11 @@ export default function SafetyCenterPage() {
 
   return (
     <>
-      <PageHeader title="Safety Center" subtitle="Live-trading gate, progression flow, data separation and emergency controls" />
+      <PageHeader
+        title="Safety Center"
+        subtitle="Live-trading gate, progression flow, data separation and emergency controls"
+        actions={<button className="btn btn-soft btn-sm" onClick={() => app.go("Live Trading")}><Icon name="chart" size={13} /> Live Trading</button>}
+      />
 
       <LiveReadinessPanel />
 

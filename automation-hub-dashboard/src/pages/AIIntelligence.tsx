@@ -3,6 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights, type AICoach, type TradeMemoryInsights } from "../lib/api";
+import { useApp } from "../app-context";
 
 const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
@@ -15,6 +16,7 @@ const TFS = ["15m", "1h", "4h", "1d"] as const;
 const SIDES = [["", "Auto"], ["long", "Long"], ["short", "Short"]] as const;
 
 export default function AIIntelligencePage() {
+  const { go } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState<(typeof TFS)[number]>("1h");
   const [side, setSide] = useState("");
@@ -45,7 +47,9 @@ export default function AIIntelligencePage() {
   return (
     <>
       <PageHeader title="AI Trading Intelligence"
-        subtitle="On-demand pre-trade analysis — setup score, confidence, explanation and risk, composed from the engine's own reads" />
+        subtitle="On-demand pre-trade analysis — setup score, confidence, explanation and risk, composed from the engine's own reads"
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("AI Assistant")}><Icon name="bot" size={13} /> AI Assistant</button>}
+      />
 
       {/* controls */}
       <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
