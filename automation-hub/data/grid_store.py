@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -32,8 +33,25 @@ def _path() -> Path:
     return Path(os.environ.get("HUB_DATA_DIR", ".")) / "grid.json"
 
 
+def _mirror_write(snapshot: Optional[dict]) -> None:
+    m = _mirror()
+    if m is None:
+        return
+    try:
+        if snapshot is None:
+            m.delete(_USER, _NS)
+        else:
+            m.set(_USER, _NS, snapshot)
+    except Exception:  # noqa: BLE001 — durable write best-effort
+        pass
+
+
 def save(snapshot: Optional[dict]) -> None:
-    """Persist the grid snapshot; pass None to clear it (grid stopped)."""
+    """Persist the grid snapshot; pass None to clear it (grid stopped).
+
+    The local JSON write is synchronous (fast, local disk); the Supabase mirror
+    runs on a daemon thread so a slow/hanging Supabase can never stall the grid
+    runner between candles or block the /grid/start & /grid/stop requests."""
     p = _path()
     try:
         if snapshot is None:
@@ -44,15 +62,9 @@ def save(snapshot: Optional[dict]) -> None:
             p.write_text(json.dumps(snapshot))
     except Exception:  # noqa: BLE001 — local write best-effort
         pass
-    m = _mirror()
-    if m is not None:
-        try:
-            if snapshot is None:
-                m.delete(_USER, _NS)
-            else:
-                m.set(_USER, _NS, snapshot)
-        except Exception:  # noqa: BLE001 — durable write best-effort
-            pass
+    # fire-and-forget the remote mirror so persistence never blocks the caller
+    threading.Thread(target=_mirror_write, args=(snapshot,),
+                     name="grid-mirror", daemon=True).start()
 
 
 def load() -> Optional[dict]:
