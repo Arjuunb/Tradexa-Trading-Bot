@@ -304,7 +304,7 @@ def render_dashboard_html(
     # 1. HEADER
     header = f'''
     <header class="topbar">
-      <div class="brand">⚡ TRADING BOT DASHBOARD</div>
+      <div class="brand">TradeLogX Nexus</div>
       <div class="status-chips">
         <span class="chip chip-{status_cls}">● {_esc(status)}</span>
         <span class="chip">Mode: <b>{_esc(mode)}</b></span>

@@ -40,7 +40,7 @@ class Settings:
     secret_key: str = field(default_factory=lambda: os.environ.get("HUB_SECRET", "dev-insecure-secret"))
 
     # --- display ---
-    app_name: str = "Automation Hub"
+    app_name: str = "TradeLogX Nexus"
     currency: str = field(default_factory=lambda: os.environ.get("HUB_CURRENCY", "£"))
 
     # --- defaults for new bots ---

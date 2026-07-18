@@ -19,7 +19,7 @@ export default function Backup() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "tradexa-settings.json";
+    a.download = "tradelogx-nexus-settings.json";
     a.click();
     URL.revokeObjectURL(url);
     toast("Configuration downloaded", "success");

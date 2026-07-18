@@ -386,7 +386,7 @@ function AccountCard() {
   };
 
   return (
-    <Card title="Tradexa Account" subtitle="who is signed in · change password · sign out"
+    <Card title="TradeLogX Nexus Account" subtitle="who is signed in · change password · sign out"
       right={<button className="btn btn-danger" onClick={logout}><Icon name="close" size={13} /> Log out</button>}>
       <div className="risk-list" style={{ marginBottom: 10 }}>
         <div className="risk-item"><span className="dim">Signed in as</span>

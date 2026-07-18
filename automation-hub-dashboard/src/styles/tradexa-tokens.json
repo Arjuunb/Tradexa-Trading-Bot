@@ -1,11 +1,11 @@
 {
-  "$description": "Tradexa Trading Bot \u2014 design tokens. Premium fintech, dark-mode-first, 8px system. Portable to Figma (Variables / Tokens Studio) and Style Dictionary so the bot UI merges into Tradexa without a redesign.",
+  "$description": "TradeLogX Nexus \u2014 design tokens. Premium fintech, dark-mode-first, 8px system. Portable to Figma (Variables / Tokens Studio) and Style Dictionary so the UI is unified under TradeLogX Nexus without a redesign.",
   "color": {
     "bg": {
       "primary": {
         "value": "#070708",
         "type": "color",
-        "description": "Primary background (Tradexa near-black)"
+        "description": "Primary background (TradeLogX Nexus near-black)"
       },
       "secondary": {
         "value": "#0D0D0F",
@@ -33,7 +33,7 @@
       "gold": {
         "value": "#EAB54F",
         "type": "color",
-        "description": "Primary accent (Tradexa gold)"
+        "description": "Primary accent (TradeLogX Nexus gold)"
       },
       "gold-hover": {
         "value": "#F2C66E",
@@ -43,7 +43,7 @@
       "sky": {
         "value": "#7CB9E8",
         "type": "color",
-        "description": "CTA blue (Tradexa journal)"
+        "description": "CTA blue (TradeLogX Nexus journal)"
       }
     },
     "state": {

@@ -1,8 +1,8 @@
 :root {
-  /* ── Tradexa design tokens ─────────────────────────────────────────────
+  /* ── TradeLogX Nexus design tokens ─────────────────────────────────────────────
      Premium fintech design language · dark mode first · 8px spacing system.
      Variable names are kept stable so the whole app retargets at once. */
-  --bg: #070708;            /* Primary background — Tradexa near-black */
+  --bg: #070708;            /* Primary background — TradeLogX Nexus near-black */
   --bg-2: #0d0d0f;          /* Secondary background */
   --card-1: #121214;        /* Card background      */
   --card-2: #0e0e10;        /* Nested / inset surface */
@@ -12,9 +12,9 @@
   --text: #ffffff;          /* Primary text   */
   --dim: #b0b8c4;           /* Secondary text */
   --dim-2: #7c8798;         /* Muted text     */
-  --purple: #eab54f;        /* Tradexa gold (name kept stable — retargeted) */
+  --purple: #eab54f;        /* TradeLogX Nexus gold (name kept stable — retargeted) */
   --purple-2: #f2c66e;      /* Gold hover */
-  --sky: #7cb9e8;           /* Tradexa CTA blue */
+  --sky: #7cb9e8;           /* TradeLogX Nexus CTA blue */
   --gold: #eab54f;          /* Accent gold    */
   --amber: #eab54f;         /* alias → gold (warnings / highlights) */
   --green: #22c55e;         /* Profit */
@@ -140,7 +140,7 @@ a.brand:hover { opacity: 0.85; }
   box-shadow: 0 0 18px rgba(234, 181, 79, 0.12) inset, 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 .nav-item.active .nav-ico { color: var(--gold); filter: drop-shadow(0 0 6px rgba(234, 181, 79, 0.5)); }
-/* Tradexa active rail — the gold edge from the reference */
+/* TradeLogX Nexus active rail — the gold edge from the reference */
 .nav-item.active::before {
   content: ""; position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
   width: 3px; height: 18px; border-radius: 3px; background: var(--gold);

@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from typing import Optional  # noqa: E402
-from fastapi import FastAPI, Form, Request  # noqa: E402
+from fastapi import FastAPI, Form, HTTPException, Request  # noqa: E402
 from fastapi.responses import (  # noqa: E402
     HTMLResponse, RedirectResponse, StreamingResponse,
 )
@@ -127,7 +127,9 @@ async def _frame_ancestors(request, call_next):
 # TradingView webhook (it authenticates with the secret in its own handler),
 # static assets, and "/" (which redirects anonymous visitors to /login).
 _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
-                "/favicon", "/docs", "/openapi.json", "/redoc", "/health", "/version")
+                "/favicon", "/docs", "/openapi.json", "/redoc", "/health", "/version",
+                "/nexus-mark", "/apple-touch", "/icon-", "/maskable-", "/mstile-",
+                "/og-image", "/logo-mark", "/site.webmanifest")
 
 
 @app.middleware("http")
@@ -174,6 +176,29 @@ if _WEBUI_READY and (_WEBUI / "assets").exists():
     app.mount(_DASH_ASSETS, StaticFiles(directory=str(_WEBUI / "assets")), name="assets")
 if _LANDING_READY and (_LANDING / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(_LANDING / "assets")), name="landing-assets")
+
+# Root-level brand assets (favicons, PWA icons, OG image, manifest). Vite copies
+# these from each app's public/ into its dist root, so they live beside index.html
+# rather than under /assets. Serve them from whichever built app has them, plus a
+# repo fallback so the backend-hosted pages (auth, legacy) always find the mark.
+from fastapi.responses import FileResponse  # noqa: E402
+_BRAND_FILES = ("nexus-mark.svg", "favicon-16.png", "favicon-32.png", "favicon-48.png",
+                "apple-touch-icon.png", "icon-192.png", "icon-512.png", "maskable-512.png",
+                "mstile-150.png", "og-image.png", "logo-mark-512.png", "site.webmanifest")
+_BRAND_FALLBACK = Path(__file__).resolve().parent / "static" / "brand"
+
+
+def _brand_asset(name: str):
+    for base in (_LANDING, _WEBUI, _BRAND_FALLBACK):
+        p = base / name
+        if p.exists():
+            return FileResponse(str(p))
+    raise HTTPException(status_code=404, detail="not found")
+
+
+for _bf in _BRAND_FILES:
+    app.add_api_route(f"/{_bf}", (lambda n: lambda: _brand_asset(n))(_bf),
+                      methods=["GET"], include_in_schema=False)
 
 
 def _serve_react() -> HTMLResponse:
@@ -320,10 +345,40 @@ def _signup_open() -> bool:
 
 
 # ----------------------------------------------------------------------- login
+# TradeLogX Nexus brand mark — gold intelligence core, blue data links (matches
+# the dashboard Logo component so both apps carry ONE brand).
+_BRAND_MARK = ('<svg width="32" height="32" viewBox="0 0 96 96" fill="none" '
+               'xmlns="http://www.w3.org/2000/svg" aria-label="TradeLogX Nexus">'
+               '<defs>'
+               '<linearGradient id="nxsA" x1="24" y1="0" x2="72" y2="0" gradientUnits="userSpaceOnUse">'
+               '<stop offset="0" stop-color="#E9EEF3"/><stop offset=".46" stop-color="#AEB7C2"/>'
+               '<stop offset=".54" stop-color="#E7C766"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+               '<linearGradient id="nxrA" x1="14" y1="14" x2="82" y2="82" gradientUnits="userSpaceOnUse">'
+               '<stop stop-color="#E7C766"/><stop offset=".5" stop-color="#8A929C"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+               '</defs>'
+               '<circle cx="48" cy="48" r="41" stroke="url(#nxrA)" stroke-width="2.6" opacity="0.85"/>'
+               '<path d="M31 70 V32 M31 32 L65 70 M65 70 V26" stroke="url(#nxsA)" stroke-width="11" stroke-linecap="butt" stroke-linejoin="miter"/>'
+               '<path d="M31 14 L40 30 H22 Z" fill="#E9EEF3"/>'
+               '<path d="M65 82 L56 66 H74 Z" fill="#C6961F"/></svg>')
+_BRAND_HEAD = (f'<div class="brand">{_BRAND_MARK}'
+               '<span class="wordmark">TradeLogX <b>Nexus</b></span></div>')
+# gold-led overrides scoped to the auth pages (dashboard blue stays the accent)
+_AUTH_CSS = '''.brand{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+.wordmark{font-size:18px;font-weight:600;letter-spacing:-.01em;color:#e9edf2}
+.wordmark b{color:#C9A24B;font-weight:700}
+.login .btn{background:linear-gradient(135deg,#f2c766,#C9A24B);color:#0a0a0a;font-weight:700}
+.login a{color:#C9A24B}'''
+
+
 def _auth_page(title: str, body: str) -> str:
     return f'''<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{w.esc(title)} · Tradexa</title><style>{w._CSS}</style></head>
+<meta name="theme-color" content="#0a0a0c">
+<title>{w.esc(title)} · TradeLogX Nexus</title>
+<link rel="icon" type="image/svg+xml" href="/nexus-mark.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>{w._CSS}{_AUTH_CSS}</style></head>
 <body>{body}</body></html>'''
 
 
@@ -331,10 +386,10 @@ def _auth_page(title: str, body: str) -> str:
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
     signup = ('<p style="margin-top:12px">New here? '
-              '<a href="/signup">Create your Tradexa account</a></p>'
+              '<a href="/signup">Create your TradeLogX Nexus account</a></p>'
               if _signup_open() else "")
     return _auth_page("Sign in", f'''<form class="login" method="post" action="/login">
-<h1>⚡ Tradexa</h1>
+{_BRAND_HEAD}
 <p>Sign in to your trading workspace.</p>
 <label>Username</label><input name="username" autofocus>
 <label>Password</label><input name="password" type="password">
@@ -355,12 +410,12 @@ def login(username: str = Form(...), password: str = Form(...)):
 @app.get("/signup", response_class=HTMLResponse)
 def signup_form(error: str = "") -> str:
     if not _signup_open():
-        return _auth_page("Sign up", '''<form class="login">
-<h1>⚡ Tradexa</h1><p>This hub already has an owner account.</p>
+        return _auth_page("Sign up", f'''<form class="login">
+{_BRAND_HEAD}<p>This hub already has an owner account.</p>
 <p><a href="/login">Sign in instead</a></p></form>''')
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
     return _auth_page("Create account", f'''<form class="login" method="post" action="/signup">
-<h1>⚡ Tradexa</h1>
+{_BRAND_HEAD}
 <p>Create the owner account for this trading hub. There is exactly one —
 it controls the bot, so pick a strong password.</p>
 <label>Username</label><input name="username" autofocus>

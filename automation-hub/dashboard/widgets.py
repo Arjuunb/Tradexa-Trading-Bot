@@ -50,6 +50,22 @@ def state_badge(state: str) -> str:
     return f'<span class="badge {cls}">{esc(state)}</span>'
 
 
+# TradeLogX Nexus brand mark — gold intelligence core, blue data links.
+_LOGO_MARK = ('<svg width="24" height="24" viewBox="0 0 96 96" fill="none" '
+              'xmlns="http://www.w3.org/2000/svg" aria-label="TradeLogX Nexus">'
+              '<defs>'
+              '<linearGradient id="nxsW" x1="24" y1="0" x2="72" y2="0" gradientUnits="userSpaceOnUse">'
+              '<stop offset="0" stop-color="#E9EEF3"/><stop offset=".46" stop-color="#AEB7C2"/>'
+              '<stop offset=".54" stop-color="#E7C766"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+              '<linearGradient id="nxrW" x1="14" y1="14" x2="82" y2="82" gradientUnits="userSpaceOnUse">'
+              '<stop stop-color="#E7C766"/><stop offset=".5" stop-color="#8A929C"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+              '</defs>'
+              '<circle cx="48" cy="48" r="41" stroke="url(#nxrW)" stroke-width="2.6" opacity="0.85"/>'
+              '<path d="M31 70 V32 M31 32 L65 70 M65 70 V26" stroke="url(#nxsW)" stroke-width="11" stroke-linecap="butt" stroke-linejoin="miter"/>'
+              '<path d="M31 14 L40 30 H22 Z" fill="#E9EEF3"/>'
+              '<path d="M65 82 L56 66 H74 Z" fill="#C6961F"/></svg>')
+
+
 def page(*, title: str, active: str, body: str, app_name: str = "Automation Hub",
          user: str = "") -> str:
     nav_html = "".join(
@@ -64,7 +80,7 @@ def page(*, title: str, active: str, body: str, app_name: str = "Automation Hub"
 </head><body>
 <div class="app">
   <aside class="sidebar">
-    <div class="logo">⚡ {esc(app_name)}</div>
+    <div class="logo">{_LOGO_MARK}<span class="wordmark">TradeLogX <b>Nexus</b></span></div>
     <nav>{nav_html}</nav>
     <form class="logout" method="post" action="/logout">
       <button type="submit">Log out{f" ({esc(user)})" if user else ""}</button>
@@ -90,7 +106,9 @@ a{color:inherit;text-decoration:none}
 .app{display:flex;min-height:100vh}
 .sidebar{width:210px;background:var(--sidebar);border-right:1px solid var(--line);
 display:flex;flex-direction:column;padding:14px 0;position:sticky;top:0;height:100vh}
-.logo{font-weight:700;padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:600;padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.logo .wordmark{font-size:15px;letter-spacing:-.01em;color:#e9edf2}
+.logo .wordmark b{color:#C9A24B;font-weight:700}
 .nav-item{display:block;padding:9px 18px;color:var(--dim);border-left:3px solid transparent}
 .nav-item:hover{background:#141a24;color:var(--txt)}
 .nav-item.active{color:#fff;border-left-color:var(--accent);background:#141a24}
