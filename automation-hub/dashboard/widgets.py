@@ -50,6 +50,16 @@ def state_badge(state: str) -> str:
     return f'<span class="badge {cls}">{esc(state)}</span>'
 
 
+# TradeLogX Nexus brand mark — gold intelligence core, blue data links.
+_LOGO_MARK = ('<svg width="22" height="22" viewBox="0 0 32 32" fill="none" '
+              'xmlns="http://www.w3.org/2000/svg" aria-label="TradeLogX Nexus">'
+              '<circle cx="16" cy="16" r="9.2" stroke="rgba(201,162,75,0.35)" stroke-width="1" fill="none"/>'
+              '<g stroke="#3E7BD6" stroke-width="1.4"><path d="M16 16 5 6M16 16l11-10M16 16 5 26M16 16l11 10"/></g>'
+              '<g fill="#6EA3EC"><circle cx="5" cy="6" r="2.4"/><circle cx="27" cy="6" r="2.4"/>'
+              '<circle cx="5" cy="26" r="2.4"/><circle cx="27" cy="26" r="2.4"/></g>'
+              '<circle cx="16" cy="16" r="4.4" fill="#C9A24B"/></svg>')
+
+
 def page(*, title: str, active: str, body: str, app_name: str = "Automation Hub",
          user: str = "") -> str:
     nav_html = "".join(
@@ -64,7 +74,7 @@ def page(*, title: str, active: str, body: str, app_name: str = "Automation Hub"
 </head><body>
 <div class="app">
   <aside class="sidebar">
-    <div class="logo">⚡ {esc(app_name)}</div>
+    <div class="logo">{_LOGO_MARK}<span class="wordmark">TradeLogX <b>Nexus</b></span></div>
     <nav>{nav_html}</nav>
     <form class="logout" method="post" action="/logout">
       <button type="submit">Log out{f" ({esc(user)})" if user else ""}</button>
@@ -90,7 +100,9 @@ a{color:inherit;text-decoration:none}
 .app{display:flex;min-height:100vh}
 .sidebar{width:210px;background:var(--sidebar);border-right:1px solid var(--line);
 display:flex;flex-direction:column;padding:14px 0;position:sticky;top:0;height:100vh}
-.logo{font-weight:700;padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:600;padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.logo .wordmark{font-size:15px;letter-spacing:-.01em;color:#e9edf2}
+.logo .wordmark b{color:#C9A24B;font-weight:700}
 .nav-item{display:block;padding:9px 18px;color:var(--dim);border-left:3px solid transparent}
 .nav-item:hover{background:#141a24;color:var(--txt)}
 .nav-item.active{color:#fff;border-left-color:var(--accent);background:#141a24}

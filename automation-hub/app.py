@@ -320,10 +320,30 @@ def _signup_open() -> bool:
 
 
 # ----------------------------------------------------------------------- login
+# TradeLogX Nexus brand mark — gold intelligence core, blue data links (matches
+# the dashboard Logo component so both apps carry ONE brand).
+_BRAND_MARK = ('<svg width="30" height="30" viewBox="0 0 32 32" fill="none" '
+               'xmlns="http://www.w3.org/2000/svg" aria-label="TradeLogX Nexus">'
+               '<circle cx="16" cy="16" r="9.2" stroke="rgba(201,162,75,0.35)" stroke-width="1" fill="none"/>'
+               '<g stroke="#3E7BD6" stroke-width="1.4"><path d="M16 16 5 6M16 16l11-10M16 16 5 26M16 16l11 10"/></g>'
+               '<g fill="#6EA3EC"><circle cx="5" cy="6" r="2.4"/><circle cx="27" cy="6" r="2.4"/>'
+               '<circle cx="5" cy="26" r="2.4"/><circle cx="27" cy="26" r="2.4"/></g>'
+               '<circle cx="16" cy="16" r="4.4" fill="#C9A24B"/></svg>')
+_BRAND_HEAD = (f'<div class="brand">{_BRAND_MARK}'
+               '<span class="wordmark">TradeLogX <b>Nexus</b></span></div>')
+# gold-led overrides scoped to the auth pages (dashboard blue stays the accent)
+_AUTH_CSS = '''.brand{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+.wordmark{font-size:18px;font-weight:600;letter-spacing:-.01em;color:#e9edf2}
+.wordmark b{color:#C9A24B;font-weight:700}
+.login .btn{background:linear-gradient(135deg,#f2c766,#C9A24B);color:#0a0a0a;font-weight:700}
+.login a{color:#C9A24B}'''
+
+
 def _auth_page(title: str, body: str) -> str:
     return f'''<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{w.esc(title)} · Tradexa</title><style>{w._CSS}</style></head>
+<title>{w.esc(title)} · TradeLogX Nexus</title>
+<style>{w._CSS}{_AUTH_CSS}</style></head>
 <body>{body}</body></html>'''
 
 
@@ -331,10 +351,10 @@ def _auth_page(title: str, body: str) -> str:
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
     signup = ('<p style="margin-top:12px">New here? '
-              '<a href="/signup">Create your Tradexa account</a></p>'
+              '<a href="/signup">Create your TradeLogX Nexus account</a></p>'
               if _signup_open() else "")
     return _auth_page("Sign in", f'''<form class="login" method="post" action="/login">
-<h1>⚡ Tradexa</h1>
+{_BRAND_HEAD}
 <p>Sign in to your trading workspace.</p>
 <label>Username</label><input name="username" autofocus>
 <label>Password</label><input name="password" type="password">
@@ -355,12 +375,12 @@ def login(username: str = Form(...), password: str = Form(...)):
 @app.get("/signup", response_class=HTMLResponse)
 def signup_form(error: str = "") -> str:
     if not _signup_open():
-        return _auth_page("Sign up", '''<form class="login">
-<h1>⚡ Tradexa</h1><p>This hub already has an owner account.</p>
+        return _auth_page("Sign up", f'''<form class="login">
+{_BRAND_HEAD}<p>This hub already has an owner account.</p>
 <p><a href="/login">Sign in instead</a></p></form>''')
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
     return _auth_page("Create account", f'''<form class="login" method="post" action="/signup">
-<h1>⚡ Tradexa</h1>
+{_BRAND_HEAD}
 <p>Create the owner account for this trading hub. There is exactly one —
 it controls the bot, so pick a strong password.</p>
 <label>Username</label><input name="username" autofocus>
