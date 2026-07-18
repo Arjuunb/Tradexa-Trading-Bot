@@ -191,30 +191,57 @@ export default function BotTerminalPage() {
   useEffect(() => {
     if (!streaming) { setWsOk(false); return; }
     let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(`wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${tf}`);
-    } catch { setWsOk(false); return; }
-    ws.onopen = () => setWsOk(true);
-    ws.onerror = () => setWsOk(false);
-    ws.onclose = () => setWsOk(false);
-    ws.onmessage = (ev) => {
-      try {
-        const k = JSON.parse(ev.data)?.k;
-        if (!k) return;
-        const t = new Date(k.t).toISOString().slice(0, 19);
-        const bar = { t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };
-        setData((d) => {
-          if (!d?.candles?.length) return d;
-          const cs = d.candles;
-          const last = cs[cs.length - 1];
-          const next = last.t.slice(0, 16) === t.slice(0, 16)
-            ? [...cs.slice(0, -1), bar]                    // update the forming candle
-            : [...cs, bar];                                 // a new candle opened
-          return { ...d, candles: next };
-        });
-      } catch { /* malformed frame — ignore */ }
+    let closedByUs = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    // coalesce the fast kline stream: many frames/sec are collapsed into at most
+    // one setData every 250ms, so the heavy terminal doesn't re-render per tick.
+    let pending: { t: string; o: number; h: number; l: number; c: number; v: number } | null = null;
+    const flush = () => {
+      if (!pending) return;
+      const bar = pending; pending = null;
+      setData((d) => {
+        if (!d?.candles?.length) return d;
+        const cs = d.candles;
+        const last = cs[cs.length - 1];
+        const next = last.t.slice(0, 16) === bar.t.slice(0, 16)
+          ? [...cs.slice(0, -1), bar]                    // update the forming candle
+          : [...cs, bar];                                 // a new candle opened
+        return { ...d, candles: next };
+      });
     };
-    return () => { try { ws?.close(); } catch { /* noop */ } };
+    const flushTimer = setInterval(flush, 250);
+
+    const scheduleReconnect = () => {
+      if (closedByUs || reconnectTimer) return;
+      const delay = Math.min(1000 * 2 ** Math.min(attempts, 5), 30000);  // 1s→30s backoff
+      attempts += 1;
+      reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
+    };
+    const connect = () => {
+      try {
+        ws = new WebSocket(`wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${tf}`);
+      } catch { setWsOk(false); scheduleReconnect(); return; }
+      ws.onopen = () => { setWsOk(true); attempts = 0; };
+      ws.onerror = () => setWsOk(false);
+      ws.onclose = () => { setWsOk(false); if (!closedByUs) scheduleReconnect(); };  // auto-recover
+      ws.onmessage = (ev) => {
+        try {
+          const k = JSON.parse(ev.data)?.k;
+          if (!k) return;
+          const t = new Date(k.t).toISOString().slice(0, 19);
+          pending = { t, o: +k.o, h: +k.h, l: +k.l, c: +k.c, v: +k.v };  // flushed on the timer
+        } catch { /* malformed frame — ignore */ }
+      };
+    };
+    connect();
+
+    return () => {
+      closedByUs = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearInterval(flushTimer);
+      try { ws?.close(); } catch { /* noop */ }
+    };
   }, [symbol, tf, streaming]);
   // the cursor always follows the newest candle
   useEffect(() => { if (data?.candles?.length) setIdx(data.candles.length - 1); }, [data]);
@@ -268,7 +295,7 @@ export default function BotTerminalPage() {
     const fee = 0.04;
     const gapPct = geo ? (Math.pow(upper / lower, 1 / (levels - 1)) - 1) * 100 : (((upper - lower) / (levels - 1)) / cur) * 100;
     const netPct = gapPct - 2 * fee;
-    const orderValue = (investment / levels) * leverage;   // leverage scales exposure
+    const orderValue = (investment / (levels - 1)) * leverage;   // per gap (levels-1 gaps); matches both engines
     const profitPerGrid = (orderValue * netPct) / 100;
     const liq = leverage > 1 ? cur * (1 - 1 / leverage) : null;  // rough long liquidation
     const inRange = cur >= lower && cur <= upper;

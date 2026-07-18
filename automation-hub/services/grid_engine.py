@@ -235,10 +235,18 @@ class GridRunner:
                 self.last_source = src
                 self.feed_error = None if (src or "").startswith("live") else f"feed not live ('{src}')"
                 closed = bars[:-1] if len(bars) > 1 else []
+                if self.last_ts is None and closed:
+                    # never warmed (the start-time fetch failed) — seed from the
+                    # latest closed candle so we only ever act on candles that close
+                    # AFTER now, instead of replaying the whole 80-bar history as
+                    # live fills (which would fabricate PnL). Warm this tick, act next.
+                    self.last_ts = closed[-1].timestamp.isoformat()
+                    self._stop.wait(self.interval)
+                    continue
                 changed = False
                 for b in closed:
                     ts = b.timestamp.isoformat()
-                    if self.last_ts is None or ts > self.last_ts:
+                    if ts > self.last_ts:
                         fills = self.bot.on_candle(b.low, b.high, b.close, ts)
                         self.last_ts = ts
                         changed = True

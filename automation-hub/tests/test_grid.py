@@ -1,8 +1,11 @@
 """Server-side grid engine + endpoints (paper). Pure fill logic is deterministic;
 the runner lifecycle is exercised against the API with guaranteed teardown."""
+import threading
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
-from services.grid_engine import GridBot, level_prices
+from services.grid_engine import GridBot, GridRunner, level_prices
 
 
 def test_levels_arithmetic_and_geometric():
@@ -43,6 +46,48 @@ def test_snapshot_resume_preserves_state():
     assert b2.realized == b.realized and b2.completed == b.completed
     assert b2.buys == b.buys and b2.sells == b.sells and len(b2.gaps) == len(b.gaps)
     assert b2.unrealized(1080) == b.unrealized(1080)
+
+
+class _Bar:
+    def __init__(self, ts, low, high, close):
+        self.timestamp, self.low, self.high, self.close, self.open = ts, low, high, close, close
+
+
+class _Ledger:
+    def log(self, **kw):  # noqa: D401 — no-op ledger for the runner test
+        pass
+
+
+def test_runner_warmup_failure_does_not_replay_history():
+    """If the start-time fetch fails, the runner must NOT process the whole fetched
+    history as live fills on the first good poll — it should only warm from it."""
+    base = datetime(2026, 7, 18, tzinfo=timezone.utc)
+    # 80 closed candles that each sweep the full range (would round-trip every gap)
+    # + 1 forming candle, all timestamped in the PAST.
+    bars = [_Bar(base + timedelta(minutes=i), 100, 110, 108) for i in range(81)]
+    calls = {"n": 0}
+    got_real_poll = threading.Event()
+
+    def fetcher(sym, tf, n):
+        calls["n"] += 1
+        if calls["n"] == 1:          # warm fetch (n=3) fails -> last_ts stays None
+            raise RuntimeError("provider hiccup")
+        if calls["n"] >= 3:
+            got_real_poll.set()      # let the test stop after 2+ real polls
+        return list(bars), "live:test"
+
+    bot = GridBot(symbol="BTCUSDT", timeframe="1m", lower=100, upper=110, levels=11,
+                  geometric=False, investment=1000, leverage=1, fee_pct=0.04, start_price=105)
+    runner = GridRunner(bot, fetcher, _Ledger(), interval=0.02)
+    runner.start()
+    try:
+        assert got_real_poll.wait(timeout=3), "runner never polled"
+    finally:
+        runner.stop()
+    # history was in the past -> nothing should have round-tripped
+    assert bot.completed == 0 and bot.realized == 0.0
+    assert bot.sells == 0
+    assert runner.last_ts == bars[-2].timestamp.isoformat()   # warmed to last CLOSED candle
 
 
 @pytest.fixture()

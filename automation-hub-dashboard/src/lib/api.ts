@@ -4,7 +4,7 @@
 // Control/engine actions are secret-gated; the dev secret is configurable via
 // VITE_WEBHOOK_SECRET. When the backend isn't running, hooks expose `error`
 // so pages can show a "start the backend" hint instead of fake data.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 // Runtime config: when the backend serves this app (single-origin on Render) it
 // injects window.__HUB_CONFIG__ with apiBase="" (same origin) + the secret.
@@ -98,38 +98,117 @@ export interface LiveState<T> {
   refetch: () => void;
 }
 
-/** Poll a GET endpoint every `intervalMs` and expose data/error/loading. */
+// ---- shared polling layer ----
+// Every useLive(path) for the same path shares ONE poller: it dedupes identical
+// endpoints (many panels polling /paper/account no longer fan out into N requests),
+// skips a tick while a request is still in flight, backs off exponentially on
+// errors, and pauses entirely while the tab is hidden. This is what kills the
+// per-page request storm that made the dashboard feel laggy.
+interface _Sub {
+  interval: number;
+  onData: (d: unknown) => void;
+  onError: (e: string | null) => void;
+  onLoading: (b: boolean) => void;
+}
+interface _Poller {
+  path: string;
+  subs: Set<_Sub>;
+  data: unknown;
+  error: string | null;
+  hasData: boolean;
+  inFlight: boolean;
+  fails: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+const _pollers = new Map<string, _Poller>();
+
+function _effInterval(p: _Poller): number {
+  let m = Infinity;
+  p.subs.forEach((s) => { if (s.interval < m) m = s.interval; });
+  return m === Infinity ? 2500 : m;
+}
+
+function _schedule(p: _Poller, delay?: number): void {
+  if (p.timer) clearTimeout(p.timer);
+  if (p.subs.size === 0) { p.timer = null; return; }
+  const base = _effInterval(p);
+  // exponential backoff on consecutive failures, capped at 60s
+  const d = delay ?? (p.fails > 0 ? Math.min(base * 2 ** Math.min(p.fails, 5), 60000) : base);
+  p.timer = setTimeout(() => { void _tick(p); }, d);
+}
+
+async function _tick(p: _Poller): Promise<void> {
+  if (p.subs.size === 0) return;
+  if (typeof document !== "undefined" && document.hidden) { _schedule(p); return; }
+  if (p.inFlight) { _schedule(p); return; }        // don't stack requests
+  p.inFlight = true;
+  try {
+    const d = await apiGet<unknown>(p.path);
+    p.data = d; p.hasData = true; p.error = null; p.fails = 0;
+    p.subs.forEach((s) => { s.onData(d); s.onError(null); s.onLoading(false); });
+  } catch (e) {
+    p.error = e instanceof Error ? e.message : "request failed";
+    p.fails += 1;
+    p.subs.forEach((s) => { s.onError(p.error); s.onLoading(false); });
+  } finally {
+    p.inFlight = false;
+    _schedule(p);
+  }
+}
+
+// resume promptly (and reset backoff) when the tab becomes visible again
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) _pollers.forEach((p) => { p.fails = 0; _schedule(p, 0); });
+  });
+}
+
+function _subscribe(path: string, sub: _Sub): () => void {
+  let p = _pollers.get(path);
+  if (!p) {
+    p = { path, subs: new Set(), data: null, error: null, hasData: false, inFlight: false, fails: 0, timer: null };
+    _pollers.set(path, p);
+  }
+  const poller = p;
+  poller.subs.add(sub);
+  if (poller.hasData) { sub.onData(poller.data); sub.onError(poller.error); sub.onLoading(false); }
+  // first subscriber (or a cold poller) kicks an immediate fetch; a later
+  // subscriber to a warm poller just rides the existing cadence with cached data.
+  if (poller.subs.size === 1 || !poller.timer) _schedule(poller, 0);
+  return () => {
+    poller.subs.delete(sub);
+    if (poller.subs.size === 0) {
+      if (poller.timer) clearTimeout(poller.timer);
+      poller.timer = null;
+      _pollers.delete(poller.path);
+    }
+  };
+}
+
+/** Poll a GET endpoint every `intervalMs` and expose data/error/loading.
+ *  Identical paths share one deduped, backoff-aware, tab-visibility-aware poller. */
 export function useLive<T>(path: string, intervalMs = 2500): LiveState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const alive = useRef(true);
-
-  const load = useCallback(async () => {
-    try {
-      const d = await apiGet<T>(path);
-      if (!alive.current) return;
-      setData(d);
-      setError(null);
-    } catch (e) {
-      if (!alive.current) return;
-      setError(e instanceof Error ? e.message : "request failed");
-    } finally {
-      if (alive.current) setLoading(false);
-    }
-  }, [path]);
 
   useEffect(() => {
-    alive.current = true;
-    load();
-    const id = setInterval(load, intervalMs);
-    return () => {
-      alive.current = false;
-      clearInterval(id);
+    setLoading(true);
+    const sub: _Sub = {
+      interval: intervalMs,
+      onData: (d) => setData(d as T),
+      onError: setError,
+      onLoading: setLoading,
     };
-  }, [load, intervalMs]);
+    return _subscribe(path, sub);
+  }, [path, intervalMs]);
 
-  return { data, error, loading, refetch: load };
+  const refetch = useCallback(() => {
+    const p = _pollers.get(path);
+    if (p) _schedule(p, 0);
+  }, [path]);
+
+  return { data, error, loading, refetch };
 }
 
 // ---- response shapes (match the FastAPI endpoints) ----
