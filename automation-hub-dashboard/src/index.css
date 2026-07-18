@@ -266,6 +266,9 @@ a.brand:hover { opacity: 0.85; }
 .btn-primary { background: linear-gradient(135deg, #8cc5ee, var(--sky)); color: #0a0a0a; font-weight: 700; box-shadow: 0 6px 16px rgba(124, 185, 232, 0.28); }
 .btn-primary:hover { background: linear-gradient(135deg, #9bcdf0, #8cc5ee); box-shadow: 0 0 20px rgba(124, 185, 232, 0.3), 0 6px 16px rgba(124, 185, 232, 0.3); }
 .btn-primary:hover { filter: brightness(1.07); }
+.btn-gold { background: linear-gradient(135deg, #f2c766, var(--gold)); color: #0a0a0a; font-weight: 700; box-shadow: 0 6px 16px rgba(234, 181, 79, 0.28); }
+.btn-gold:hover { filter: brightness(1.07); box-shadow: 0 0 20px rgba(234, 181, 79, 0.3), 0 6px 16px rgba(234, 181, 79, 0.3); }
+.btn-gold:disabled { filter: grayscale(0.5) brightness(0.7); cursor: not-allowed; box-shadow: none; }
 .btn-ghost { background: #141416; border-color: var(--card-border); color: var(--dim); }
 .btn-ghost:hover { color: var(--text); }
 .btn-soft { background: rgba(234, 181, 79, 0.14); color: var(--purple-2); border-color: rgba(234, 181, 79, 0.25); }
