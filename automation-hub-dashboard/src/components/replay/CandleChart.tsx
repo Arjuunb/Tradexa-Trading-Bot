@@ -17,12 +17,17 @@ export interface ChartToggles {
  *  present in data.overlays — the series is server-computed and causal. */
 export interface ExtraLine { key: string; name: string; color: string; dashed?: boolean; }
 
+/** Horizontal grid lines overlaid on the price pane (Grid strategy tester).
+ *  buy = below price (green), sell = above (red), band edges emphasised. */
+export interface GridLine { price: number; side: "buy" | "sell"; edge?: boolean; }
+
 interface Props {
   data: ReplayData;
   index: number; // current replay bar (inclusive); chart shows [0..index]
   toggles: ChartToggles;
   height?: number;
   extraLines?: ExtraLine[];
+  gridLines?: GridLine[];
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -36,7 +41,7 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520, extraLines }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -148,6 +153,13 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     if (toggles.zones) for (const z of data.zones) {
       if (z.price !== undefined)
         markLines.push({ yAxis: z.price, symbol: "none", lineStyle: { color: z.type === "support" ? "#089981" : "#f23645", type: "dotted", opacity: 0.5 }, label: { formatter: z.type === "support" ? "S" : "R", color: "#8a93a6", fontSize: 9 } });
+    }
+    // Grid strategy overlay — horizontal buy/sell levels across the price pane.
+    for (const g of gridLines ?? []) {
+      const col = g.side === "buy" ? "#089981" : "#f23645";
+      markLines.push({ yAxis: g.price, symbol: "none",
+        lineStyle: { color: col, type: g.edge ? "solid" : "dashed", width: g.edge ? 1.4 : 1, opacity: g.edge ? 0.85 : 0.45 },
+        label: g.edge ? { formatter: fmt(g.price), position: "start", color: col, fontSize: 9 } : { show: false } });
     }
     const zoneAreas = (toggles.zones ? data.zones : [])
       .filter((z) => z.left_idx !== undefined && z.left_idx <= index).slice(-8)

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles, type ExtraLine } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine, type GridLine } from "../components/replay/CandleChart";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
@@ -132,6 +132,9 @@ export default function BotTerminalPage() {
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [dockTab, setDockTab] = useState<"positions" | "history" | "orders" | "activity" | "performance" | "equity">("positions");
+  const [gridOn, setGridOn] = useState(false);
+  const [leverage, setLeverage] = useState(1);
+  const [grid, setGrid] = useState({ upper: 0, lower: 0, levels: 20, geo: false, investment: 1000 });
 
   const { data: eng, refetch: refetchEng } = useLive<EngineStatus>("/engine/status", 5000);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
@@ -242,6 +245,33 @@ export default function BotTerminalPage() {
   }, [viz]);
   const liveUPnl = openPos && candle ? (openPos.side === "long" ? candle.c - openPos.entry : openPos.entry - candle.c) * openPos.size : null;
 
+  // ── Grid tester: overlay a configurable grid on the LIVE price + exact math ──
+  const centerGrid = () => {
+    if (!candle) return;
+    setGrid((g) => ({ ...g, upper: +(candle.c * 1.03).toFixed(2), lower: +(candle.c * 0.97).toFixed(2) }));
+  };
+  const setG = (k: keyof typeof grid, v: number | boolean) => setGrid((g) => ({ ...g, [k]: v }));
+  const gridData = useMemo(() => {
+    if (!gridOn || !candle) return null;
+    const { lower, upper, levels, geo, investment } = grid;
+    if (levels < 2 || lower <= 0 || upper <= lower) return { lines: [] as GridLine[], m: null };
+    const prices: number[] = [];
+    if (geo) { const r = Math.pow(upper / lower, 1 / (levels - 1)); for (let i = 0; i < levels; i++) prices.push(lower * Math.pow(r, i)); }
+    else { const step = (upper - lower) / (levels - 1); for (let i = 0; i < levels; i++) prices.push(lower + i * step); }
+    const cur = candle.c;
+    const lines: GridLine[] = prices.map((p, i) => ({ price: +p.toFixed(2), side: p < cur ? "buy" : "sell", edge: i === 0 || i === levels - 1 }));
+    const fee = 0.04;
+    const gapPct = geo ? (Math.pow(upper / lower, 1 / (levels - 1)) - 1) * 100 : (((upper - lower) / (levels - 1)) / cur) * 100;
+    const netPct = gapPct - 2 * fee;
+    const orderValue = (investment / levels) * leverage;   // leverage scales exposure
+    const profitPerGrid = (orderValue * netPct) / 100;
+    const liq = leverage > 1 ? cur * (1 - 1 / leverage) : null;  // rough long liquidation
+    const inRange = cur >= lower && cur <= upper;
+    return { lines, m: { gapPct, netPct, orderValue, profitPerGrid, liq, inRange,
+      buys: lines.filter((l) => l.side === "buy").length, sells: lines.filter((l) => l.side === "sell").length,
+      exposure: investment * leverage } };
+  }, [gridOn, candle, grid, leverage]);
+
   // Make the terminal the control surface: when a DEPLOYABLE strategy or the
   // timeframe differs from what the live engine runs, offer to reconfigure it.
   const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
@@ -321,6 +351,13 @@ export default function BotTerminalPage() {
           {TFS.map((t) => <button key={t} className={`chip-btn ${tf === t ? "active" : ""}`} onClick={() => setTf(t)}>{t}</button>)}
           <span style={{ width: 10 }} />
           <div className="seg-toggle">
+            <button className={!gridOn ? "on" : ""} onClick={() => setGridOn(false)}>Strategy</button>
+            <button className={gridOn ? "on" : ""} onClick={() => { setGridOn(true); if (grid.upper <= grid.lower) centerGrid(); }}>Grid</button>
+          </div>
+          <select className="rule-num" value={leverage} title="Leverage (perp)" onChange={(e) => setLeverage(Number(e.target.value))}>
+            {[1, 2, 3, 5, 10, 20].map((x) => <option key={x} value={x}>{x}×</option>)}
+          </select>
+          <div className="seg-toggle">
             <button className={!dev ? "on" : ""} onClick={() => setDev(false)}>Normal</button>
             <button className={dev ? "on" : ""} onClick={() => setDev(true)}>Developer</button>
           </div>
@@ -368,8 +405,20 @@ export default function BotTerminalPage() {
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
           </div>
-          {/* exactly what the ACTIVE strategy uses — engine-declared */}
-          {viz && (viz.used?.length ?? 0) > 0 && (
+          {/* Grid config strip (Grid mode) OR what the active strategy uses */}
+          {gridOn ? (
+            <div className="viz-strip grid-strip">
+              <span className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                <Icon name="chart" size={11} /> Grid</span>
+              <label className="gcfg">Lower<input type="number" value={grid.lower} onChange={(e) => setG("lower", Number(e.target.value))} /></label>
+              <label className="gcfg">Upper<input type="number" value={grid.upper} onChange={(e) => setG("upper", Number(e.target.value))} /></label>
+              <label className="gcfg">Levels<input type="number" min={2} value={grid.levels} onChange={(e) => setG("levels", Math.max(2, Number(e.target.value) || 2))} /></label>
+              <label className="gcfg">USDT<input type="number" value={grid.investment} onChange={(e) => setG("investment", Number(e.target.value))} /></label>
+              <button className={`chip-btn ${grid.geo ? "active" : ""}`} onClick={() => setG("geo", !grid.geo)}>{grid.geo ? "Geometric" : "Arithmetic"}</button>
+              <button className="chip-btn" onClick={centerGrid} title="Set range to ±3% of live price"><Icon name="target" size={11} /> Center</button>
+              {gridData?.m && <span className="dim" style={{ marginLeft: "auto", fontSize: 11 }}>{gridData.m.buys} buy / {gridData.m.sells} sell · step {gridData.m.gapPct.toFixed(2)}%</span>}
+            </div>
+          ) : viz && (viz.used?.length ?? 0) > 0 && (
             <div className="viz-strip" title={viz.explain}>
               <span className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6 }}>
                 <Icon name="chart" size={11} /> {strategy} uses</span>
@@ -400,7 +449,7 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridData?.lines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
@@ -412,8 +461,31 @@ export default function BotTerminalPage() {
         </Card>
         </div>
 
-        {/* right panel: Bot Decision Engine / Developer view */}
+        {/* right panel: Grid Tester (grid mode) + Bot Decision Engine / Developer view */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+          {gridOn && (
+            <Card title="Grid Tester" subtitle={`live · ${grid.levels} levels · ${leverage}× leverage`}>
+              {gridData?.m ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <Badge text={gridData.m.inRange ? "PRICE IN RANGE" : "PRICE OUT OF RANGE"} tone={gridData.m.inRange ? "green" : "amber"} />
+                    <span className="dim" style={{ fontSize: 11.5, marginLeft: "auto" }}>{candle ? candle.c.toLocaleString() : "—"}</span>
+                  </div>
+                  <div className="risk-list" style={{ fontSize: 12.5 }}>
+                    {kv("Profit / grid", <span className={gridData.m.netPct > 0 ? "pos" : "neg"}>{`$${gridData.m.profitPerGrid.toFixed(2)} · ${gridData.m.netPct.toFixed(2)}%`}</span>)}
+                    {kv("Grid step", `${gridData.m.gapPct.toFixed(2)}%`)}
+                    {kv("Order / grid", `$${gridData.m.orderValue.toFixed(2)}`)}
+                    {kv("Exposure", `$${gridData.m.exposure.toLocaleString()} (${leverage}×)`)}
+                    {kv("Buy / sell levels", `${gridData.m.buys} / ${gridData.m.sells}`)}
+                    {kv("Est. liquidation", gridData.m.liq != null ? <span className="neg">{gridData.m.liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> : "— (1×)")}
+                  </div>
+                  {gridData.m.netPct <= 0 && <div className="banner" style={{ marginTop: 8, fontSize: 11.5 }}><Icon name="warning" size={12} /> Grid step is below round-trip fees — every grid loses. Widen range or use fewer levels.</div>}
+                  <div className="banner" style={{ marginTop: 8, fontSize: 11 }}><Icon name="info" size={12} />
+                    Overlay & math are exact on the live price. Est. liquidation is a rough perp estimate; leverage scales exposure, not the live engine.</div>
+                </>
+              ) : <div className="dim" style={{ fontSize: 12, padding: 8 }}>Set a valid range (lower &lt; price &lt; upper) and ≥ 2 levels, or press <b>Center</b>.</div>}
+            </Card>
+          )}
           {!dev ? (
             <Card title="Bot Decision Engine" subtitle="live AI reasoning on the current market">
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
