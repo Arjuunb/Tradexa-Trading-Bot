@@ -74,6 +74,23 @@ export interface BotSettings {
   };
 }
 
+export interface GridFill { t: string; side: "BUY" | "SELL"; price: number; qty: number; pnl: number; }
+
+/** Server-side 24/7 grid status (GET /grid/status). `active:false` = no grid. */
+export interface ServerGridStatus {
+  active: boolean;
+  running: boolean;
+  symbol?: string; timeframe?: string;
+  lower?: number; upper?: number; levels?: number; geometric?: boolean;
+  investment?: number; leverage?: number; fee_pct?: number; start_price?: number;
+  realized?: number; unrealized?: number; net?: number; completed?: number;
+  buys?: number; sells?: number; fees_paid?: number;
+  inventory_lots?: number; inventory_cost?: number; last_price?: number;
+  fills?: GridFill[];
+  last_ts?: string | null; started_at?: string | null;
+  data_source?: string | null; feed_error?: string | null;
+}
+
 export interface LiveState<T> {
   data: T | null;
   error: string | null;

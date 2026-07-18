@@ -1016,6 +1016,7 @@ import routers.risk  # noqa: E402
 import routers.settings  # noqa: E402
 import routers.symbols  # noqa: E402
 import routers.ai  # noqa: E402
+import routers.grid  # noqa: E402
 router.include_router(routers.analytics.router)
 router.include_router(routers.bots.router)
 router.include_router(routers.engine.router)
@@ -1026,3 +1027,74 @@ router.include_router(routers.risk.router)
 router.include_router(routers.settings.router)
 router.include_router(routers.symbols.router)
 router.include_router(routers.ai.router)
+router.include_router(routers.grid.router)
+
+
+# ───────────────────────────── server-side grid (paper, 24/7) ─────────────────
+# A single active grid bot that keeps trading with no browser open, on the same
+# market-data feed the engine uses. Persisted so it survives a restart.
+grid_runner = None  # type: ignore[assignment]  # services.grid_engine.GridRunner | None
+
+
+def _grid_fetcher(sym: str, tf: str, n: int):
+    from data.market_data import get_bars
+    return get_bars(sym, n=n, timeframe=tf)
+
+
+def grid_start(cfg: dict) -> dict:
+    """Create + start a server grid from a config dict."""
+    global grid_runner
+    from services.grid_engine import GridBot, GridRunner
+    from data import grid_store
+    if grid_runner is not None and grid_runner.running:
+        grid_runner.stop()
+    sym = str(cfg.get("symbol", "")).upper().strip()
+    if not sym:
+        raise HTTPException(400, "symbol is required")
+    tf = str(cfg.get("timeframe", "5m"))
+    bars, _src = _grid_fetcher(sym, tf, 3)
+    start_price = cfg.get("start_price") or (bars[-1].close if bars else None)
+    if not start_price:
+        raise HTTPException(503, "Could not get a current price to start the grid (market data unavailable).")
+    try:
+        bot = GridBot(symbol=sym, timeframe=tf, lower=float(cfg["lower"]), upper=float(cfg["upper"]),
+                      levels=int(cfg["levels"]), geometric=bool(cfg.get("geometric", False)),
+                      investment=float(cfg["investment"]), leverage=float(cfg.get("leverage", 1)),
+                      fee_pct=float(cfg.get("fee_pct", 0.04)), start_price=float(start_price))
+    except (KeyError, ValueError, TypeError) as e:
+        raise HTTPException(400, f"Invalid grid config: {e}")
+    grid_runner = GridRunner(bot, _grid_fetcher, ledger, interval=30.0, persist=grid_store.save)
+    grid_runner.start()
+    ledger.add_alert(severity="info", category="system", title="Grid started",
+                     detail=f"Server grid running on {sym} {tf} ({bot.levels} levels, paper).")
+    return {"started": True, "status": grid_runner.status()}
+
+
+def grid_stop() -> dict:
+    global grid_runner
+    from data import grid_store
+    stopped = False
+    if grid_runner is not None and grid_runner.running:
+        grid_runner.stop()
+        stopped = True
+    grid_store.save(None)          # clear persisted state so it doesn't resume on reboot
+    return {"stopped": stopped, "running": False}
+
+
+def grid_status() -> dict:
+    if grid_runner is None:
+        return {"active": False, "running": False}
+    return {"active": True, **grid_runner.status()}
+
+
+# resume a persisted grid on boot (survives restart / redeploy)
+try:
+    from data import grid_store as _grid_store  # noqa: E402
+    _grid_snap = _grid_store.load()
+    if _grid_snap and _grid_snap.get("running"):
+        from services.grid_engine import GridRunner as _GR  # noqa: E402
+        grid_runner = _GR.from_snapshot(_grid_snap, _grid_fetcher, ledger, interval=30.0, persist=_grid_store.save)
+        grid_runner.start()
+        print(f"[grid] resumed grid on {grid_runner.bot.symbol} — survives redeploys.", flush=True)
+except Exception:  # noqa: BLE001 — never let grid resume break boot
+    pass

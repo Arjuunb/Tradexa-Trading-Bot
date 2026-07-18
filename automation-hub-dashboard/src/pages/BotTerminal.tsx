@@ -10,6 +10,7 @@ import {
   apiGet, apiPost, apiPostJson, useLive,
   type ReplayData, type AIAnalysis, type EngineStatus, type RiskSummary, type StrategyPerformance,
   type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount, type SymbolRow,
+  type ServerGridStatus,
 } from "../lib/api";
 
 /** Bot Terminal — a LIVE, crypto-first paper-trading observation lab.
@@ -310,6 +311,34 @@ export default function BotTerminalPage() {
   const runGrid = gridRun && gridRun.symbol === symbol ? gridRun : null;
   const gridUPnl = runGrid && candle ? gridUnrealized(runGrid, candle.c) : 0;
   const gridInv = runGrid ? gridInventory(runGrid) : null;
+
+  // ── server-side grid: runs 24/7 on the backend (survives tab close / redeploy) ──
+  const { data: srvGrid, refetch: refetchSrv } = useLive<ServerGridStatus>("/grid/status", 8000);
+  const [srvBusy, setSrvBusy] = useState(false);
+  const srvRunning = !!(srvGrid?.active && srvGrid.running);
+  const startServerGrid = async () => {
+    if (!candle) { toast("Waiting for live price…", "info"); return; }
+    if (grid.upper <= grid.lower || grid.levels < 2) { toast("Set a valid grid range and ≥ 2 levels (press Center).", "error"); return; }
+    if (srvRunning && !window.confirm(`A server grid is already running on ${srvGrid?.symbol}. Replace it with this ${symbol} grid?`)) return;
+    setSrvBusy(true);
+    try {
+      await apiPostJson("/grid/start", {
+        symbol, timeframe: tf, lower: grid.lower, upper: grid.upper, levels: grid.levels,
+        geometric: grid.geo, investment: grid.investment, leverage, fee_pct: 0.04,
+      });
+      toast(`Server grid live on ${symbol} — runs 24/7, even with this tab closed.`, "success");
+      refetchSrv();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not start server grid", "error");
+    } finally { setSrvBusy(false); }
+  };
+  const stopServerGrid = async () => {
+    setSrvBusy(true);
+    try { await apiPost("/grid/stop"); toast("Server grid stopped", "info"); refetchSrv(); }
+    catch (e) { toast(e instanceof Error ? e.message : "Could not stop server grid", "error"); }
+    finally { setSrvBusy(false); }
+  };
+  const srvNet = (srvGrid?.realized ?? 0) + (srvGrid?.unrealized ?? 0);
   // chart overlay: the live grid (holding levels solid) if running, else the config preview
   const gridChartLines: GridLine[] | undefined = runGrid
     ? [...runGrid.gaps.map((g) => ({ price: g.lo, side: (candle && g.lo < candle.c ? "buy" : "sell") as "buy" | "sell", edge: g.state === "holding" })),
@@ -561,13 +590,55 @@ export default function BotTerminalPage() {
                     {kv("Buy / sell levels", `${gridData.m.buys} / ${gridData.m.sells}`)}
                     {kv("Est. liquidation", gridData.m.liq != null ? <span className="neg">{gridData.m.liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> : "— (1×)")}
                   </div>
-                  <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: "100%" }} disabled={gridData.m.netPct <= 0} onClick={startGrid}>
-                    <Icon name="play" size={13} /> Start grid (paper, live)</button>
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button className="btn btn-primary btn-sm" style={{ flex: 1 }} disabled={gridData.m.netPct <= 0} onClick={startGrid}>
+                      <Icon name="play" size={13} /> Start (this tab)</button>
+                    <button className="btn btn-gold btn-sm" style={{ flex: 1 }} disabled={gridData.m.netPct <= 0 || srvBusy} onClick={startServerGrid}>
+                      <Icon name="bot" size={13} /> Run 24/7 on server</button>
+                  </div>
                   {gridData.m.netPct <= 0 && <div className="banner" style={{ marginTop: 8, fontSize: 11.5 }}><Icon name="warning" size={12} /> Grid step is below round-trip fees — every grid loses. Widen range or use fewer levels.</div>}
                   <div className="banner" style={{ marginTop: 8, fontSize: 11 }}><Icon name="info" size={12} />
-                    Runs on the live browser stream — fills book as price crosses levels. Paper only; leverage scales the tester, not the live engine.</div>
+                    <b>This tab</b> runs on the browser stream (stops if you close it). <b>Server</b> keeps trading 24/7 with the tab closed — it survives redeploys. Both are paper; leverage scales the grid, not the live engine.</div>
                 </>
               ) : <div className="dim" style={{ fontSize: 12, padding: 8 }}>Set a valid range (lower &lt; price &lt; upper) and ≥ 2 levels, or press <b>Center</b>.</div>}
+            </Card>
+          )}
+          {gridOn && srvGrid?.active && (
+            <Card title="Server grid · 24/7" subtitle={srvGrid.symbol ? `${srvGrid.symbol} · ${srvGrid.timeframe} · ${srvGrid.levels} levels · ${srvGrid.leverage}×` : "paper"}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span className={`pulse-dot ${srvRunning ? "green" : "amber"}`} />
+                <b style={{ fontSize: 13 }}>{srvRunning ? "Running on server" : "Stopped"}</b>
+                <span className={srvNet >= 0 ? "pos" : "neg"} style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700 }}>
+                  {`${srvNet >= 0 ? "+" : "−"}$${Math.abs(srvNet).toFixed(2)}`}</span>
+              </div>
+              <div className="risk-list" style={{ fontSize: 12.5 }}>
+                {kv("Realized (grids)", <span className={(srvGrid.realized ?? 0) >= 0 ? "pos" : "neg"}>{`${(srvGrid.realized ?? 0) >= 0 ? "+" : "−"}$${Math.abs(srvGrid.realized ?? 0).toFixed(2)}`}</span>)}
+                {kv("Unrealized (held)", <span className={(srvGrid.unrealized ?? 0) >= 0 ? "pos" : "neg"}>{`${(srvGrid.unrealized ?? 0) >= 0 ? "+" : "−"}$${Math.abs(srvGrid.unrealized ?? 0).toFixed(2)}`}</span>)}
+                {kv("Completed grids", String(srvGrid.completed ?? 0))}
+                {kv("Open inventory", `${srvGrid.inventory_lots ?? 0} lots · $${(srvGrid.inventory_cost ?? 0).toFixed(0)}`)}
+                {kv("Fills (buy / sell)", `${srvGrid.buys ?? 0} / ${srvGrid.sells ?? 0}`)}
+                {kv("Fees paid", `$${(srvGrid.fees_paid ?? 0).toFixed(2)}`)}
+                {kv("Last price", srvGrid.last_price != null ? srvGrid.last_price.toLocaleString() : "—")}
+              </div>
+              {srvGrid.feed_error
+                ? <div className="banner" style={{ marginTop: 8, fontSize: 11 }}><Icon name="warning" size={12} /> Feed: {srvGrid.feed_error}</div>
+                : <div className="dim" style={{ marginTop: 8, fontSize: 11 }}>Feed {srvGrid.data_source ?? "—"}{srvGrid.last_ts ? ` · last candle ${srvGrid.last_ts.slice(11, 16)} UTC` : ""}</div>}
+              <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }} disabled={srvBusy} onClick={stopServerGrid}>
+                <Icon name="close" size={13} /> Stop server grid</button>
+              {!!srvGrid.fills?.length && <>
+                <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Recent server fills</div>
+                <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
+                  {srvGrid.fills.slice(0, 12).map((f, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--mono)", fontSize: 11 }}>
+                      <span className="dim" style={{ width: 42 }}>{f.t.slice(11, 16)}</span>
+                      <Badge text={f.side} tone={f.side === "BUY" ? "green" : "red"} />
+                      <span className="mono">{f.price.toLocaleString()}</span>
+                      <span className={f.side === "SELL" ? (f.pnl >= 0 ? "pos" : "neg") : "dim"} style={{ marginLeft: "auto" }}>
+                        {f.side === "SELL" ? `${f.pnl >= 0 ? "+" : "−"}$${Math.abs(f.pnl).toFixed(2)}` : "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </>}
             </Card>
           )}
           {!dev ? (
