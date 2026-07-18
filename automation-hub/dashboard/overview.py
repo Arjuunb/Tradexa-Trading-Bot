@@ -102,7 +102,7 @@ def render_overview(manager, user: str = "") -> str:
 
     estop = ('<form class="inline" method="post" action="/emergency-stop">'
              '<button class="btn btn-danger" type="submit">■ Emergency Stop</button></form>')
-    body = (w.topbar("Automation Hub", estop) + kpis + chart + active
+    body = (w.topbar(settings.app_name, estop) + kpis + chart + active
             + LIVE_FEED_CARD + risk + activity)
     return w.page(title="Overview", active="overview", body=body,
                   app_name=settings.app_name, user=user)

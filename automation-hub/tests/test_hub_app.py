@@ -48,7 +48,7 @@ def test_full_phase1_flow(client):
     r = client.get("/")
     assert r.status_code == 200
     body = r.text
-    assert "Automation Hub" in body
+    assert "TradeLogX Nexus" in body
     for label in ("Running Bots", "Paper Bots", "Alerts",
                   "Active Bots", "Risk Center", "Recent Activity"):
         assert label in body

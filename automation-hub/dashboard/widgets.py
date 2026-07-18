@@ -51,13 +51,19 @@ def state_badge(state: str) -> str:
 
 
 # TradeLogX Nexus brand mark — gold intelligence core, blue data links.
-_LOGO_MARK = ('<svg width="22" height="22" viewBox="0 0 32 32" fill="none" '
+_LOGO_MARK = ('<svg width="24" height="24" viewBox="0 0 96 96" fill="none" '
               'xmlns="http://www.w3.org/2000/svg" aria-label="TradeLogX Nexus">'
-              '<circle cx="16" cy="16" r="9.2" stroke="rgba(201,162,75,0.35)" stroke-width="1" fill="none"/>'
-              '<g stroke="#3E7BD6" stroke-width="1.4"><path d="M16 16 5 6M16 16l11-10M16 16 5 26M16 16l11 10"/></g>'
-              '<g fill="#6EA3EC"><circle cx="5" cy="6" r="2.4"/><circle cx="27" cy="6" r="2.4"/>'
-              '<circle cx="5" cy="26" r="2.4"/><circle cx="27" cy="26" r="2.4"/></g>'
-              '<circle cx="16" cy="16" r="4.4" fill="#C9A24B"/></svg>')
+              '<defs>'
+              '<linearGradient id="nxsW" x1="24" y1="0" x2="72" y2="0" gradientUnits="userSpaceOnUse">'
+              '<stop offset="0" stop-color="#E9EEF3"/><stop offset=".46" stop-color="#AEB7C2"/>'
+              '<stop offset=".54" stop-color="#E7C766"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+              '<linearGradient id="nxrW" x1="14" y1="14" x2="82" y2="82" gradientUnits="userSpaceOnUse">'
+              '<stop stop-color="#E7C766"/><stop offset=".5" stop-color="#8A929C"/><stop offset="1" stop-color="#C6961F"/></linearGradient>'
+              '</defs>'
+              '<circle cx="48" cy="48" r="41" stroke="url(#nxrW)" stroke-width="2.6" opacity="0.85"/>'
+              '<path d="M31 70 V32 M31 32 L65 70 M65 70 V26" stroke="url(#nxsW)" stroke-width="11" stroke-linecap="butt" stroke-linejoin="miter"/>'
+              '<path d="M31 14 L40 30 H22 Z" fill="#E9EEF3"/>'
+              '<path d="M65 82 L56 66 H74 Z" fill="#C6961F"/></svg>')
 
 
 def page(*, title: str, active: str, body: str, app_name: str = "Automation Hub",

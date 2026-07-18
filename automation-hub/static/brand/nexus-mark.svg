@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" role="img" aria-label="TradeLogX Nexus">
+  <defs>
+    <linearGradient id="nx-split" x1="24" y1="0" x2="72" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E9EEF3"/>
+      <stop offset=".46" stop-color="#AEB7C2"/>
+      <stop offset=".54" stop-color="#E7C766"/>
+      <stop offset="1" stop-color="#C6961F"/>
+    </linearGradient>
+    <linearGradient id="nx-ring" x1="14" y1="14" x2="82" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E7C766"/><stop offset=".5" stop-color="#8A929C"/><stop offset="1" stop-color="#C6961F"/>
+    </linearGradient>
+  </defs>
+  <circle cx="48" cy="48" r="41" stroke="url(#nx-ring)" stroke-width="2.6" opacity="0.85"/>
+  <!-- N monogram: left post, diagonal, right post -->
+  <path d="M31 70 V32 M31 32 L65 70 M65 70 V26"
+        stroke="url(#nx-split)" stroke-width="11" stroke-linecap="butt" stroke-linejoin="miter"/>
+  <!-- up-arrow tip on the left post -->
+  <path d="M31 14 L40 30 H22 Z" fill="#E9EEF3"/>
+  <!-- down point on the right post -->
+  <path d="M65 82 L56 66 H74 Z" fill="#C6961F"/>
+</svg>
