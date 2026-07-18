@@ -5,6 +5,7 @@ import CandleChart, { type ChartToggles, type ExtraLine, type GridLine } from ".
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
+import { createGridRun, gridOnCandle, gridUnrealized, gridInventory, type GridRun } from "../lib/gridRunner";
 import {
   apiGet, apiPost, apiPostJson, useLive,
   type ReplayData, type AIAnalysis, type EngineStatus, type RiskSummary, type StrategyPerformance,
@@ -135,6 +136,9 @@ export default function BotTerminalPage() {
   const [gridOn, setGridOn] = useState(false);
   const [leverage, setLeverage] = useState(1);
   const [grid, setGrid] = useState({ upper: 0, lower: 0, levels: 20, geo: false, investment: 1000 });
+  const [gridRun, setGridRun] = useState<GridRun | null>(() => {
+    try { const s = localStorage.getItem("nexus.terminal.grid"); return s ? (JSON.parse(s) as GridRun) : null; } catch { return null; }
+  });
 
   const { data: eng, refetch: refetchEng } = useLive<EngineStatus>("/engine/status", 5000);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
@@ -272,6 +276,46 @@ export default function BotTerminalPage() {
       exposure: investment * leverage } };
   }, [gridOn, candle, grid, leverage]);
 
+  // ── live grid: run the browser-side engine on the live candle stream ──
+  const persistGrid = (g: GridRun | null) => {
+    try { if (g) localStorage.setItem("nexus.terminal.grid", JSON.stringify(g)); else localStorage.removeItem("nexus.terminal.grid"); } catch { /* noop */ }
+  };
+  const startGrid = () => {
+    if (!candle) { toast("Waiting for live price…", "info"); return; }
+    if (grid.upper <= grid.lower || grid.levels < 2) { toast("Set a valid grid range and ≥ 2 levels (press Center).", "error"); return; }
+    const cs = data?.candles ?? [];
+    const startTs = cs.length >= 2 ? cs[cs.length - 2].t : candle.t;   // process from the next close
+    const run = createGridRun({ symbol, lower: grid.lower, upper: grid.upper, levels: grid.levels,
+      geometric: grid.geo, investment: grid.investment, leverage, feePct: 0.04 }, startTs, candle.c);
+    if (!run) { toast("Invalid grid configuration.", "error"); return; }
+    setGridRun(run); persistGrid(run);
+    toast(`Grid started on ${symbol} · ${grid.levels} levels · ${leverage}×`, "success");
+  };
+  const stopGrid = () => { setGridRun(null); persistGrid(null); toast("Grid stopped", "info"); };
+  // advance the grid over any newly-CLOSED candles on each stream update
+  useEffect(() => {
+    const cs = data?.candles;
+    if (!cs || cs.length < 2) return;
+    setGridRun((prev) => {
+      if (!prev || prev.symbol !== symbol) return prev;
+      let s = prev, changed = false;
+      for (let i = 0; i < cs.length - 1; i++) {                        // all but the forming candle
+        if (cs[i].t > s.processedTs) { s = gridOnCandle(s, cs[i].t, cs[i].l, cs[i].h); changed = true; }
+      }
+      if (changed) persistGrid(s);
+      return changed ? s : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, symbol]);
+  const runGrid = gridRun && gridRun.symbol === symbol ? gridRun : null;
+  const gridUPnl = runGrid && candle ? gridUnrealized(runGrid, candle.c) : 0;
+  const gridInv = runGrid ? gridInventory(runGrid) : null;
+  // chart overlay: the live grid (holding levels solid) if running, else the config preview
+  const gridChartLines: GridLine[] | undefined = runGrid
+    ? [...runGrid.gaps.map((g) => ({ price: g.lo, side: (candle && g.lo < candle.c ? "buy" : "sell") as "buy" | "sell", edge: g.state === "holding" })),
+       { price: runGrid.upper, side: "sell" as "buy" | "sell", edge: false }]
+    : gridOn ? gridData?.lines : undefined;
+
   // Make the terminal the control surface: when a DEPLOYABLE strategy or the
   // timeframe differs from what the live engine runs, offer to reconfigure it.
   const engineStrat = eng?.strategy ? ENGINE_STRAT_MAP[eng.strategy] : null;
@@ -397,6 +441,8 @@ export default function BotTerminalPage() {
               </span>
               <Badge text={eng?.running ? "engine live" : "engine stopped"} tone={eng?.running ? "green" : "default"} />
               {openPos && <Badge text={`live ${openPos.side} open`} tone={openPos.side === "long" ? "green" : "red"} />}
+              {runGrid && <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="pulse-dot green" /><b style={{ fontSize: 11, color: "var(--green)" }}>GRID {(runGrid.realized + gridUPnl) >= 0 ? "+" : "−"}${Math.abs(runGrid.realized + gridUPnl).toFixed(2)}</b></span>}
             </div>
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
@@ -449,7 +495,7 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridData?.lines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
@@ -464,8 +510,44 @@ export default function BotTerminalPage() {
         {/* right panel: Grid Tester (grid mode) + Bot Decision Engine / Developer view */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
           {gridOn && (
-            <Card title="Grid Tester" subtitle={`live · ${grid.levels} levels · ${leverage}× leverage`}>
-              {gridData?.m ? (
+            <Card title="Grid Tester" subtitle={runGrid ? `LIVE · ${runGrid.symbol} · ${runGrid.levels} levels · ${runGrid.leverage}×` : `preview · ${grid.levels} levels · ${leverage}×`}>
+              {gridRun && !runGrid && (
+                <div className="banner" style={{ fontSize: 11.5, marginBottom: 8 }}><Icon name="info" size={12} />
+                  A grid is running on <b>{gridRun.symbol}</b>. Switch to {gridRun.symbol} to watch it, or stop it.
+                  <button className="btn btn-warn btn-sm" style={{ marginLeft: "auto" }} onClick={stopGrid}>Stop grid</button></div>
+              )}
+              {runGrid ? (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span className="pulse-dot green" /><b style={{ fontSize: 13 }}>Grid live</b>
+                    <span className={`${(runGrid.realized + gridUPnl) >= 0 ? "pos" : "neg"}`} style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700 }}>
+                      {`${(runGrid.realized + gridUPnl) >= 0 ? "+" : "−"}$${Math.abs(runGrid.realized + gridUPnl).toFixed(2)}`}</span>
+                  </div>
+                  <div className="risk-list" style={{ fontSize: 12.5 }}>
+                    {kv("Realized (grids)", <span className={runGrid.realized >= 0 ? "pos" : "neg"}>{`${runGrid.realized >= 0 ? "+" : "−"}$${Math.abs(runGrid.realized).toFixed(2)}`}</span>)}
+                    {kv("Unrealized (held)", <span className={gridUPnl >= 0 ? "pos" : "neg"}>{`${gridUPnl >= 0 ? "+" : "−"}$${Math.abs(gridUPnl).toFixed(2)}`}</span>)}
+                    {kv("Completed grids", String(runGrid.completed))}
+                    {kv("Open inventory", `${gridInv?.lots ?? 0} lots · $${(gridInv?.cost ?? 0).toFixed(0)}`)}
+                    {kv("Fills (buy / sell)", `${runGrid.buys} / ${runGrid.sells}`)}
+                    {kv("Fees paid", `$${runGrid.feesPaid.toFixed(2)}`)}
+                  </div>
+                  <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }} onClick={stopGrid}>
+                    <Icon name="close" size={13} /> Stop grid</button>
+                  <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.6, margin: "12px 0 4px" }}>Recent grid fills</div>
+                  <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
+                    {runGrid.fills.slice(0, 12).map((f, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "var(--mono)", fontSize: 11 }}>
+                        <span className="dim" style={{ width: 42 }}>{f.t.slice(11, 16)}</span>
+                        <Badge text={f.side} tone={f.side === "BUY" ? "green" : "red"} />
+                        <span className="mono">{f.price.toLocaleString()}</span>
+                        <span className={f.side === "SELL" ? (f.pnl >= 0 ? "pos" : "neg") : "dim"} style={{ marginLeft: "auto" }}>
+                          {f.side === "SELL" ? `${f.pnl >= 0 ? "+" : "−"}$${Math.abs(f.pnl).toFixed(2)}` : "—"}</span>
+                      </div>
+                    ))}
+                    {!runGrid.fills.length && <div className="dim" style={{ fontSize: 11.5 }}>No fills yet — price hasn't crossed a level since start. Use 1m for faster grid activity.</div>}
+                  </div>
+                </>
+              ) : gridData?.m ? (
                 <>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <Badge text={gridData.m.inRange ? "PRICE IN RANGE" : "PRICE OUT OF RANGE"} tone={gridData.m.inRange ? "green" : "amber"} />
@@ -479,9 +561,11 @@ export default function BotTerminalPage() {
                     {kv("Buy / sell levels", `${gridData.m.buys} / ${gridData.m.sells}`)}
                     {kv("Est. liquidation", gridData.m.liq != null ? <span className="neg">{gridData.m.liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span> : "— (1×)")}
                   </div>
+                  <button className="btn btn-primary btn-sm" style={{ marginTop: 8, width: "100%" }} disabled={gridData.m.netPct <= 0} onClick={startGrid}>
+                    <Icon name="play" size={13} /> Start grid (paper, live)</button>
                   {gridData.m.netPct <= 0 && <div className="banner" style={{ marginTop: 8, fontSize: 11.5 }}><Icon name="warning" size={12} /> Grid step is below round-trip fees — every grid loses. Widen range or use fewer levels.</div>}
                   <div className="banner" style={{ marginTop: 8, fontSize: 11 }}><Icon name="info" size={12} />
-                    Overlay & math are exact on the live price. Est. liquidation is a rough perp estimate; leverage scales exposure, not the live engine.</div>
+                    Runs on the live browser stream — fills book as price crosses levels. Paper only; leverage scales the tester, not the live engine.</div>
                 </>
               ) : <div className="dim" style={{ fontSize: 12, padding: 8 }}>Set a valid range (lower &lt; price &lt; upper) and ≥ 2 levels, or press <b>Center</b>.</div>}
             </Card>
