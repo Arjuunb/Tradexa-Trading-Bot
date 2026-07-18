@@ -508,6 +508,13 @@ a.brand:hover { opacity: 0.85; }
 .viz-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; color: var(--text);
   background: rgba(139,92,246,0.14); border: 1px solid rgba(139,92,246,0.28); }
 .viz-chip b { font-weight: 600; }
+/* grid tester config strip in the terminal */
+.grid-strip { flex-wrap: wrap; }
+.grid-strip .gcfg { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono, monospace);
+  font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--faint, #5c6980); }
+.grid-strip .gcfg input { width: 82px; padding: 4px 8px; font-size: 12px; border-radius: 6px;
+  border: 1px solid var(--line-2, #28394d); background: var(--ink-2, #0c121c); color: var(--text); font-family: var(--mono, monospace); }
+.grid-strip .gcfg input:focus { outline: none; border-color: var(--gold-dim, #8a7233); }
 /* bottom dock — tabbed blotter (positions / history / orders / performance / equity) */
 .dock { border: 1px solid var(--card-border); border-radius: 12px; background: var(--card-bg, #0d0d10); overflow: hidden; }
 .dock-tabs { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--card-border); overflow-x: auto; }
