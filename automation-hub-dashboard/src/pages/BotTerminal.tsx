@@ -121,7 +121,7 @@ function SymbolSearch({ value, onPick }: { value: string; onPick: (t: string) =>
 }
 
 export default function BotTerminalPage() {
-  const { toast } = useApp();
+  const { toast, go } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState("5m");
   const [strategy, setStrategy] = useState("Decision Brain");
@@ -439,8 +439,9 @@ export default function BotTerminalPage() {
       {/* ── header strip ─────────────────────────────────────────── */}
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <h1 className="pagehead-title" style={{ margin: 0, fontSize: 19 }}>Bot Terminal</h1>
-          <span className="dim" style={{ fontSize: 11.5 }}>live crypto · paper trading · every value is a real engine read</span>
+          <h1 className="pagehead-title" style={{ margin: 0, fontSize: 19 }}>Paper Trading</h1>
+          <span className="dim" style={{ fontSize: 11.5 }}>bot observation terminal · live crypto · every value is a real engine read</span>
+          <button className="btn btn-soft btn-sm" onClick={() => go("Paper Account")}>Account &amp; blotter</button>
         </div>
         <div className="chips" style={{ alignItems: "center" }}>
           <SymbolSearch value={symbol} onPick={setSymbol} />

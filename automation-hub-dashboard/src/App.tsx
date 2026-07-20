@@ -34,6 +34,8 @@ const DecisionsPage = lazy(() => import("./pages/Decisions"));
 const MemoryPage = lazy(() => import("./pages/Memory"));
 const BotHealthPage = lazy(() => import("./pages/BotHealth"));
 const StrategyProofPage = lazy(() => import("./pages/StrategyProof"));
+const OptimizationPage = lazy(() => import("./pages/Optimization"));
+const AllocationPage = lazy(() => import("./pages/Allocation"));
 import { AppContext, parseHash, slug } from "./app-context";
 
 const MOBILE = "(max-width: 720px)";
@@ -56,7 +58,7 @@ export default function App() {
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
-    if (!window.location.hash) window.location.hash = "/overview";
+    if (!window.location.hash) window.location.hash = "/dashboard";
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
@@ -84,12 +86,16 @@ export default function App() {
       case "Symbols": return <SymbolExplorerPage />;
       case "Strategies": return <StrategiesPage />;
       case "Backtesting": return <BacktestingPage />;
+      case "Optimization Lab": return <OptimizationPage />;
       case "Simulation": return <SimulationPage />;
       case "Replay": return <ReplayPage />;
-      case "Paper Trading": return <PaperTradingPage />;
-      case "Bot Terminal": return <BotTerminalPage />;
+      // Paper Trading IS the Bot Observation Terminal (the heart of the app);
+      // the classic account/blotter view lives on as "Paper Account".
+      case "Paper Trading": return <BotTerminalPage />;
+      case "Paper Account": return <PaperTradingPage />;
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;
+      case "Allocation": return <AllocationPage />;
       case "Analytics": return <AnalyticsPage />;
       case "Strategy Proof": return <StrategyProofPage />;
       case "Strategy Studio": return <StrategyStudioPage />;
@@ -98,13 +104,14 @@ export default function App() {
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
-      case "Journal": return <JournalPage />;
-      case "Decisions": return <DecisionsPage />;
+      case "Journal": return <JournalPage focusId={route.focusId} />;
+      case "Decision Archive": return <DecisionsPage focusId={route.focusId} />;
       case "Memory": return <MemoryPage />;
       case "Bot Health": return <BotHealthPage />;
       case "Logs": return <LogsPage />;
       case "Settings": return <SettingsPage />;
       case "Safety Center": return <SafetyCenterPage />;
+      case "Fleet Manager": return <BotsPage />;
       // legacy routes (not in the main nav, still reachable by hash)
       case "Bots": return <BotsPage />;
       case "Alerts": return <AlertsPage />;
@@ -113,14 +120,14 @@ export default function App() {
     }
   };
 
-  const title = active === "Overview" ? "Dashboard" : active === "BotDetail" ? route.botId : active;
+  const title = active === "BotDetail" ? route.botId : active;
 
   return (
     <AppContext.Provider value={{ go, viewBot, toast }}>
       <div className={`app ${collapsed ? "sidebar-collapsed" : ""} ${mobileNav ? "mobile-nav-open" : ""}`}>
         <Toasts items={toasts} />
         {mobileNav && <div className="nav-backdrop" onClick={() => setMobileNav(false)} aria-hidden />}
-        <Sidebar active={active === "BotDetail" ? "Bots" : active} onSelect={go} collapsed={collapsed} />
+        <Sidebar active={active === "BotDetail" || active === "Bots" ? "Fleet Manager" : active} onSelect={go} collapsed={collapsed} />
 
         <div className="main">
           <TopHeader onToggleSidebar={toggleSidebar} title={title} />

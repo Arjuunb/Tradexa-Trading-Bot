@@ -145,7 +145,8 @@ async def _require_auth(request: Request, call_next):
         # and must stay session-gated. The landing serves only "/settings/{path}".
         exempt = exempt + ("/settings/", "/app")
     hdr = request.headers.get("x-webhook-secret")
-    if (path == "/" or any(path.startswith(p) for p in exempt)
+    if (request.method == "OPTIONS"          # CORS preflight — CORSMiddleware answers it
+            or path == "/" or any(path.startswith(p) for p in exempt)
             or _user(request)
             or hdr == settings.admin_key
             or (not settings.scope_webhook_secret and hdr == settings.webhook_secret)):

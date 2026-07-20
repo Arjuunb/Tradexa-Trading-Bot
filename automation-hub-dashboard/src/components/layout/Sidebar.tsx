@@ -2,35 +2,38 @@ import Logo from "../common/Logo";
 import {
   LayoutDashboard, CandlestickChart, Search, Layers, FlaskConical, RefreshCw, PlayCircle,
   NotebookPen, Rocket, Wallet, BarChart3, Bot, ShieldAlert, Brain, ScrollText,
-  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, Gauge, Blocks, SquareTerminal, ListChecks, LayoutGrid, type LucideIcon,
+  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, Gauge, Blocks, SquareTerminal, ListChecks, LayoutGrid, SlidersHorizontal, PieChart, type LucideIcon,
 } from "lucide-react";
-import { NAV_LABELS } from "../../app-context";
+import { NAV_GROUPS } from "../../app-context";
 import { useLive, type RiskSummary, type PaperAccount } from "../../lib/api";
 import { signedMoney } from "../../lib/format";
 
 // Real icons (lucide), one per page — gold when active, sky on hover.
 const NAV_LUCIDE: Record<string, LucideIcon> = {
-  Overview: LayoutDashboard,
+  Dashboard: LayoutDashboard,
   Markets: CandlestickChart,
   Symbols: Search,
   Strategies: Layers,
   Backtesting: FlaskConical,
+  "Optimization Lab": SlidersHorizontal,
   Simulation: RefreshCw,
   Replay: PlayCircle,
-  "Paper Trading": NotebookPen,
-  "Bot Terminal": SquareTerminal,
+  "Paper Trading": SquareTerminal,   // the Bot Observation Terminal
+  "Paper Account": NotebookPen,
   "Live Trading": Rocket,
   Portfolio: Wallet,
+  Allocation: PieChart,
   Analytics: BarChart3,
   "Strategy Proof": BadgeCheck,
   "Strategy Studio": Blocks,
+  "Fleet Manager": Bot,
   "Grid & DCA": LayoutGrid,
   "AI Intelligence": Gauge,
   "AI Assistant": Bot,
   "Risk Manager": ShieldAlert,
   Evolution: Brain,
   Journal: BookOpen,
-  Decisions: ListChecks,
+  "Decision Archive": ListChecks,
   Memory: BrainCircuit,
   "Bot Health": Activity,
   Logs: ScrollText,
@@ -65,20 +68,25 @@ export default function Sidebar({ active, onSelect, collapsed }: SidebarProps) {
       </a>
 
       <nav className="nav">
-        {NAV_LABELS.map((item) => {
-          const NavIcon = NAV_LUCIDE[item] ?? LayoutDashboard;
-          return (
-            <button
-              key={item}
-              className={`nav-item ${active === item ? "active" : ""}`}
-              onClick={() => onSelect(item)}
-              type="button"
-            >
-              <NavIcon size={18} strokeWidth={1.9} className="nav-ico" aria-hidden />
-              <span>{item}</span>
-            </button>
-          );
-        })}
+        {NAV_GROUPS.map((group, gi) => (
+          <div className="nav-group" key={group.title ?? gi}>
+            {group.title && <div className="nav-group-title">{group.title}</div>}
+            {group.items.map((item) => {
+              const NavIcon = NAV_LUCIDE[item] ?? LayoutDashboard;
+              return (
+                <button
+                  key={item}
+                  className={`nav-item ${active === item ? "active" : ""}`}
+                  onClick={() => onSelect(item)}
+                  type="button"
+                >
+                  <NavIcon size={18} strokeWidth={1.9} className="nav-ico" aria-hidden />
+                  <span>{item}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="account-card">

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
@@ -126,10 +126,13 @@ function ReportDetail({ id }: { id: number }) {
   );
 }
 
-export default function DecisionsPage() {
+export default function DecisionsPage({ focusId }: { focusId?: string } = {}) {
   const [decision, setDecision] = usePref<(typeof DECISIONS)[number]>("decisions.filter", "all");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(focusId ? Number(focusId) : null);
+
+  // deep link (#/decision/<id>): expand the linked cycle on arrival
+  useEffect(() => { if (focusId) setOpen(Number(focusId)); }, [focusId]);
 
   const qs = new URLSearchParams({ limit: "150" });
   if (decision !== "all") qs.set("decision", decision);
@@ -151,15 +154,37 @@ export default function DecisionsPage() {
   return (
     <>
       <PageHeader
-        title="Decisions"
+        title="Decision Archive"
         subtitle="Every analysis cycle explained — market read, checklist, confidence score and the decision. The bot never trades or skips silently."
       />
+      {focusId && (
+        <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(234,181,79,0.06)", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <Icon name="external" size={13} className="amber" />
+            <b>Linked decision · cycle #{focusId}</b>
+            <button className="chip-btn" style={{ marginLeft: "auto" }}
+              onClick={() => { navigator.clipboard?.writeText(window.location.href); }}>Copy link</button>
+          </div>
+          <ReportDetail id={Number(focusId)} />
+        </div>
+      )}
       {offline && (
         <div className="card" style={{ borderColor: "#ef4444", display: "flex", alignItems: "center", gap: 10 }}>
           <Icon name="warning" size={16} className="neg" />
           <span className="dim">Backend not reachable (<span className="mono">{API_BASE}</span>). Reports fill in as the engine processes candles.</span>
         </div>
       )}
+
+      <Card title="Audit & Compliance Pack" subtitle="config + decision archive + trade record + alerts, SHA-256 integrity-stamped">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="dim" style={{ fontSize: 12.5, flex: 1, minWidth: 220 }}>
+            A tamper-evident export of the bot's real state. The pack carries a SHA-256 hash of its
+            contents — recompute it to prove nothing was altered after export. Paper-trading record.
+          </span>
+          <a className="btn btn-soft" href={`${API_BASE}/audit/export?fmt=html`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Printable report (PDF)</a>
+          <a className="btn btn-primary" href={`${API_BASE}/audit/export?fmt=json`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Download JSON</a>
+        </div>
+      </Card>
 
       <div className="stat-row">
         <StatCard label="Cycles recorded" value={String(stats.total)} sub="every candle, incl. WAIT" />
@@ -208,6 +233,12 @@ export default function DecisionsPage() {
                     {isOpen && (
                       <tr>
                         <td colSpan={7} style={{ background: "var(--surface-2, #121214)", padding: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 10px 0" }}>
+                            <button className="chip-btn" title="Copy a shareable link to this decision"
+                              onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/decision/${c.id}`); }}>
+                              <Icon name="external" size={11} /> Copy link
+                            </button>
+                          </div>
                           <ReportDetail id={c.id} />
                         </td>
                       </tr>

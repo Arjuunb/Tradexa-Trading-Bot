@@ -122,6 +122,13 @@ a.brand:hover { opacity: 0.85; }
 .sidebar.collapsed .brand-name { display: none; }
 
 .nav { display: flex; flex-direction: column; gap: 3px; }
+.nav-group { display: flex; flex-direction: column; gap: 3px; }
+.nav-group + .nav-group { margin-top: 10px; }
+.nav-group-title {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+  color: rgba(200, 169, 75, 0.55); padding: 0 11px; margin: 2px 0 3px;
+}
+.sidebar.collapsed .nav-group-title { visibility: hidden; height: 6px; padding: 0; margin: 0; }
 .nav-item {
   position: relative;
   display: flex; align-items: center; gap: 11px;
@@ -193,6 +200,17 @@ a.brand:hover { opacity: 0.85; }
 }
 .icon-btn:hover { color: var(--text); border-color: var(--card-border); background: #1b1b1f; }
 .badge-dot { position: absolute; top: 8px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+
+/* notification center */
+.notif-wrap { position: relative; }
+.notif-badge {
+  position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: grid; place-items: center; font-size: 10px; font-weight: 700; line-height: 1;
+  color: #0a0a0c; background: var(--gold); border-radius: 9px; border: 2px solid var(--bg);
+}
+.notif-pop { padding: 12px 14px; }
+.notif-item { display: flex; gap: 9px; padding: 8px 4px; border-bottom: 1px solid var(--card-border-soft, rgba(255,255,255,0.05)); }
+.notif-item:last-child { border-bottom: none; }
 
 .status-pill {
   display: flex; align-items: center; gap: 8px;

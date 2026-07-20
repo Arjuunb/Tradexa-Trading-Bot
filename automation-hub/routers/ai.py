@@ -154,6 +154,23 @@ def ai_coach():
     return _ai.daily_coach(insights)
 
 
+@router.get("/ai/recommendations")
+def ai_recommendations():
+    """Actionable risk-setting recommendations, each mapping to one editable
+    setting with a concrete suggested value (the frontend can apply in a click).
+    Config-hygiene items come from the current settings; behaviour items require
+    real coach evidence."""
+    try:
+        editable = _wa._settings_snapshot()
+    except Exception:  # noqa: BLE001
+        editable = {}
+    try:
+        coach = _ai.daily_coach(_wa.trade_memory.insights())
+    except Exception:  # noqa: BLE001
+        coach = {}
+    return _ai.settings_recommendations(editable, coach)
+
+
 @router.get("/ai/confidence-levels")
 def ai_confidence_levels():
     """Static legend: the score band each confidence level maps to."""

@@ -12,6 +12,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Fields that are library metadata, not part of the strategy DEFINITION. Version
+# snapshots capture only the definition, so favourites/tags/folder/history don't
+# pollute the diff or nest recursively.
+_META_KEYS = {"id", "created_at", "updated_at", "versions", "favorite", "tags", "folder"}
+_VERSION_CAP = 30
+
+
+def _definition(spec: dict) -> dict:
+    return {k: v for k, v in spec.items() if k not in _META_KEYS}
+
+
 class CustomStore:
     def __init__(self, path: str):
         self.path = Path(path)
@@ -38,11 +49,48 @@ class CustomStore:
         data = self._load()
         sid = spec.get("id") or uuid.uuid4().hex
         spec["id"] = sid
-        spec.setdefault("created_at", _now())
+        existing = data.get(sid)
+        versions = list(existing.get("versions", [])) if existing else []
+        if existing is not None:
+            # snapshot the PREVIOUS state as a version whenever the definition
+            # actually changed (renames/param edits/rule edits) — the audit trail.
+            if _definition(existing) != _definition(spec):
+                versions.append({
+                    "v": (versions[-1]["v"] + 1) if versions else 1,
+                    "at": existing.get("updated_at") or _now(),
+                    "name": existing.get("name"),
+                    "spec": _definition(existing),
+                })
+                versions = versions[-_VERSION_CAP:]
+            # library metadata lives on the record, not in each save payload
+            for k in ("favorite", "tags", "folder"):
+                if k in existing and k not in spec:
+                    spec[k] = existing[k]
+        spec.setdefault("created_at", existing.get("created_at") if existing else _now())
         spec["updated_at"] = _now()
+        spec["versions"] = versions
         data[sid] = spec
         self._write(data)
         return spec
+
+    def history(self, sid: str):
+        """Return the version snapshots for a strategy (newest last), or None."""
+        s = self._load().get(sid)
+        if s is None:
+            return None
+        return list(s.get("versions", []))
+
+    def restore(self, sid: str, v: int):
+        """Roll a strategy back to version `v`. The current state is snapshotted
+        first (via save), so a restore is itself undoable."""
+        s = self._load().get(sid)
+        if not s:
+            return None
+        ver = next((x for x in s.get("versions", []) if int(x.get("v", -1)) == int(v)), None)
+        if ver is None:
+            return None
+        restored = {**copy.deepcopy(ver["spec"]), "id": sid}
+        return self.save(restored)
 
     def delete(self, sid: str) -> bool:
         data = self._load()

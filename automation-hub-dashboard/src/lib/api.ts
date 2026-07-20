@@ -286,6 +286,14 @@ export interface AIAlert {
 export interface AIAlerts { alerts: AIAlert[]; count: number; checked: string[]; }
 export interface AIInsight { symbol: string; kind: string; tone: string; text: string; }
 export interface AIInsights { insights: AIInsight[]; symbols: string[]; timeframe: string; }
+export interface AIRecommendation {
+  id: string; title: string; why: string; setting: string;
+  current: number | boolean; suggested: number | boolean;
+  unit: string; severity: "warning" | "suggestion";
+}
+export interface AIRecommendations {
+  recommendations: AIRecommendation[]; count: number; ready: boolean; note: string;
+}
 export interface AICoach {
   sample: number; ready: boolean; trades: number; win_rate: number | null;
   expectancy_r: number | null; avg_hold_seconds: number | null;
@@ -388,6 +396,11 @@ export interface MonteCarlo {
   max_drawdown_r: { median: number; p95: number; worst: number };
   probability_of_ruin_pct?: number; survival_probability_pct?: number;
   recovery_probability_pct?: number; expected_return_r?: number;
+  paths?: {
+    steps: number;
+    bands: { p5: number[]; p25: number[]; median: number[]; p75: number[]; p95: number[] };
+    samples: number[][];
+  };
 }
 export interface ExecStats { trades: number; net_r: number; win_rate: number; profit_factor: number; expectancy_r: number; max_drawdown_r: number; }
 export interface ExecRealism { available: boolean; error?: string; trades: number; rejected: number; partial_fills: number; slippage_cost_r: number; edge_survives: boolean; ideal: ExecStats; realistic: ExecStats; }
@@ -484,6 +497,11 @@ export interface CustomSpec {
   exit?: { op?: "AND" | "OR"; rules?: CustomRule[]; ai_exit?: boolean;
            breakeven_at_r?: number; trail_atr?: number; time_stop_bars?: number };
   created_at?: string; updated_at?: string;
+  favorite?: boolean; folder?: string; tags?: string[];
+  versions?: StrategyVersion[];
+}
+export interface StrategyVersion {
+  v: number; at: string; name?: string; spec: Record<string, unknown>;
 }
 export interface SimTrade {
   side: string; entry: number; exit: number; stop: number; target: number;

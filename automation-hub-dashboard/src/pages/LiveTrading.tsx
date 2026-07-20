@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import { PageHeader } from "../components/common/ui";
+import { PageHeader, StatCard } from "../components/common/ui";
 import { apiPostJson, useLive, type BotSettings, type PaperTradeRow, type SystemStatus, type BrokerList, type FillModelStatus } from "../lib/api";
 import { Badge } from "../components/common/ui";
 import { useApp } from "../app-context";
@@ -15,6 +15,7 @@ function riskValid(s: BotSettings | null): boolean {
 }
 
 export default function LiveTradingPage() {
+  const app = useApp();
   const { data: sys } = useLive<SystemStatus>("/system/status", 3000);
   const { data: settings } = useLive<BotSettings>("/settings", 5000);
   const { data: trades } = useLive<PaperTradeRow[]>("/paper/trades", 4000);
@@ -34,7 +35,8 @@ export default function LiveTradingPage() {
 
   return (
     <>
-      <PageHeader title="Live Trading" subtitle="Locked until the full safety flow passes and a broker is connected" />
+      <PageHeader title="Live Trading" subtitle="Locked until the full safety flow passes and a broker is connected"
+        actions={<button className="btn btn-soft btn-sm" onClick={() => app.go("Safety Center")}>Safety Center</button>} />
 
       <Card title="Why live is locked" right={<span className="ui-badge" style={{ background: "#ef444422", color: "#ef4444" }}>LOCKED</span>}>
         <p style={{ lineHeight: 1.6 }}>
@@ -80,7 +82,35 @@ export default function LiveTradingPage() {
         <BrokerConnections />
         <FillModelControl />
       </div>
+
+      <ExecutionQuality />
     </>
+  );
+}
+
+function ExecutionQuality() {
+  const app = useApp();
+  const { data: sys } = useLive<SystemStatus>("/system/status", 8000);
+  const fm = useLive<FillModelStatus>("/execution/fill-model", 8000).data;
+  const live = !!sys?.broker_connected;
+  const cost = fm?.round_trip_cost_pct;
+  return (
+    <Card title="Execution Quality" subtitle="how much execution frictions cost you — modeled today, measured once live">
+      <div className="stat-row" style={{ marginBottom: 10 }}>
+        <StatCard label="Source" value={live ? "Live venue" : "Modeled"} tone={live ? "green" : "amber"} sub={live ? "real fills" : "paper simulation"} />
+        <StatCard label="Modeled round-trip cost" value={cost != null ? `${cost}%` : fm?.model === "perfect" ? "0% (perfect)" : "—"} sub="spread + slippage" />
+        <StatCard label="Assumed slippage" value={fm ? `${((fm.slippage_pct ?? 0) * 100).toFixed(3)}%` : "—"} sub={`spread ${fm ? ((fm.spread_pct ?? 0) * 100).toFixed(3) : "—"}%`} />
+        <StatCard label="Reject rate" value={fm ? `${((fm.reject_prob ?? 0) * 100).toFixed(1)}%` : "—"} sub="orders rejected" />
+      </div>
+      <div className="banner" style={{ fontSize: 12 }}>
+        <Icon name="info" size={13} className="amber" />
+        <span>
+          <b>Real per-venue telemetry — latency, realised slippage and fill rate — activates when a live broker is connected.</b>{" "}
+          Live trading is locked until the safety flow passes, so these figures are the <b>simulated</b> execution model, not measured venue data (nothing here is fabricated).
+          See the modeled impact on a real run in <button className="chip-btn" onClick={() => app.go("Backtesting")}>Backtesting → Execution Realism</button>.
+        </span>
+      </div>
+    </Card>
   );
 }
 

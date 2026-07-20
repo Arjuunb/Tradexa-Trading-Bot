@@ -5,11 +5,13 @@ import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import OfflineBanner from "../components/common/OfflineBanner";
 import { useLive, hhmmss, type LedgerPosition, type PaperAccount, type RiskSummary, type PortfolioRisk } from "../lib/api";
 import { signedMoney } from "../lib/format";
+import { useApp } from "../app-context";
 
 const money = (n: number | undefined) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const COLORS = ["#eab54f", "#22c55e", "#3b82f6", "#eab54f", "#ef4444", "#06b6d4", "#ec4899", "#84cc16"];
 
 export default function PortfolioPage() {
+  const { go } = useApp();
   const { data: acct, error: acctErr } = useLive<PaperAccount>("/paper/account", 2500);
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 2500);
   const { data: pf } = useLive<PortfolioRisk>("/risk/portfolio?timeframe=1d", 4000);
@@ -29,7 +31,11 @@ export default function PortfolioPage() {
   return (
     <>
       <PageHeader title="Portfolio" subtitle="Allocation, exposure and risk across open paper positions"
-        actions={pf && <Badge text={`${lvl} risk`} tone={lvlTone as any} />} />
+        actions={<>
+          <button className="btn btn-soft btn-sm" onClick={() => go("Markets")}>Markets</button>
+          <button className="btn btn-soft btn-sm" onClick={() => go("Symbols")}>Symbol Explorer</button>
+          {pf && <Badge text={`${lvl} risk`} tone={lvlTone as any} />}
+        </>} />
 
       <OfflineBanner show={Boolean(acctErr) && !acct} what="your portfolio" />
 

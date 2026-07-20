@@ -92,6 +92,62 @@ def daily_coach(insights: dict) -> dict:
     }
 
 
+def settings_recommendations(editable: dict, coach: dict | None = None) -> dict:
+    """Grounded, actionable risk-setting recommendations. Each item maps to ONE
+    editable setting with a concrete suggested value, so the UI can apply it in a
+    click. Config-hygiene checks fire off the current settings alone (always
+    honest); behaviour-based ones require real evidence from the coach. Nothing
+    is invented — an item only appears when there's a real gap to close."""
+    e = editable or {}
+    c = coach or {}
+    recs: list[dict] = []
+
+    def add(rid, title, why, setting, current, suggested, unit="", severity="suggestion"):
+        recs.append({"id": rid, "title": title, "why": why, "setting": setting,
+                     "current": current, "suggested": suggested, "unit": unit,
+                     "severity": severity})
+
+    # --- config hygiene (grounded purely in current settings) ---
+    if not e.get("max_consecutive_losses"):
+        add("consec-breaker", "Add a losing-streak circuit breaker",
+            "No consecutive-loss limit is set — one bad run can compound before you react.",
+            "max_consecutive_losses", e.get("max_consecutive_losses", 0), 4, "trades", "warning")
+    if not e.get("max_daily_loss_pct"):
+        add("daily-cap", "Set a daily loss cap",
+            "There is no daily loss limit — a single bad session is uncapped.",
+            "max_daily_loss_pct", 0.0, 0.03, "%", "warning")
+    dd = e.get("max_drawdown_pct") or 0
+    if dd == 0 or dd > 0.25:
+        add("drawdown-kill", "Tighten the drawdown kill-switch",
+            "Max drawdown is unset or looser than 25% — the account can bleed too far before trading halts.",
+            "max_drawdown_pct", dd, 0.20, "%", "warning")
+    rpt = e.get("risk_per_trade_pct") or 0
+    if rpt > 0.02:
+        add("risk-per-trade", "Lower risk per trade",
+            f"Risking {rpt*100:.1f}% per trade is aggressive — institutional desks rarely exceed 1%.",
+            "risk_per_trade_pct", rpt, 0.01, "%", "warning")
+    if not e.get("streak_risk_scaling"):
+        add("streak-scaling", "Enable streak-based risk scaling",
+            "Risk stays flat through losing streaks — scaling down during drawdowns protects capital.",
+            "streak_risk_scaling", False, True, "", "suggestion")
+
+    # --- behaviour-based (requires real coaching evidence) ---
+    if (c.get("risk_discipline") == "Needs work") and not e.get("cooldown_after_loss_min"):
+        add("cooldown", "Add a cooldown after a loss",
+            "The coach flags risk-discipline issues and there's no post-loss cooldown — a pause curbs revenge trades.",
+            "cooldown_after_loss_min", e.get("cooldown_after_loss_min", 0), 15, "min", "warning")
+    mq = e.get("min_quality_score")
+    if (c.get("worst_setup") or c.get("main_mistake")) and (mq is not None) and mq < 60:
+        add("min-quality", "Raise the minimum setup quality",
+            "Your losing trades cluster on lower-quality setups — a higher quality gate filters them out.",
+            "min_quality_score", mq, 60, "score", "suggestion")
+
+    return {"recommendations": recs, "count": len(recs),
+            "ready": True,
+            "note": ("Everything here maps to one real setting; applying sends it straight to the live paper engine."
+                     if recs else "No risk-setting gaps found — your guardrails look sound.")}
+
+
 def _base(symbol: str) -> str:
     """Human ticker: BTC/USDT or BTCUSDT -> BTC."""
     s = symbol.replace("/", "")

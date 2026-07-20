@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { usePref } from "../lib/prefs";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
@@ -32,12 +32,15 @@ const stageTone = (s: string) =>
 const MODES = ["all", "paper", "live", "sim"] as const;
 const RESULTS = ["all", "win", "loss"] as const;
 
-export default function JournalPage() {
+export default function JournalPage({ focusId }: { focusId?: string } = {}) {
   const { go } = useApp();
   const [mode, setMode] = usePref<(typeof MODES)[number]>("journal.mode", "all");
   const [result, setResult] = usePref<(typeof RESULTS)[number]>("journal.result", "all");
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusId ?? null);
+
+  // deep link (#/trade/<id>): expand the linked trade on arrival
+  useEffect(() => { if (focusId) setOpen(focusId); }, [focusId]);
 
   const qs = new URLSearchParams({ limit: "200" });
   if (mode !== "all") qs.set("mode", mode);
@@ -76,7 +79,7 @@ export default function JournalPage() {
       <PageHeader
         title="Bot Trade Journal"
         subtitle="Every bot decision — explainable, reviewable, searchable. Real strategy data only."
-        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Decisions")}><Icon name="history" size={13} /> Decisions</button>}
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Decision Archive")}><Icon name="history" size={13} /> Decision Archive</button>}
       />
 
       {offline && (
@@ -154,6 +157,12 @@ export default function JournalPage() {
                     {isOpen && (
                       <tr>
                         <td colSpan={13} style={{ background: "var(--surface-2, #121214)", padding: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 10px 0" }}>
+                            <button className="chip-btn" title="Copy a shareable link to this trade"
+                              onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/trade/${t.trade_id}`); }}>
+                              <Icon name="external" size={11} /> Copy link
+                            </button>
+                          </div>
                           <DecisionJournalPanel tradeId={t.trade_id} />
                         </td>
                       </tr>
