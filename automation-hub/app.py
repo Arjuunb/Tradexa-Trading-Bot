@@ -532,8 +532,8 @@ def login_form(error: str = "") -> str:
 <h1>Welcome back</h1>
 <p class="sub">Sign in to your TradeLogX Nexus workspace.</p>
 <form method="post" action="/login" onsubmit="return subm(this)" novalidate>
-<label class="fld"><span class="lbl">Username</span>
-<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="you" autofocus></div></label>
+<label class="fld"><span class="lbl">Username or email</span>
+<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="you@email.com or a username" autofocus></div></label>
 {_pw_field("password", "Password", "pw", "tpw", "current-password")}
 <button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Sign in</span></button>
 </form>
@@ -562,8 +562,8 @@ def signup_form(error: str = "") -> str:
 <h1>Create your account</h1>
 <p class="sub">Set up the owner account for your TradeLogX Nexus workspace.</p>
 <form method="post" action="/signup" onsubmit="return subm(this)" novalidate>
-<label class="fld"><span class="lbl">Username</span>
-<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="choose a username" autofocus></div></label>
+<label class="fld"><span class="lbl">Username or email</span>
+<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="you@email.com or a username" autofocus></div></label>
 {_pw_field("password", "Password", "pw", "tpw", "new-password", hint="<span style='font-weight:400;color:rgba(255,255,255,.4)'>8+ characters</span>")}
 {_pw_field("confirm", "Confirm password", "pw2", "tpw2", "new-password")}
 <button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Create account</span></button>
@@ -573,11 +573,14 @@ def signup_form(error: str = "") -> str:
 
 def _create_owner(username: str, password: str, confirm: str):
     """Shared signup rules. Returns (username, None) or (None, error)."""
+    import re as _re
     if not _signup_open():
         return None, "This hub already has an owner account"
     username = (username or "").strip()
-    if not (3 <= len(username) <= 32) or not username.replace("_", "").isalnum():
-        return None, "Username must be 3–32 letters/digits/underscores"
+    # accept a plain username OR an email address (people naturally type their
+    # email here — the field label offers both), letters/digits and . _ - + @
+    if not (3 <= len(username) <= 64) or not _re.fullmatch(r"[A-Za-z0-9._+@-]+", username):
+        return None, "Enter a username or email (3–64 chars: letters, digits, . _ - + @)"
     if len(password or "") < 8:
         return None, "Password must be at least 8 characters"
     if password != confirm:
