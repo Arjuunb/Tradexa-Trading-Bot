@@ -125,6 +125,27 @@ def monte_carlo(strategy: str, symbol: str, timeframe: str = "4h", *, bars: int 
     def pctl(a, p):
         return round(a[min(len(a) - 1, int(p * len(a)))], 2)
 
+    # equity-path fan: bootstrap a bounded set of full equity curves, then take
+    # per-step percentile bands (p5/p25/median/p75/p95) plus a few raw sample
+    # paths for texture — this is what the frontend renders as a fan chart.
+    steps = len(rs)
+    path_runs = min(runs, 400)
+    curves = []
+    for _ in range(path_runs):
+        eq = 0.0
+        c = [0.0]
+        for _ in range(steps):
+            eq += rs[rnd.randrange(len(rs))]
+            c.append(round(eq, 3))
+        curves.append(c)
+    bands = {"p5": [], "p25": [], "median": [], "p75": [], "p95": []}
+    for t in range(steps + 1):
+        col = sorted(c[t] for c in curves)
+        bands["p5"].append(pctl(col, 0.05)); bands["p25"].append(pctl(col, 0.25))
+        bands["median"].append(pctl(col, 0.5)); bands["p75"].append(pctl(col, 0.75))
+        bands["p95"].append(pctl(col, 0.95))
+    samples = [[round(v, 2) for v in c] for c in curves[:24]]
+
     deep = sum(1 for d in dds if d >= ruin_r * 0.5) or 1
     return {
         "available": True, "data_source": src, "runs": runs, "trades": len(rs), "ruin_r": ruin_r,
@@ -136,6 +157,7 @@ def monte_carlo(strategy: str, symbol: str, timeframe: str = "4h", *, bars: int 
         "probability_of_ruin_pct": round(ruined / runs * 100, 1),
         "survival_probability_pct": round((runs - ruined) / runs * 100, 1),
         "recovery_probability_pct": round(recovered / deep * 100, 1),
+        "paths": {"steps": steps, "bands": bands, "samples": samples},
     }
 
 

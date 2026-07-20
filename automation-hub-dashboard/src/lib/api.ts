@@ -396,6 +396,11 @@ export interface MonteCarlo {
   max_drawdown_r: { median: number; p95: number; worst: number };
   probability_of_ruin_pct?: number; survival_probability_pct?: number;
   recovery_probability_pct?: number; expected_return_r?: number;
+  paths?: {
+    steps: number;
+    bands: { p5: number[]; p25: number[]; median: number[]; p75: number[]; p95: number[] };
+    samples: number[][];
+  };
 }
 export interface ExecStats { trades: number; net_r: number; win_rate: number; profit_factor: number; expectancy_r: number; max_drawdown_r: number; }
 export interface ExecRealism { available: boolean; error?: string; trades: number; rejected: number; partial_fills: number; slippage_cost_r: number; edge_survives: boolean; ideal: ExecStats; realistic: ExecStats; }

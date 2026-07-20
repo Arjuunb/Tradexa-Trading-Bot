@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import ProgressBar from "../components/common/ProgressBar";
 import Icon from "../components/common/Icon";
@@ -8,7 +8,7 @@ import { useApp } from "../app-context";
 import {
   apiPost, apiPostJson, apiGet, useLive, hhmmss,
   type AlertRow, type RiskSummary, type PositionSizeResult, type CorrelationData, type PortfolioRisk,
-  type Recovery, type HealthCard,
+  type Recovery, type HealthCard, type LedgerPosition,
 } from "../lib/api";
 
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
@@ -212,11 +212,22 @@ function CorrelationMatrix() {
   const [tf, setTf] = useState("1d");
   const [data, setData] = useState<CorrelationData | null>(null);
   const [loading, setLoading] = useState(false);
+  // fold the symbols you actually hold into the matrix, so it reflects real
+  // exposure (not just a fixed watchlist) — that's where correlation risk bites.
+  const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 5000);
+  const held = useMemo(() => Array.from(new Set((positions ?? []).map((p) => p.symbol.toUpperCase()))), [positions]);
+  const syms = useMemo(() => Array.from(new Set([...held, ...SYMS])).slice(0, 8), [held]);
+  const heldSet = useMemo(() => new Set(held), [held]);
   const load = async () => {
     setLoading(true);
-    try { setData(await apiGet<CorrelationData>(`/risk/correlation?symbols=${SYMS.join(",")}&timeframe=${tf}&lookback=200`)); }
+    try { setData(await apiGet<CorrelationData>(`/risk/correlation?symbols=${syms.join(",")}&timeframe=${tf}&lookback=200`)); }
     catch { /* leave */ } finally { setLoading(false); }
   };
+  // auto-load once on mount and whenever the held set changes materially
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tf, held.join(",")]);
+  // every held pair that is dangerously correlated (concentration risk)
+  const heldRisks = (data?.pairs ?? []).filter((p) =>
+    Math.abs(p.correlation) >= 0.8 && heldSet.has(p.a.toUpperCase()) && heldSet.has(p.b.toUpperCase()));
   const cell = (c: number | null) => {
     if (c === null) return { bg: "transparent", txt: "var(--dim-2)" };
     const a = Math.abs(c);
@@ -224,20 +235,20 @@ function CorrelationMatrix() {
     return { bg: `rgba(${col},${(a * 0.5).toFixed(2)})`, txt: a > 0.6 ? "#fff" : "var(--dim)" };
   };
   return (
-    <Card title="Correlation Matrix" subtitle="log-return correlation · prevents stacking correlated trades"
+    <Card title="Correlation Matrix" subtitle={held.length ? `log-return correlation · ● = symbols you hold (${held.length})` : "log-return correlation · prevents stacking correlated trades"}
       right={<div className="row-actions" style={{ gap: 6 }}>
         <select value={tf} onChange={(e) => setTf(e.target.value)}>{["4h", "1d", "1w"].map((t) => <option key={t}>{t}</option>)}</select>
-        <button className="btn btn-soft" disabled={loading} onClick={load}><Icon name="refresh" size={13} /> {loading ? "…" : data ? "Refresh" : "Load"}</button>
+        <button className="btn btn-soft" disabled={loading} onClick={load}><Icon name="refresh" size={13} /> {loading ? "…" : "Refresh"}</button>
       </div>}>
-      {!data ? <div className="dim ta-center" style={{ padding: 18 }}>Load the correlation matrix from the real candle store.</div> : (
+      {!data ? <div className="dim ta-center" style={{ padding: 18 }}>{loading ? "Loading correlation matrix…" : "Correlation matrix unavailable — load the real candle store."}</div> : (
         <>
           <div style={{ overflowX: "auto" }}>
             <table className="data-table" style={{ textAlign: "center" }}>
-              <thead><tr><th></th>{(data?.symbols ?? []).map((s) => <th key={s} style={{ textAlign: "center" }}>{s.replace("USDT", "")}</th>)}</tr></thead>
+              <thead><tr><th></th>{(data?.symbols ?? []).map((s) => <th key={s} style={{ textAlign: "center", color: heldSet.has(s.toUpperCase()) ? "var(--gold)" : undefined }}>{heldSet.has(s.toUpperCase()) ? "● " : ""}{s.replace("USDT", "")}</th>)}</tr></thead>
               <tbody>
                 {(data?.symbols ?? []).map((a) => (
                   <tr key={a}>
-                    <td><b>{a.replace("USDT", "")}</b></td>
+                    <td><b style={{ color: heldSet.has(a.toUpperCase()) ? "var(--gold)" : undefined }}>{heldSet.has(a.toUpperCase()) ? "● " : ""}{a.replace("USDT", "")}</b></td>
                     {(data?.symbols ?? []).map((b) => {
                       const c = data.matrix?.[a]?.[b] ?? null; const st = cell(c);
                       return <td key={b} style={{ background: st.bg, color: st.txt, fontWeight: 600 }}>{c === null ? "—" : c.toFixed(2)}</td>;
@@ -247,7 +258,14 @@ function CorrelationMatrix() {
               </tbody>
             </table>
           </div>
-          {data.pairs?.[0] && Math.abs(data.pairs[0].correlation) >= 0.8 && (
+          {heldRisks.length > 0 ? (
+            <div className="card" style={{ marginTop: 8, borderColor: "var(--red)", background: "rgba(239,68,68,0.08)" }}>
+              <Icon name="warning" size={13} className="neg" /> <b>Concentration risk</b> — you hold correlated positions:
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12.5 }}>
+                {heldRisks.map((p) => <li key={`${p.a}${p.b}`} className="neg">{p.a.replace("USDT", "")}/{p.b.replace("USDT", "")} at {p.correlation.toFixed(2)} — they'll tend to win and lose together.</li>)}
+              </ul>
+            </div>
+          ) : data.pairs?.[0] && Math.abs(data.pairs[0].correlation) >= 0.8 && (
             <div className="card" style={{ marginTop: 8, borderColor: "var(--gold)", background: "rgba(234,181,79,0.08)" }}>
               <Icon name="warning" size={13} className="amber" /> {data.pairs[0].a.replace("USDT", "")}/{data.pairs[0].b.replace("USDT", "")} are {data.pairs[0].correlation.toFixed(2)} correlated — avoid opening both at once.
             </div>

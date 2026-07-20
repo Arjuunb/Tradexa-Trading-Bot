@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Card from "../components/common/Card";
 import AreaLine from "../components/chart/AreaLine";
+import FanChart from "../components/chart/FanChart";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { apiGet, apiPostJson, useLive, hhmmss, API_BASE,
@@ -345,7 +346,16 @@ function RobustnessLab() {
         : <p className="neg" style={{ marginTop: 8 }}><Icon name="warning" size={13} /> {wf.error}</p>)}
 
       {mc && (mc.available && !mc.error
-        ? <div className="perf-grid" style={{ marginTop: 12 }}>
+        ? <>
+          {mc.paths && mc.paths.steps > 1 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="dim" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                {mc.runs} bootstrapped equity paths over {mc.trades} trades — gold band = 25–75th percentile, faint = 5–95th, line = median.
+              </div>
+              <FanChart bands={mc.paths.bands} samples={mc.paths.samples} />
+            </div>
+          )}
+          <div className="perf-grid" style={{ marginTop: 12 }}>
             {[["P(profit)", `${mc.prob_profit_pct}%`, mc.prob_profit_pct >= 50 ? "pos" : "neg"],
               ["Survival", `${mc.survival_probability_pct ?? "—"}%`, (mc.survival_probability_pct ?? 100) >= 95 ? "pos" : "neg"],
               ["P(ruin)", `${mc.probability_of_ruin_pct ?? "—"}%`, (mc.probability_of_ruin_pct ?? 0) <= 5 ? "pos" : "neg"],
@@ -357,6 +367,7 @@ function RobustnessLab() {
               <div className="perf-item" key={l as string}><span className="perf-label">{l}</span><div className="perf-value-row"><span className={`perf-value ${t}`}>{v}</span></div></div>
             ))}
           </div>
+          </>
         : mc && <p className="amber" style={{ marginTop: 8 }}><Icon name="warning" size={13} /> {mc.error || "unavailable"} · {mc.runs} runs over {mc.trades} trades</p>)}
 
       {oos && (oos.available

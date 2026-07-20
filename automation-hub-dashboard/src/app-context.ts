@@ -23,7 +23,7 @@ export const useApp = () => useContext(AppContext);
 // instead of a flat list of pages.
 export const NAV_GROUPS: { title: string | null; items: string[] }[] = [
   { title: null, items: ["Dashboard"] },
-  { title: "Trading", items: ["Strategy Studio", "Paper Trading", "Replay", "Backtesting", "Grid & DCA", "Live Trading"] },
+  { title: "Trading", items: ["Strategy Studio", "Paper Trading", "Replay", "Backtesting", "Optimization Lab", "Grid & DCA", "Live Trading"] },
   { title: "Performance", items: ["Portfolio", "Analytics", "AI Intelligence"] },
   { title: "Records", items: ["Journal", "Decision Archive", "Memory"] },
   { title: "System", items: ["Risk Manager", "Bot Health", "Logs", "Settings"] },
@@ -54,12 +54,19 @@ export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");
 export interface Route {
   page: string;
   botId: string;
+  /** Deep-link target id — the decision cycle or trade to focus on arrival. */
+  focusId?: string;
 }
 
 export const parseHash = (): Route => {
   const h = window.location.hash.replace(/^#\/?/, "").trim();
-  const m = h.match(/^bot\/(.+)$/);
-  if (m) return { page: "BotDetail", botId: m[1] };
+  const bot = h.match(/^bot\/(.+)$/);
+  if (bot) return { page: "BotDetail", botId: bot[1] };
+  // shareable deep links to a single decision or trade (for audit/sharing)
+  const dec = h.match(/^decision\/(.+)$/);
+  if (dec) return { page: "Decision Archive", botId: "", focusId: decodeURIComponent(dec[1]) };
+  const trd = h.match(/^trade\/(.+)$/);
+  if (trd) return { page: "Journal", botId: "", focusId: decodeURIComponent(trd[1]) };
   if (LEGACY_SLUGS[h]) return { page: LEGACY_SLUGS[h], botId: "" };
   const found = [...NAV_LABELS, ...EXTRA_ROUTES].find((n) => slug(n) === h);
   return { page: found ?? "Dashboard", botId: "" };

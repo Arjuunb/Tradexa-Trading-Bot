@@ -34,6 +34,7 @@ const DecisionsPage = lazy(() => import("./pages/Decisions"));
 const MemoryPage = lazy(() => import("./pages/Memory"));
 const BotHealthPage = lazy(() => import("./pages/BotHealth"));
 const StrategyProofPage = lazy(() => import("./pages/StrategyProof"));
+const OptimizationPage = lazy(() => import("./pages/Optimization"));
 import { AppContext, parseHash, slug } from "./app-context";
 
 const MOBILE = "(max-width: 720px)";
@@ -84,6 +85,7 @@ export default function App() {
       case "Symbols": return <SymbolExplorerPage />;
       case "Strategies": return <StrategiesPage />;
       case "Backtesting": return <BacktestingPage />;
+      case "Optimization Lab": return <OptimizationPage />;
       case "Simulation": return <SimulationPage />;
       case "Replay": return <ReplayPage />;
       // Paper Trading IS the Bot Observation Terminal (the heart of the app);
@@ -100,8 +102,8 @@ export default function App() {
       case "AI Assistant": return <AIAssistantPage />;
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
-      case "Journal": return <JournalPage />;
-      case "Decision Archive": return <DecisionsPage />;
+      case "Journal": return <JournalPage focusId={route.focusId} />;
+      case "Decision Archive": return <DecisionsPage focusId={route.focusId} />;
       case "Memory": return <MemoryPage />;
       case "Bot Health": return <BotHealthPage />;
       case "Logs": return <LogsPage />;
