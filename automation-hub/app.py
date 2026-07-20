@@ -363,39 +363,181 @@ _BRAND_MARK = ('<svg width="32" height="32" viewBox="0 0 96 96" fill="none" '
                '<path d="M65 82 L56 66 H74 Z" fill="#C6961F"/></svg>')
 _BRAND_HEAD = (f'<div class="brand">{_BRAND_MARK}'
                '<span class="wordmark">TradeLogX <b>Nexus</b></span></div>')
-# gold-led overrides scoped to the auth pages (dashboard blue stays the accent)
-_AUTH_CSS = '''.brand{display:flex;align-items:center;gap:10px;margin:0 0 4px}
-.wordmark{font-size:18px;font-weight:600;letter-spacing:-.01em;color:#e9edf2}
-.wordmark b{color:#C9A24B;font-weight:700}
-.login .btn{background:linear-gradient(135deg,#f2c766,#C9A24B);color:#0a0a0a;font-weight:700}
-.login a{color:#C9A24B}'''
+
+# ---- inline icons (match the landing's lucide set) -------------------------
+_IC_USER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+_IC_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
+_IC_EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
+_IC_TREND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/></svg>'
+_IC_SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>'
+_IC_ZAP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg>'
+
+# demo equity line for the showcase (hand-drawn shape, clearly labelled demo)
+_SC_CURVE = [10, 26, 20, 38, 33, 52, 48, 66, 62, 80]
+_SC_PATH = " ".join(
+    f'{"M" if i == 0 else "L"}{(i/(len(_SC_CURVE)-1))*260:.1f},{80-(v/100)*80:.1f}'
+    for i, v in enumerate(_SC_CURVE))
+_SHOWCASE = f'''<aside class="showcase">
+  <div class="sc-top">
+    <div class="eyebrow">TradeLogX Nexus</div>
+    <h2 class="sc-title">Automated Trading.<br><span class="grad">Human Intelligence.</span></h2>
+    <p class="sc-sub">Analyze markets, execute strategies, and manage risk — with complete transparency over every decision Nexus makes.</p>
+  </div>
+  <div class="sc-card">
+    <div class="sc-card-h"><span>EQUITY · DEMO</span><span class="emer">+18.4%</span></div>
+    <svg viewBox="0 0 260 80" preserveAspectRatio="none" class="sc-svg"><path d="{_SC_PATH}" pathLength="1" fill="none" stroke="#4FD98E" stroke-width="2" stroke-linecap="round" class="sc-line"/></svg>
+  </div>
+  <div class="sc-stats">
+    <div class="sc-chip"><span class="sc-ic">{_IC_TREND}</span><div><b>Fully automated</b><span>Strategies executed</span></div></div>
+    <div class="sc-chip"><span class="sc-ic">{_IC_SHIELD}</span><div><b>Encrypted · No withdrawals</b><span>Keys</span></div></div>
+    <div class="sc-chip"><span class="sc-ic">{_IC_ZAP}</span><div><b>Sub-100ms routing</b><span>Execution</span></div></div>
+  </div>
+</aside>'''
+
+# Full premium auth stylesheet — mirrors the landing's design tokens exactly
+# (page-depth radial, warm grid, gold/emerald blooms, glass card, gold-sheen
+# button, icon inputs). Self-contained; the legacy dashboard CSS is NOT loaded.
+_AUTH_CSS = '''*{box-sizing:border-box}
+:root{--gold:#C9A24B;--gold-soft:#E7CE86;--ink:#08080A;--line:rgba(255,255,255,.08)}
+html,body{margin:0;min-height:100%}
+body{background:#08080A;color:#fff;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+ -webkit-font-smoothing:antialiased;position:relative;overflow-x:hidden}
+/* background layers (fixed) */
+body::before,body::after{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none}
+body::before{background:radial-gradient(120% 85% at 50% 0%,#0D0C0A 0%,#08080A 48%,#050506 100%)}
+.bg{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.bg .grid{position:absolute;inset:0;
+ background-image:linear-gradient(to right,rgba(226,214,182,.045) 1px,transparent 1px),linear-gradient(to bottom,rgba(226,214,182,.045) 1px,transparent 1px);
+ background-size:28px 28px;-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%);
+ mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%);opacity:.6;animation:gridpan 8s linear infinite}
+.bg .grid2{position:absolute;inset:0;background-image:linear-gradient(to right,rgba(226,214,182,.045) 1px,transparent 1px),linear-gradient(to bottom,rgba(226,214,182,.045) 1px,transparent 1px);background-size:140px 140px;opacity:.35;-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%)}
+.bg .bloom{position:absolute;border-radius:50%;filter:blur(130px)}
+.bg .bloom-gold{top:-12rem;left:50%;width:46rem;height:34rem;transform:translateX(-50%);background:rgba(201,162,75,.05);animation:bloom 18s ease-in-out infinite}
+.bg .bloom-emer{bottom:-14rem;right:-12rem;width:40rem;height:30rem;background:rgba(47,191,113,.05);filter:blur(150px)}
+.bg .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.6))}
+@keyframes gridpan{from{background-position:0 0}to{background-position:28px 28px}}
+@keyframes bloom{0%,100%{opacity:.75;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.06)}}
+/* layout */
+.auth{display:grid;grid-template-columns:1.05fr .95fr;min-height:100vh}
+.topbar{position:absolute;top:0;right:0;padding:22px 26px;z-index:5}
+.topbar a{color:rgba(255,255,255,.5);text-decoration:none;font-size:13.5px;display:inline-flex;align-items:center;gap:6px;transition:color .2s}
+.topbar a:hover{color:#fff}
+/* showcase (left) */
+.showcase{position:relative;display:flex;flex-direction:column;justify-content:space-between;padding:56px;overflow:hidden;background:#0C0C0F;border-right:1px solid var(--line)}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.24em;text-transform:uppercase;color:var(--gold)}
+.sc-title{font-size:40px;line-height:1.05;font-weight:800;letter-spacing:-.02em;margin:18px 0 0;max-width:11ch}
+.sc-title .grad{background:linear-gradient(120deg,#E7D89A,#C8A94B 55%,#A98E3A);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sc-sub{margin:16px 0 0;max-width:34ch;font-size:14px;line-height:1.6;color:rgba(255,255,255,.55)}
+.sc-card{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:16px;padding:18px;backdrop-filter:blur(8px);box-shadow:0 20px 50px -20px rgba(0,0,0,.6)}
+.sc-card-h{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.08em;color:rgba(255,255,255,.4);margin-bottom:10px}
+.sc-card-h .emer{color:#4FD98E;letter-spacing:0}
+.sc-svg{width:100%;height:74px;display:block}
+.sc-line{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.6s ease-in-out .4s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.sc-stats{display:flex;flex-direction:column;gap:12px}
+.sc-chip{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:12px 14px;opacity:0;transform:translateX(-16px);animation:slidein .5s ease forwards}
+.sc-chip:nth-child(1){animation-delay:.35s}.sc-chip:nth-child(2){animation-delay:.47s}.sc-chip:nth-child(3){animation-delay:.59s}
+.sc-ic{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:9px;background:rgba(201,162,75,.1);color:var(--gold);flex:none}
+.sc-ic svg{width:16px;height:16px}
+.sc-chip b{display:block;font-size:13.5px;font-weight:600}
+.sc-chip span{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.4)}
+@keyframes slidein{to{opacity:1;transform:translateX(0)}}
+/* form (right) */
+.formcol{display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.card{width:100%;max-width:400px;opacity:0;transform:translateY(20px) scale(.98);animation:rise .55s cubic-bezier(.22,1,.36,1) forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:26px}
+.brand svg{width:34px;height:34px}
+.wordmark{font-size:19px;font-weight:700;letter-spacing:-.01em;color:#eef1f5}
+.wordmark b{color:var(--gold)}
+.card h1{font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0}
+.card .sub{margin:8px 0 26px;font-size:14px;color:rgba(255,255,255,.5)}
+.fld{display:block;margin-bottom:16px}
+.fld .lbl{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:500;color:rgba(255,255,255,.75);margin-bottom:7px}
+.fld .lbl a{color:var(--gold);opacity:.85;text-decoration:none;font-size:12px}
+.fld .lbl a:hover{opacity:1}
+.inp{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:0 12px;height:48px;transition:border-color .2s,box-shadow .2s,background .2s}
+.inp:hover{background:rgba(255,255,255,.05)}
+.inp:focus-within{border-color:var(--gold);background:rgba(201,162,75,.05);box-shadow:0 0 0 3px rgba(201,162,75,.18)}
+.inp .ico{display:flex;color:rgba(255,255,255,.4);flex:none}
+.inp .ico svg{width:17px;height:17px}
+.inp input{flex:1;min-width:0;background:none;border:0;outline:0;color:#fff;font-size:14.5px;font-family:inherit;height:100%}
+.inp input::placeholder{color:rgba(255,255,255,.3)}
+.inp .eye{background:none;border:0;cursor:pointer;color:rgba(255,255,255,.4);display:flex;padding:4px;border-radius:6px}
+.inp .eye:hover{color:#fff}
+.inp .eye svg{width:17px;height:17px}
+.btn-gold{position:relative;overflow:hidden;width:100%;height:50px;margin-top:6px;border:0;border-radius:12px;cursor:pointer;
+ background:linear-gradient(135deg,#E7D89A 0%,#C8A94B 45%,#A98E3A 100%);color:#08080A;font-family:inherit;font-size:15px;font-weight:700;letter-spacing:.01em;
+ box-shadow:0 10px 40px -12px rgba(200,169,75,.45);transition:filter .2s,transform .12s,box-shadow .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-gold:hover{filter:brightness(1.06);box-shadow:0 14px 46px -12px rgba(200,169,75,.6)}
+.btn-gold:active{transform:translateY(1px) scale(.995);filter:brightness(.96)}
+.btn-gold .sheen{position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);transition:transform .7s}
+.btn-gold:hover .sheen{transform:translateX(100%)}
+.btn-gold.loading{pointer-events:none;opacity:.85}
+.btn-gold .spin{width:17px;height:17px;border:2px solid rgba(8,8,10,.35);border-top-color:#08080A;border-radius:50%;animation:spin .7s linear infinite;display:none}
+.btn-gold.loading .spin{display:block}.btn-gold.loading .txt{opacity:.85}
+@keyframes spin{to{transform:rotate(360deg)}}
+.divider{display:flex;align-items:center;gap:12px;margin:22px 0;color:rgba(255,255,255,.35);font-size:12px}
+.divider::before,.divider::after{content:"";height:1px;flex:1;background:var(--line)}
+.foot{margin-top:26px;text-align:center;font-size:13.5px;color:rgba(255,255,255,.5)}
+.foot a{color:var(--gold);font-weight:600;text-decoration:none}.foot a:hover{color:var(--gold-soft)}
+.err{margin-top:14px;padding:11px 13px;border-radius:11px;font-size:13px;color:#F07E7A;background:rgba(229,96,91,.1);border:1px solid rgba(229,96,91,.3);animation:shake .4s}
+@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.note{margin-top:18px;padding:11px 13px;border-radius:11px;font-size:12px;color:rgba(255,255,255,.6);background:rgba(201,162,75,.06);border:1px solid rgba(201,162,75,.2)}
+@media (max-width:900px){.auth{grid-template-columns:1fr}.showcase{display:none}.formcol{padding:64px 20px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}'''
+
+_AUTH_HEAD_LINKS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
+    '<link rel="icon" type="image/svg+xml" href="/nexus-mark.svg">'
+    '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">'
+    '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">')
+
+_AUTH_JS = ('<script>function tpw(b){var i=document.getElementById("pw");if(i){i.type=i.type==="password"?"text":"password";}}'
+            'function tpw2(b){var i=document.getElementById("pw2");if(i){i.type=i.type==="password"?"text":"password";}}'
+            'function subm(f){var b=f.querySelector(".btn-gold");if(b)b.classList.add("loading");return true;}</script>')
 
 
 def _auth_page(title: str, body: str) -> str:
-    return f'''<!doctype html><html><head><meta charset="utf-8">
+    """Premium auth shell — the landing's background + a glass card, self-contained."""
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a0a0c">
-<title>{w.esc(title)} · TradeLogX Nexus</title>
-<link rel="icon" type="image/svg+xml" href="/nexus-mark.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<style>{w._CSS}{_AUTH_CSS}</style></head>
-<body>{body}</body></html>'''
+<meta name="theme-color" content="#08080A">
+<title>{w.esc(title)} · TradeLogX Nexus</title>{_AUTH_HEAD_LINKS}
+<style>{_AUTH_CSS}</style></head>
+<body>
+<div class="bg"><div class="grid"></div><div class="grid2"></div>
+<div class="bloom bloom-gold"></div><div class="bloom bloom-emer"></div><div class="vig"></div></div>
+<div class="topbar"><a href="/">← Back to site</a></div>
+<div class="auth">{_SHOWCASE}<div class="formcol"><div class="card">{body}</div></div></div>
+{_AUTH_JS}
+</body></html>'''
+
+
+def _pw_field(name: str, label: str, fid: str, toggle: str, autocomplete: str, hint: str = "") -> str:
+    return (f'<label class="fld"><span class="lbl">{label}{hint}</span>'
+            f'<div class="inp"><span class="ico">{_IC_LOCK}</span>'
+            f'<input id="{fid}" name="{name}" type="password" autocomplete="{autocomplete}" placeholder="••••••••">'
+            f'<button type="button" class="eye" onclick="{toggle}(this)" aria-label="Show password">{_IC_EYE}</button></div></label>')
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
-    signup = ('<p style="margin-top:12px">New here? '
-              '<a href="/signup">Create your TradeLogX Nexus account</a></p>'
+    signup = ('<p class="foot">New here? <a href="/signup">Create your account</a></p>'
               if _signup_open() else "")
-    return _auth_page("Sign in", f'''<form class="login" method="post" action="/login">
-{_BRAND_HEAD}
-<p>Sign in to your trading workspace.</p>
-<label>Username</label><input name="username" autofocus>
-<label>Password</label><input name="password" type="password">
-<div style="margin-top:16px"><button class="btn" style="width:100%" type="submit">Sign in</button></div>
-{err}{signup}</form>''')
+    return _auth_page("Sign in", f'''{_BRAND_HEAD}
+<h1>Welcome back</h1>
+<p class="sub">Sign in to your TradeLogX Nexus workspace.</p>
+<form method="post" action="/login" onsubmit="return subm(this)" novalidate>
+<label class="fld"><span class="lbl">Username</span>
+<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="you" autofocus></div></label>
+{_pw_field("password", "Password", "pw", "tpw", "current-password")}
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Sign in</span></button>
+</form>
+{err}{signup}''')
 
 
 @app.post("/login")
@@ -411,19 +553,22 @@ def login(username: str = Form(...), password: str = Form(...)):
 @app.get("/signup", response_class=HTMLResponse)
 def signup_form(error: str = "") -> str:
     if not _signup_open():
-        return _auth_page("Sign up", f'''<form class="login">
-{_BRAND_HEAD}<p>This hub already has an owner account.</p>
-<p><a href="/login">Sign in instead</a></p></form>''')
+        return _auth_page("Sign up", f'''{_BRAND_HEAD}
+<h1>Already set up</h1>
+<p class="sub">This hub already has an owner account.</p>
+<p class="foot"><a href="/login">Sign in instead →</a></p>''')
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
-    return _auth_page("Create account", f'''<form class="login" method="post" action="/signup">
-{_BRAND_HEAD}
-<p>Create the owner account for this trading hub. There is exactly one —
-it controls the bot, so pick a strong password.</p>
-<label>Username</label><input name="username" autofocus>
-<label>Password (8+ characters)</label><input name="password" type="password">
-<label>Confirm password</label><input name="confirm" type="password">
-<div style="margin-top:16px"><button class="btn" style="width:100%" type="submit">Create account</button></div>
-{err}<p style="margin-top:12px"><a href="/login">Back to sign in</a></p></form>''')
+    return _auth_page("Create account", f'''{_BRAND_HEAD}
+<h1>Create your account</h1>
+<p class="sub">Set up the owner account for your TradeLogX Nexus workspace.</p>
+<form method="post" action="/signup" onsubmit="return subm(this)" novalidate>
+<label class="fld"><span class="lbl">Username</span>
+<div class="inp"><span class="ico">{_IC_USER}</span><input name="username" autocomplete="username" placeholder="choose a username" autofocus></div></label>
+{_pw_field("password", "Password", "pw", "tpw", "new-password", hint="<span style='font-weight:400;color:rgba(255,255,255,.4)'>8+ characters</span>")}
+{_pw_field("confirm", "Confirm password", "pw2", "tpw2", "new-password")}
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Create account</span></button>
+</form>
+{err}<p class="foot">Already have an account? <a href="/login">Sign in</a></p>''')
 
 
 def _create_owner(username: str, password: str, confirm: str):
