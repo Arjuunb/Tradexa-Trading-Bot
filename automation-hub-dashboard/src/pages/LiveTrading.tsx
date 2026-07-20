@@ -15,6 +15,7 @@ function riskValid(s: BotSettings | null): boolean {
 }
 
 export default function LiveTradingPage() {
+  const app = useApp();
   const { data: sys } = useLive<SystemStatus>("/system/status", 3000);
   const { data: settings } = useLive<BotSettings>("/settings", 5000);
   const { data: trades } = useLive<PaperTradeRow[]>("/paper/trades", 4000);
@@ -34,7 +35,8 @@ export default function LiveTradingPage() {
 
   return (
     <>
-      <PageHeader title="Live Trading" subtitle="Locked until the full safety flow passes and a broker is connected" />
+      <PageHeader title="Live Trading" subtitle="Locked until the full safety flow passes and a broker is connected"
+        actions={<button className="btn btn-soft btn-sm" onClick={() => app.go("Safety Center")}>Safety Center</button>} />
 
       <Card title="Why live is locked" right={<span className="ui-badge" style={{ background: "#ef444422", color: "#ef4444" }}>LOCKED</span>}>
         <p style={{ lineHeight: 1.6 }}>

@@ -21,7 +21,7 @@ const EMPTY: CustomSpec = {
 };
 
 export default function StrategyStudioPage() {
-  const { toast } = useApp();
+  const { toast, go } = useApp();
   const { data: catalog } = useLive<BlockCatalog>("/strategy/blocks", 300000);
   const templates = useLive<{ templates: (CustomSpec & { id: string; description: string })[] }>("/strategy/templates", 300000);
   const saved = useLive<CustomSpec[]>("/strategy/custom", 6000);
@@ -142,7 +142,11 @@ export default function StrategyStudioPage() {
   return (
     <>
       <PageHeader title="Strategy Studio"
-        subtitle="Build strategies visually with condition blocks — no code. Compiles to the same engine that backtests, paper-trades, and (later) goes live." />
+        subtitle="Build strategies visually with condition blocks — no code. Compiles to the same engine that backtests, paper-trades, and (later) goes live."
+        actions={<>
+          <button className="btn btn-soft btn-sm" onClick={() => go("Strategies")}>Strategy Catalog</button>
+          <button className="btn btn-soft btn-sm" onClick={() => go("Strategy Proof")}>Strategy Proof</button>
+        </>} />
 
       {/* toolbar */}
       <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>

@@ -76,7 +76,7 @@ export default function JournalPage() {
       <PageHeader
         title="Bot Trade Journal"
         subtitle="Every bot decision — explainable, reviewable, searchable. Real strategy data only."
-        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Decisions")}><Icon name="history" size={13} /> Decisions</button>}
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Decision Archive")}><Icon name="history" size={13} /> Decision Archive</button>}
       />
 
       {offline && (

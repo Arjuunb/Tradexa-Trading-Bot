@@ -4,6 +4,7 @@ import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard, EmptyState } from "../components/common/ui";
 import { useLive, apiPatchJson, apiDelete, API_BASE } from "../lib/api";
 import { signedMoney } from "../lib/format";
+import { useApp } from "../app-context";
 
 /** Memory — the AI's permanent long-term memory of every trade. Composed from
  *  REAL captured data (decision journal + decision object + ledger); fields the
@@ -136,6 +137,7 @@ function GrowthJourney() {
 }
 
 export default function MemoryPage() {
+  const { go } = useApp();
   const [query, setQuery] = useState("");
   const [asked, setAsked] = useState("");
   const [result, setResult] = useState<(typeof RESULTS)[number]>("all");
@@ -168,6 +170,7 @@ export default function MemoryPage() {
       <PageHeader
         title="Memory"
         subtitle="The bot's permanent memory of every trade — searchable, with pattern recognition and data-driven coaching. Composed from real data; uncaptured fields are marked honestly."
+        actions={<button className="btn btn-soft btn-sm" onClick={() => go("Evolution")}>Evolution</button>}
       />
 
       {offline && (

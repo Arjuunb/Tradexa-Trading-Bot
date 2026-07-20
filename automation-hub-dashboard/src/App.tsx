@@ -56,7 +56,7 @@ export default function App() {
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener("hashchange", onHash);
-    if (!window.location.hash) window.location.hash = "/overview";
+    if (!window.location.hash) window.location.hash = "/dashboard";
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
@@ -86,8 +86,10 @@ export default function App() {
       case "Backtesting": return <BacktestingPage />;
       case "Simulation": return <SimulationPage />;
       case "Replay": return <ReplayPage />;
-      case "Paper Trading": return <PaperTradingPage />;
-      case "Bot Terminal": return <BotTerminalPage />;
+      // Paper Trading IS the Bot Observation Terminal (the heart of the app);
+      // the classic account/blotter view lives on as "Paper Account".
+      case "Paper Trading": return <BotTerminalPage />;
+      case "Paper Account": return <PaperTradingPage />;
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;
       case "Analytics": return <AnalyticsPage />;
@@ -99,7 +101,7 @@ export default function App() {
       case "Risk Manager": return <RiskCenterPage />;
       case "Evolution": return <EvolutionPage />;
       case "Journal": return <JournalPage />;
-      case "Decisions": return <DecisionsPage />;
+      case "Decision Archive": return <DecisionsPage />;
       case "Memory": return <MemoryPage />;
       case "Bot Health": return <BotHealthPage />;
       case "Logs": return <LogsPage />;
@@ -113,7 +115,7 @@ export default function App() {
     }
   };
 
-  const title = active === "Overview" ? "Dashboard" : active === "BotDetail" ? route.botId : active;
+  const title = active === "BotDetail" ? route.botId : active;
 
   return (
     <AppContext.Provider value={{ go, viewBot, toast }}>

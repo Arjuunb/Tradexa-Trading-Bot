@@ -52,7 +52,7 @@ export default function PaperTradingPage() {
   return (
     <>
       <PageHeader
-        title="Paper Trading"
+        title="Paper Account"
         subtitle="Live engine · real strategy signals → risk → paper execution · no real funds"
         actions={
           <div className="row-actions">

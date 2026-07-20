@@ -17,22 +17,37 @@ export const AppContext = createContext<AppApi>({
 
 export const useApp = () => useContext(AppContext);
 
-// The sidebar pages (the standalone trading-bot workspace layout).
-export const NAV_LABELS = [
-  "Overview", "Markets", "Strategies", "Backtesting",
-  "Paper Trading", "Bot Terminal", "Portfolio", "Analytics", "Strategy Proof", "Strategy Studio", "Grid & DCA", "AI Intelligence",
-  "Risk Manager", "Evolution", "Journal", "Memory", "Bot Health", "Logs", "Settings", "Safety Center",
-] as const;
+// The sidebar, organised as the trading lifecycle: observe the bot → build a
+// strategy → prove it → run it → study the results → govern the system.
+// Grouped sections keep the platform feeling like one operating system
+// instead of a flat list of pages.
+export const NAV_GROUPS: { title: string | null; items: string[] }[] = [
+  { title: null, items: ["Dashboard"] },
+  { title: "Trading", items: ["Strategy Studio", "Paper Trading", "Replay", "Backtesting", "Grid & DCA", "Live Trading"] },
+  { title: "Performance", items: ["Portfolio", "Analytics", "AI Intelligence"] },
+  { title: "Records", items: ["Journal", "Decision Archive", "Memory"] },
+  { title: "System", items: ["Risk Manager", "Bot Health", "Logs", "Settings"] },
+];
+
+export const NAV_LABELS: string[] = NAV_GROUPS.flatMap((g) => g.items);
 
 // Extra routes reachable by hash but not shown in the main nav. Every page
 // still works — these are linked from their sibling pages instead of taking
-// a sidebar slot (Symbols from Markets, Simulation/Replay from Backtesting,
-// Live Trading from Safety Center, AI Assistant from AI Intelligence,
-// Decisions from Journal).
+// a sidebar slot (Markets/Symbols from Portfolio, Strategies + Strategy Proof
+// from Strategy Studio, Simulation from Backtesting, Safety Center from Live
+// Trading + Risk Manager, Evolution from Memory, Paper Account from the Paper
+// Trading terminal, AI Assistant from AI Intelligence).
 const EXTRA_ROUTES = [
-  "Bots", "Alerts", "Symbols", "Simulation", "Replay",
-  "Live Trading", "AI Assistant", "Decisions",
+  "Bots", "Alerts", "Symbols", "Markets", "Strategies", "Strategy Proof",
+  "Simulation", "Evolution", "Safety Center", "Paper Account", "AI Assistant",
 ] as const;
+
+// Old bookmarks / saved hashes keep working after the reorganisation.
+const LEGACY_SLUGS: Record<string, string> = {
+  "overview": "Dashboard",
+  "bot-terminal": "Paper Trading",   // the terminal IS the paper-trading page now
+  "decisions": "Decision Archive",
+};
 
 export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");
 
@@ -45,6 +60,7 @@ export const parseHash = (): Route => {
   const h = window.location.hash.replace(/^#\/?/, "").trim();
   const m = h.match(/^bot\/(.+)$/);
   if (m) return { page: "BotDetail", botId: m[1] };
+  if (LEGACY_SLUGS[h]) return { page: LEGACY_SLUGS[h], botId: "" };
   const found = [...NAV_LABELS, ...EXTRA_ROUTES].find((n) => slug(n) === h);
-  return { page: found ?? "Overview", botId: "" };
+  return { page: found ?? "Dashboard", botId: "" };
 };
