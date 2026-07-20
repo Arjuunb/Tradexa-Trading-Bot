@@ -175,6 +175,17 @@ export default function DecisionsPage({ focusId }: { focusId?: string } = {}) {
         </div>
       )}
 
+      <Card title="Audit & Compliance Pack" subtitle="config + decision archive + trade record + alerts, SHA-256 integrity-stamped">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="dim" style={{ fontSize: 12.5, flex: 1, minWidth: 220 }}>
+            A tamper-evident export of the bot's real state. The pack carries a SHA-256 hash of its
+            contents — recompute it to prove nothing was altered after export. Paper-trading record.
+          </span>
+          <a className="btn btn-soft" href={`${API_BASE}/audit/export?fmt=html`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Printable report (PDF)</a>
+          <a className="btn btn-primary" href={`${API_BASE}/audit/export?fmt=json`} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Download JSON</a>
+        </div>
+      </Card>
+
       <div className="stat-row">
         <StatCard label="Cycles recorded" value={String(stats.total)} sub="every candle, incl. WAIT" />
         <StatCard label="Trades (in view)" value={String(stats.buys)} tone="green" />

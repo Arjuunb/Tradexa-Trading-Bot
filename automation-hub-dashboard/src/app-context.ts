@@ -23,8 +23,8 @@ export const useApp = () => useContext(AppContext);
 // instead of a flat list of pages.
 export const NAV_GROUPS: { title: string | null; items: string[] }[] = [
   { title: null, items: ["Dashboard"] },
-  { title: "Trading", items: ["Strategy Studio", "Paper Trading", "Replay", "Backtesting", "Optimization Lab", "Grid & DCA", "Live Trading"] },
-  { title: "Performance", items: ["Portfolio", "Analytics", "AI Intelligence"] },
+  { title: "Trading", items: ["Strategy Studio", "Fleet Manager", "Paper Trading", "Replay", "Backtesting", "Optimization Lab", "Grid & DCA", "Live Trading"] },
+  { title: "Performance", items: ["Portfolio", "Allocation", "Analytics", "AI Intelligence"] },
   { title: "Records", items: ["Journal", "Decision Archive", "Memory"] },
   { title: "System", items: ["Risk Manager", "Bot Health", "Logs", "Settings"] },
 ];
@@ -38,7 +38,7 @@ export const NAV_LABELS: string[] = NAV_GROUPS.flatMap((g) => g.items);
 // Trading + Risk Manager, Evolution from Memory, Paper Account from the Paper
 // Trading terminal, AI Assistant from AI Intelligence).
 const EXTRA_ROUTES = [
-  "Bots", "Alerts", "Symbols", "Markets", "Strategies", "Strategy Proof",
+  "Alerts", "Symbols", "Markets", "Strategies", "Strategy Proof",
   "Simulation", "Evolution", "Safety Center", "Paper Account", "AI Assistant",
 ] as const;
 
@@ -47,6 +47,7 @@ const LEGACY_SLUGS: Record<string, string> = {
   "overview": "Dashboard",
   "bot-terminal": "Paper Trading",   // the terminal IS the paper-trading page now
   "decisions": "Decision Archive",
+  "bots": "Fleet Manager",           // the Bots page is now the Fleet Manager
 };
 
 export const slug = (page: string) => page.toLowerCase().replace(/ /g, "-");

@@ -2,7 +2,7 @@ import Logo from "../common/Logo";
 import {
   LayoutDashboard, CandlestickChart, Search, Layers, FlaskConical, RefreshCw, PlayCircle,
   NotebookPen, Rocket, Wallet, BarChart3, Bot, ShieldAlert, Brain, ScrollText,
-  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, Gauge, Blocks, SquareTerminal, ListChecks, LayoutGrid, SlidersHorizontal, type LucideIcon,
+  BookOpen, Activity, BadgeCheck, Settings, Lock, BrainCircuit, Gauge, Blocks, SquareTerminal, ListChecks, LayoutGrid, SlidersHorizontal, PieChart, type LucideIcon,
 } from "lucide-react";
 import { NAV_GROUPS } from "../../app-context";
 import { useLive, type RiskSummary, type PaperAccount } from "../../lib/api";
@@ -22,9 +22,11 @@ const NAV_LUCIDE: Record<string, LucideIcon> = {
   "Paper Account": NotebookPen,
   "Live Trading": Rocket,
   Portfolio: Wallet,
+  Allocation: PieChart,
   Analytics: BarChart3,
   "Strategy Proof": BadgeCheck,
   "Strategy Studio": Blocks,
+  "Fleet Manager": Bot,
   "Grid & DCA": LayoutGrid,
   "AI Intelligence": Gauge,
   "AI Assistant": Bot,

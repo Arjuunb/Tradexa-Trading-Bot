@@ -35,6 +35,7 @@ const MemoryPage = lazy(() => import("./pages/Memory"));
 const BotHealthPage = lazy(() => import("./pages/BotHealth"));
 const StrategyProofPage = lazy(() => import("./pages/StrategyProof"));
 const OptimizationPage = lazy(() => import("./pages/Optimization"));
+const AllocationPage = lazy(() => import("./pages/Allocation"));
 import { AppContext, parseHash, slug } from "./app-context";
 
 const MOBILE = "(max-width: 720px)";
@@ -94,6 +95,7 @@ export default function App() {
       case "Paper Account": return <PaperTradingPage />;
       case "Live Trading": return <LiveTradingPage />;
       case "Portfolio": return <PortfolioPage />;
+      case "Allocation": return <AllocationPage />;
       case "Analytics": return <AnalyticsPage />;
       case "Strategy Proof": return <StrategyProofPage />;
       case "Strategy Studio": return <StrategyStudioPage />;
@@ -109,6 +111,7 @@ export default function App() {
       case "Logs": return <LogsPage />;
       case "Settings": return <SettingsPage />;
       case "Safety Center": return <SafetyCenterPage />;
+      case "Fleet Manager": return <BotsPage />;
       // legacy routes (not in the main nav, still reachable by hash)
       case "Bots": return <BotsPage />;
       case "Alerts": return <AlertsPage />;
@@ -124,7 +127,7 @@ export default function App() {
       <div className={`app ${collapsed ? "sidebar-collapsed" : ""} ${mobileNav ? "mobile-nav-open" : ""}`}>
         <Toasts items={toasts} />
         {mobileNav && <div className="nav-backdrop" onClick={() => setMobileNav(false)} aria-hidden />}
-        <Sidebar active={active === "BotDetail" ? "Bots" : active} onSelect={go} collapsed={collapsed} />
+        <Sidebar active={active === "BotDetail" || active === "Bots" ? "Fleet Manager" : active} onSelect={go} collapsed={collapsed} />
 
         <div className="main">
           <TopHeader onToggleSidebar={toggleSidebar} title={title} />

@@ -895,6 +895,30 @@ def custom_duplicate(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(
         raise _wa.HTTPException(404, "Strategy not found")
     return dup
 
+@router.get("/audit/export")
+def audit_export(fmt: str = "json", decisions: int = 200, trades: int = 500, alerts: int = 200):
+    """Compliance audit pack — config + decision archive + trade record + alerts,
+    stamped with a SHA-256 integrity hash. fmt=json downloads the bundle; fmt=html
+    returns a printable report (Print → Save as PDF)."""
+    from services.audit_export import build_bundle, render_html
+    config = {
+        "editable": _wa._settings_snapshot(),
+        "engine": {"strategy": _wa.engine.strategy_label, "symbols": list(_wa.engine.symbols),
+                   "timeframe": _wa.engine.timeframe, "mode": "paper"},
+    }
+    decs = _wa.cycle_store.list(limit=max(1, min(int(decisions), 1000)))
+    trds = _wa.paper.history()[: max(1, min(int(trades), 5000))]
+    alrts = _wa.ledger.get_alerts(max(1, min(int(alerts), 1000)))
+    bundle = build_bundle(config=config, decisions=decs, trades=trds, alerts=alrts)
+    if fmt == "html":
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(render_html(bundle))
+    import json as _json
+    from fastapi.responses import Response
+    return Response(_json.dumps(bundle, indent=2, default=str), media_type="application/json",
+                    headers={"Content-Disposition": "attachment; filename=tradelogx-nexus-audit.json"})
+
+
 @router.get("/strategy/custom/{sid}/history")
 def custom_history(sid: str):
     """Version snapshots for a strategy (oldest first). Each save that changes the
