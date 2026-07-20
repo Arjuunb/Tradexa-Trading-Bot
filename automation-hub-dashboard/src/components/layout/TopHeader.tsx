@@ -1,5 +1,6 @@
 import Icon from "../common/Icon";
 import HeaderControls from "./HeaderControls";
+import NotificationBell from "./NotificationBell";
 import { useApp } from "../../app-context";
 
 interface TopHeaderProps {
@@ -24,9 +25,7 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
       <HeaderControls />
 
       <div className="topbar-right">
-        <button className="icon-btn" aria-label="Alerts" onClick={() => app.go("Alerts")}>
-          <Icon name="bell" size={18} />
-        </button>
+        <NotificationBell />
         <button className="icon-btn" aria-label="Settings" onClick={() => app.go("Settings")}>
           <Icon name="help" size={18} />
         </button>

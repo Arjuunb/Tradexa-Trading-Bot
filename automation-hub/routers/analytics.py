@@ -895,6 +895,27 @@ def custom_duplicate(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(
         raise _wa.HTTPException(404, "Strategy not found")
     return dup
 
+@router.get("/strategy/custom/{sid}/history")
+def custom_history(sid: str):
+    """Version snapshots for a strategy (oldest first). Each save that changes the
+    definition pushes the previous state here — the strategy's audit trail."""
+    versions = _wa.custom_store.history(sid)
+    if versions is None:
+        raise _wa.HTTPException(404, "Strategy not found")
+    return {"id": sid, "versions": versions}
+
+@router.post("/strategy/custom/{sid}/restore")
+def custom_restore(sid: str, body: dict, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Roll a strategy back to a prior version. The current state is snapshotted
+    first, so the restore itself is undoable."""
+    _wa._check_secret(x_webhook_secret)
+    r = _wa.custom_store.restore(sid, int(body.get("v", -1)))
+    if r is None:
+        raise _wa.HTTPException(404, "Strategy or version not found")
+    _wa.ledger.log(level="info", stage="audit",
+                   message=f"Custom strategy restored to v{body.get('v')}: {r.get('name', sid)}")
+    return r
+
 @router.post("/strategy/custom/{sid}/favorite")
 def custom_favorite(sid: str, body: dict, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
     _wa._check_secret(x_webhook_secret)

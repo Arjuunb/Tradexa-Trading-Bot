@@ -2,8 +2,15 @@ import { useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
-import { useLive, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights, type AICoach, type TradeMemoryInsights } from "../lib/api";
+import { useLive, apiPostJson, type AIAnalysis, type AIProfile, type AIConfidenceAccuracy, type AIAlerts, type AIInsights, type AICoach, type TradeMemoryInsights, type AIRecommendations, type AIRecommendation } from "../lib/api";
 import { useApp } from "../app-context";
+
+// format a setting value for display (fractions shown as %)
+const fmtVal = (v: number | boolean, unit: string) => {
+  if (typeof v === "boolean") return v ? "on" : "off";
+  if (unit === "%") return `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
+  return `${v}${unit ? " " + unit : ""}`;
+};
 
 const SEV_TONE: Record<string, string> = { critical: "red", warning: "amber", success: "green", info: "default" };
 
@@ -16,7 +23,7 @@ const TFS = ["15m", "1h", "4h", "1d"] as const;
 const SIDES = [["", "Auto"], ["long", "Long"], ["short", "Short"]] as const;
 
 export default function AIIntelligencePage() {
-  const { go } = useApp();
+  const { go, toast } = useApp();
   const [symbol, setSymbol] = useState("BTCUSDT");
   const [tf, setTf] = useState<(typeof TFS)[number]>("1h");
   const [side, setSide] = useState("");
@@ -31,6 +38,19 @@ export default function AIIntelligencePage() {
   const { data: insights } = useLive<AIInsights>("/ai/insights", 30000);
   const { data: coach } = useLive<AICoach>("/ai/coach", 30000);
   const { data: patterns } = useLive<TradeMemoryInsights>("/trade-memory/insights", 30000);
+  const recs = useLive<AIRecommendations>("/ai/recommendations", 30000);
+  const [applying, setApplying] = useState<string>("");
+
+  const applyRec = async (r: AIRecommendation) => {
+    setApplying(r.id);
+    try {
+      await apiPostJson("/settings", { [r.setting]: r.suggested });
+      toast(`Applied: ${r.title}`, "success");
+      recs.refetch();
+    } catch {
+      toast("Could not apply — needs the control secret", "error");
+    } finally { setApplying(""); }
+  };
 
   const ma = a?.market_analysis;
   const bias = ma?.available ? ma.bias : "—";
@@ -63,6 +83,37 @@ export default function AIIntelligencePage() {
         <div className="chips">{SIDES.map(([v, l]) => <button key={v} className={`chip-btn ${side === v ? "active" : ""}`} onClick={() => setSide(v)}>{l}</button>)}</div>
         <div className="chips">{[1, 5, 10, 20].map((x) => <button key={x} className={`chip-btn ${lev === x ? "active" : ""}`} onClick={() => setLev(x)}>{x}x</button>)}</div>
       </div>
+
+      {/* AI recommendations — one-click apply to the live risk settings */}
+      {!!recs.data && (
+        <Card title="AI Recommendations"
+          subtitle={recs.data.count > 0 ? `${recs.data.count} setting${recs.data.count === 1 ? "" : "s"} the AI would change` : "Your risk guardrails look sound"}
+          right={<button className="btn btn-soft btn-sm" onClick={() => go("Settings")}>Open Settings</button>}>
+          {recs.data.count === 0 ? (
+            <div className="dim" style={{ fontSize: 12.5, padding: 6 }}><Icon name="check" size={13} className="pos" /> {recs.data.note}</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {recs.data.recommendations.map((r) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, border: "1px solid var(--card-border)", borderRadius: 9, padding: "10px 12px" }}>
+                  <Badge text={r.severity === "warning" ? "FIX" : "TIP"} tone={r.severity === "warning" ? "amber" : "default"} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{r.title}</div>
+                    <div className="dim" style={{ fontSize: 11.5 }}>{r.why}</div>
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 12, whiteSpace: "nowrap" }}>
+                    <span className="neg">{fmtVal(r.current, r.unit)}</span>
+                    <span className="dim"> → </span>
+                    <span className="pos">{fmtVal(r.suggested, r.unit)}</span>
+                  </div>
+                  <button className="btn btn-primary btn-sm" disabled={applying === r.id} onClick={() => applyRec(r)}>
+                    {applying === r.id ? "Applying…" : "Apply"}</button>
+                </div>
+              ))}
+              <div className="dim" style={{ fontSize: 11 }}>{recs.data.note}</div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* headline widgets */}
       <div className="stat-row">

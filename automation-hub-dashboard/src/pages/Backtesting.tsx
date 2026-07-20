@@ -4,16 +4,51 @@ import AreaLine from "../components/chart/AreaLine";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { apiGet, apiPostJson, useLive, hhmmss, API_BASE,
-  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket, type ResearchSummary, type ExecRealism } from "../lib/api";
+  type StrategyPerformance, type WalkForward, type MonteCarlo, type OutOfSample, type SlicedPerf, type AttrBucket, type ResearchSummary, type ExecRealism, type PaperTradeRow } from "../lib/api";
 import { useApp } from "../app-context";
 import { markDone } from "../lib/progress";
 
 const money = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
+interface MonthRow { month: string; trades: number; net: number; winRate: number; }
+function monthlyReturns(trades: PaperTradeRow[]): MonthRow[] {
+  const m = new Map<string, { net: number; trades: number; wins: number }>();
+  for (const t of trades) {
+    if (!t.closed_at || t.pnl == null) continue;
+    const key = t.closed_at.slice(0, 7);          // YYYY-MM
+    const b = m.get(key) ?? { net: 0, trades: 0, wins: 0 };
+    b.net += t.pnl; b.trades += 1; if (t.pnl > 0) b.wins += 1;
+    m.set(key, b);
+  }
+  return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([month, b]) => ({ month, trades: b.trades, net: b.net, winRate: b.trades ? (b.wins / b.trades) * 100 : 0 }));
+}
+
+// R-multiple distribution buckets (uses realized R:R; falls back to nothing if absent)
+const R_BINS: { label: string; lo: number; hi: number }[] = [
+  { label: "≤ −2R", lo: -Infinity, hi: -2 }, { label: "−2…−1R", lo: -2, hi: -1 },
+  { label: "−1…0R", lo: -1, hi: 0 }, { label: "0…1R", lo: 0, hi: 1 },
+  { label: "1…2R", lo: 1, hi: 2 }, { label: "2…3R", lo: 2, hi: 3 }, { label: "> 3R", lo: 3, hi: Infinity },
+];
+function rDistribution(trades: PaperTradeRow[]): { bins: { label: string; count: number; win: boolean }[]; total: number } {
+  const counts = R_BINS.map(() => 0);
+  let total = 0;
+  for (const t of trades) {
+    if (t.rr == null || t.closed_at == null) continue;
+    const i = R_BINS.findIndex((b) => t.rr! > b.lo && t.rr! <= b.hi);
+    if (i >= 0) { counts[i] += 1; total += 1; }
+  }
+  return { bins: R_BINS.map((b, i) => ({ label: b.label, count: counts[i], win: b.lo >= 0 })), total };
+}
+
 export default function BacktestingPage() {
   const { go } = useApp();
   const { data, error } = useLive<StrategyPerformance>("/strategy/performance", 3000);
+  const { data: allTrades } = useLive<PaperTradeRow[]>("/paper/trades", 5000);
   const offline = error && !data;
+  const months = monthlyReturns(allTrades ?? []);
+  const dist = rDistribution(allTrades ?? []);
+  const distMax = Math.max(1, ...dist.bins.map((b) => b.count));
 
   // A real strategy track record counts as recorded backtest evidence for the
   // safety flow (Backtest -> Simulation -> Paper -> Live).
@@ -58,6 +93,46 @@ export default function BacktestingPage() {
                     valueFormatter={(v) => `$${v.toLocaleString()}`} />
         </div>
       </Card>
+
+      <div className="grid-2-1">
+        <Card title="Monthly Returns" subtitle="realized P&L by calendar month (paper)" className="span-2">
+          {months.length === 0 ? <div className="dim" style={{ padding: 12 }}>No closed trades yet — monthly returns appear once the bot books its first trade.</div> : (
+            <div className="tablewrap">
+              <table className="data-table">
+                <thead><tr><th>Month</th><th>Trades</th><th>Win rate</th><th style={{ textAlign: "right" }}>Net P&amp;L</th></tr></thead>
+                <tbody>
+                  {months.map((m) => (
+                    <tr key={m.month}>
+                      <td><b>{new Date(m.month + "-01").toLocaleDateString(undefined, { month: "short", year: "numeric" })}</b></td>
+                      <td className="dim">{m.trades}</td>
+                      <td className="dim">{m.winRate.toFixed(0)}%</td>
+                      <td className={m.net >= 0 ? "pos" : "neg"} style={{ textAlign: "right", fontFamily: "var(--mono)" }}>{money(m.net)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Trade Distribution" subtitle={`by R-multiple · ${dist.total} closed`}>
+          {dist.total === 0 ? <div className="dim" style={{ padding: 12 }}>No R-graded trades yet.</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+              {dist.bins.map((b) => (
+                <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+                  <span className="dim" style={{ width: 58, textAlign: "right", fontFamily: "var(--mono)" }}>{b.label}</span>
+                  <div style={{ flex: 1, background: "rgba(255,255,255,0.05)", borderRadius: 4, height: 16, overflow: "hidden" }}>
+                    <div style={{ width: `${(b.count / distMax) * 100}%`, height: "100%",
+                      background: b.win ? "var(--green)" : "var(--red)", opacity: b.count ? 0.85 : 0, borderRadius: 4,
+                      transition: "width .3s ease" }} />
+                  </div>
+                  <span style={{ width: 22, textAlign: "right" }}>{b.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
 
       <div className="grid-2-1">
         <Card title="Trade Statistics" className="span-2">

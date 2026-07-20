@@ -1,13 +1,31 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
+import Modal from "../components/common/Modal";
 import { PageHeader, StatCard } from "../components/common/ui";
 import { useApp } from "../app-context";
 import {
-  apiPostJson, apiDelete, useLive,
+  apiPostJson, apiGet, apiDelete, useLive,
   type BlockCatalog, type BlockDef, type CustomRule, type CustomSpec,
-  type SimResult, type AIStrategyReview,
+  type SimResult, type AIStrategyReview, type StrategyVersion,
 } from "../lib/api";
+
+// Compact field-level diff between two strategy definitions (version vs current).
+const DEF_KEYS = ["name", "symbol", "timeframe", "side", "entry", "exit", "stop", "target",
+  "risk_per_trade_pct", "max_trades_per_day", "session", "market"];
+const short = (v: unknown): string => {
+  if (v == null) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+};
+function diffDefs(from: Record<string, unknown>, to: Record<string, unknown>) {
+  const out: { key: string; from: string; to: string }[] = [];
+  for (const k of DEF_KEYS) {
+    const a = JSON.stringify(from?.[k] ?? null), b = JSON.stringify(to?.[k] ?? null);
+    if (a !== b) out.push({ key: k, from: short(from?.[k]), to: short(to?.[k]) });
+  }
+  return out;
+}
 
 const StrategyCanvas = lazy(() => import("../components/strategy/StrategyCanvas"));
 const TFS = ["15m", "1h", "4h", "1d"];
@@ -31,6 +49,10 @@ export default function StrategyStudioPage() {
   const [review, setReview] = useState<AIStrategyReview | null>(null);
   const [busy, setBusy] = useState<string>("");
   const [mode, setMode] = useState<"form" | "canvas">("form");
+  // version history / compare
+  const [histFor, setHistFor] = useState<CustomSpec | null>(null);
+  const [versions, setVersions] = useState<StrategyVersion[] | null>(null);
+  const [compareV, setCompareV] = useState<number | null>(null);
 
   const patch = (p: Partial<CustomSpec>) => setSpec((s) => ({ ...s, ...p }));
   const blockDefs = useMemo(() => {
@@ -92,8 +114,21 @@ export default function StrategyStudioPage() {
     catch { toast("Failed", "error"); }
   };
   const duplicate = async (s: CustomSpec) => {
-    try { await apiPostJson(`/strategy/custom/${s.id}/duplicate`, {}); saved.refetch(); toast("Duplicated", "success"); }
+    try { await apiPostJson(`/strategy/custom/${s.id}/duplicate`, {}); saved.refetch(); toast("Cloned", "success"); }
     catch { toast("Failed", "error"); }
+  };
+  const openHistory = async (s: CustomSpec) => {
+    setHistFor(s); setVersions(null); setCompareV(null);
+    try { const r = await apiGet<{ versions: StrategyVersion[] }>(`/strategy/custom/${s.id}/history`); setVersions(r.versions ?? []); }
+    catch { toast("Could not load history", "error"); setVersions([]); }
+  };
+  const restoreVersion = async (v: number) => {
+    if (!histFor?.id) return;
+    if (!window.confirm(`Restore version ${v}? Your current version is saved to history first, so this is undoable.`)) return;
+    try {
+      const r = await apiPostJson<CustomSpec>(`/strategy/custom/${histFor.id}/restore`, { v });
+      saved.refetch(); setSpec(r); setHistFor(null); toast(`Restored to v${v} — now editing`, "success");
+    } catch { toast("Restore failed", "error"); }
   };
   const del = async (s: CustomSpec) => {
     if (!window.confirm(`Delete "${s.name}"?`)) return;
@@ -323,8 +358,9 @@ export default function StrategyStudioPage() {
                   <td>
                     <div className="row-actions" style={{ gap: 4, justifyContent: "flex-end" }}>
                       <button className="chip-btn" onClick={() => load(s)} title="Edit">Edit</button>
+                      <button className="chip-btn" onClick={() => openHistory(s)} title="Version history"><Icon name="history" size={12} />{(s.versions?.length ?? 0) > 0 ? ` ${s.versions!.length}` : ""}</button>
                       <button className="chip-btn" onClick={() => rename(s)} title="Rename"><Icon name="settings" size={12} /></button>
-                      <button className="chip-btn" onClick={() => duplicate(s)} title="Duplicate"><Icon name="layers" size={12} /></button>
+                      <button className="chip-btn" onClick={() => duplicate(s)} title="Clone"><Icon name="layers" size={12} /></button>
                       <button className="chip-btn" onClick={() => deploy(s)} title="Deploy to paper"><Icon name="rocket" size={12} /></button>
                       <button className="chip-btn" onClick={() => del(s)} title="Delete"><Icon name="close" size={12} /></button>
                     </div>
@@ -335,6 +371,52 @@ export default function StrategyStudioPage() {
           </table>
         )}
       </Card>
+
+      <Modal open={!!histFor} title={`Version history — ${histFor?.name ?? ""}`} onClose={() => setHistFor(null)}>
+        {versions == null ? <div className="dim">Loading…</div>
+          : versions.length === 0 ? <div className="dim">No prior versions yet. Each edit you save creates a restore point here.</div>
+          : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "60vh", overflowY: "auto" }}>
+            <div className="dim" style={{ fontSize: 11.5 }}>
+              {versions.length} restore point{versions.length === 1 ? "" : "s"} · newest first. “Compare” diffs a version against the current saved strategy.
+            </div>
+            {[...versions].reverse().map((ver) => {
+              const changes = histFor ? diffDefs(ver.spec, histFor as unknown as Record<string, unknown>) : [];
+              const openCmp = compareV === ver.v;
+              return (
+                <div key={ver.v} style={{ border: "1px solid var(--card-border)", borderRadius: 8, padding: "9px 11px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <b style={{ fontSize: 12.5 }}>v{ver.v}</b>
+                    <span className="dim" style={{ fontSize: 11.5 }}>{ver.name ?? histFor?.name} · {new Date(ver.at).toLocaleString()}</span>
+                    <div className="row-actions" style={{ marginLeft: "auto", gap: 4 }}>
+                      <button className="chip-btn" onClick={() => setCompareV(openCmp ? null : ver.v)}>{openCmp ? "Hide" : "Compare"}</button>
+                      <button className="chip-btn" onClick={() => restoreVersion(ver.v)} title="Roll back to this version"><Icon name="history" size={11} /> Restore</button>
+                    </div>
+                  </div>
+                  {openCmp && (
+                    <div style={{ marginTop: 8, fontSize: 11.5 }}>
+                      {changes.length === 0 ? <span className="dim">Identical to the current saved version.</span> : (
+                        <table className="data-table" style={{ fontSize: 11.5 }}>
+                          <thead><tr><th>Field</th><th>v{ver.v}</th><th>Current</th></tr></thead>
+                          <tbody>
+                            {changes.map((c) => (
+                              <tr key={c.key}>
+                                <td><b>{c.key}</b></td>
+                                <td className="neg" style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }} title={c.from}>{c.from}</td>
+                                <td className="pos" style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }} title={c.to}>{c.to}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
     </>
   );
 }
