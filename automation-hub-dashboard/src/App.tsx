@@ -3,6 +3,7 @@ import Sidebar from "./components/layout/Sidebar";
 import TopHeader from "./components/layout/TopHeader";
 import TickerBar from "./components/layout/TickerBar";
 import Toasts, { type ToastItem } from "./components/common/Toasts";
+import ErrorBoundary from "./components/common/ErrorBoundary";
 // Pages are code-split (lazy) so the initial bundle is just the shell + the
 // first page, not all ~25 pages and their chart libraries.
 const Overview = lazy(() => import("./pages/Overview"));
@@ -132,9 +133,11 @@ export default function App() {
         <div className="main">
           <TopHeader onToggleSidebar={toggleSidebar} title={title} />
           <div className="content">
-            <Suspense fallback={<div className="dim" style={{ padding: 24 }}>Loading…</div>}>
-              {renderPage()}
-            </Suspense>
+            <ErrorBoundary resetKey={active + route.botId}>
+              <Suspense fallback={<div className="dim" style={{ padding: 24 }}>Loading…</div>}>
+                {renderPage()}
+              </Suspense>
+            </ErrorBoundary>
           </div>
           <TickerBar />
         </div>
