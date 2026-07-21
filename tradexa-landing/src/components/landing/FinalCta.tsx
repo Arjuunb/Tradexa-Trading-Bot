@@ -1,9 +1,8 @@
-import { Link } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Eye, Ban } from "lucide-react";
 import { Reveal } from "@/components/Reveal";
 import { Button } from "@/components/ui/Button";
 import { BrainScanner } from "./BrainScanner";
-import { APP_URL } from "@/lib/utils";
+import { APP_URL, SIGNUP_URL } from "@/lib/utils";
 
 const ASSURANCES = [
   { icon: Eye, text: "Every decision is scored, explained and journaled" },
@@ -48,11 +47,11 @@ export function FinalCta() {
                     <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                   </Button>
                 </a>
-                <Link to="/auth/register">
+                <a href={SIGNUP_URL}>
                   <Button size="lg" variant="secondary">
                     Create free account
                   </Button>
-                </Link>
+                </a>
               </div>
             </Reveal>
 

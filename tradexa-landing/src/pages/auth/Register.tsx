@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { registerSchema, type RegisterValues, passwordStrength } from "@/lib/validation";
 import { auth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
-import { cn } from "@/lib/utils";
+import { cn, SIGNUP_URL } from "@/lib/utils";
 
 const COUNTRIES = [
   "United States", "United Kingdom", "Canada", "Australia", "Germany", "France",
@@ -35,6 +35,11 @@ export default function Register() {
 
   const pw = watch("password") ?? "";
   const strength = passwordStrength(pw);
+
+  // Single front door: without Supabase configured this page can't create a real
+  // account, so forward to the app's own (working, premium) create-account page.
+  useEffect(() => { if (!auth.configured) window.location.replace(SIGNUP_URL); }, []);
+  if (!auth.configured) return null;
 
   const onSubmit = async (values: RegisterValues) => {
     setSubmitting(true);

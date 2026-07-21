@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { loginSchema, type LoginValues } from "@/lib/validation";
 import { auth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
-import { APP_URL } from "@/lib/utils";
+import { APP_URL, LOGIN_URL } from "@/lib/utils";
 
 export default function Login() {
   const { toast } = useToast();
@@ -24,6 +24,11 @@ export default function Login() {
     handleSubmit,
     formState: { errors },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema), mode: "onBlur" });
+
+  // Single front door: without Supabase configured this page can't create a real
+  // session, so forward to the app's own (working, premium) sign-in.
+  useEffect(() => { if (!auth.configured) window.location.replace(LOGIN_URL); }, []);
+  if (!auth.configured) return null;
 
   const onSubmit = async (values: LoginValues) => {
     setSubmitting(true);

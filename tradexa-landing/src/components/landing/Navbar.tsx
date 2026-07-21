@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
-import { cn, APP_URL } from "@/lib/utils";
+import { cn, APP_URL, LOGIN_URL } from "@/lib/utils";
 
 const LINKS = [
   { label: "Features", href: "#features" },
@@ -54,11 +54,11 @@ export function Navbar() {
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
-          <Link to="/auth/login">
+          <a href={LOGIN_URL}>
             <Button variant="ghost" size="sm">
               Sign in
             </Button>
-          </Link>
+          </a>
           <a href={APP_URL}>
             <Button size="sm">Launch Platform</Button>
           </a>
@@ -91,11 +91,11 @@ export function Navbar() {
               </a>
             ))}
             <div className="mt-2 flex gap-2">
-              <Link to="/auth/login" className="flex-1">
+              <a href={LOGIN_URL} className="flex-1">
                 <Button variant="secondary" fullWidth size="sm">
                   Sign in
                 </Button>
-              </Link>
+              </a>
               <a href={APP_URL} className="flex-1">
                 <Button fullWidth size="sm">
                   Launch Platform

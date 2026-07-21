@@ -1,7 +1,6 @@
-import { Link } from "react-router-dom";
 import { Github, MessageCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { APP_URL } from "@/lib/utils";
+import { APP_URL, LOGIN_URL } from "@/lib/utils";
 
 const GROUPS: { title: string; links: { label: string; href: string; external?: boolean }[] }[] = [
   {
@@ -101,9 +100,9 @@ export function Footer() {
             © {new Date().getFullYear()} TradeLogX Nexus. All rights reserved.
           </p>
           <div className="flex items-center gap-5 text-xs text-white/40">
-            <Link to="/auth/login" className="hover:text-white">
+            <a href={LOGIN_URL} className="hover:text-white">
               Sign in
-            </Link>
+            </a>
             <a href="#privacy" className="hover:text-white">
               Privacy
             </a>
