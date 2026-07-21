@@ -77,10 +77,17 @@ if _ON_CLOUD and not _UNDER_TEST:
             "Set HUB_SECRET to a strong random value (render.yaml does this with "
             "generateValue) before exposing this service — otherwise session "
             "cookies are forgeable.")
+    import sys as _sec_sys
     if settings.password == "admin":
-        import sys as _sec_sys
         print("\n" + "=" * 68 + "\n  SECURITY WARNING: HUB_PASSWORD is the default 'admin'.\n"
               "  Set a strong HUB_PASSWORD before real use.\n" + "=" * 68 + "\n",
+              file=_sec_sys.stderr, flush=True)
+    if settings.webhook_secret == "dev-webhook-secret":
+        # not a hard-fail (would lock a running deploy out of its own control
+        # endpoints); a loud warning is the safe hardening here.
+        print("\n" + "=" * 68 + "\n  SECURITY WARNING: HUB_WEBHOOK_SECRET is the default value.\n"
+              "  Set HUB_WEBHOOK_SECRET (and HUB_API_KEY + HUB_SCOPE_WEBHOOK=1 to\n"
+              "  decouple control from the TradingView secret) before real use.\n" + "=" * 68 + "\n",
               file=_sec_sys.stderr, flush=True)
 
 # M-5: report the control-credential posture. Scoped = the webhook secret (shared
@@ -101,9 +108,22 @@ app.include_router(webhook_router)
 # The React dashboard runs on its own dev origin (Vite) and calls this API, so
 # allow cross-origin during local development.
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+# CORS origins are configurable: set HUB_CORS_ORIGINS to a comma-separated allow
+# list (e.g. "https://www.trade-logx.com,https://x.onrender.com") in production.
+# Unset defaults to "*" for local dev, but on a cloud host that is a loud warning
+# (§10/§18 of the SAD) — credentials are off so the session cookie is never sent
+# cross-origin, but tightening origins is still correct hygiene.
+_cors_env = _sec_os.environ.get("HUB_CORS_ORIGINS", "").strip()
+if _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _cors_origins = ["*"]
+    if _ON_CLOUD and not _UNDER_TEST:
+        print("[cors] WARNING: HUB_CORS_ORIGINS unset — allowing all origins. "
+              "Set it to your real origins in production.", flush=True)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=False,
+    allow_origins=_cors_origins, allow_credentials=False,
     allow_methods=["*"], allow_headers=["*"],
 )
 
@@ -132,9 +152,43 @@ _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
                 "/og-image", "/logo-mark", "/site.webmanifest")
 
 
+from services.ratelimit import limiter as _rl  # noqa: E402
+# Per-IP sliding-window caps on the endpoints worth brute-forcing. Configurable;
+# generous enough not to bite real users. Skipped under pytest.
+_RL_AUTH = (int(_sec_os.environ.get("HUB_RL_AUTH_MAX", "12")), 300.0)      # login/signup: 12 / 5 min
+_RL_WEBHOOK = (int(_sec_os.environ.get("HUB_RL_WEBHOOK_MAX", "120")), 60.0)  # webhook: 120 / min
+
+
+def _client_ip(request: Request) -> str:
+    """Real client IP behind Render's proxy (first X-Forwarded-For hop)."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @app.middleware("http")
 async def _require_auth(request: Request, call_next):
     path = request.url.path
+    # --- rate limiting (brute-force protection) — before auth so failed attempts
+    # count. The under-test check is evaluated per-REQUEST (PYTEST_CURRENT_TEST is
+    # set during a test's execution, not necessarily at import), so the limiter is
+    # inert in the suite but live in production.
+    if request.method == "POST" and not _sec_os.environ.get("PYTEST_CURRENT_TEST"):
+        rule = None
+        if path in ("/login", "/signup"):
+            rule, tag = _RL_AUTH, "auth"
+        elif path.startswith("/webhook"):
+            rule, tag = _RL_WEBHOOK, "webhook"
+        if rule is not None:
+            limit, window = rule
+            key = f"{_client_ip(request)}:{tag}"
+            if not _rl.allow(key, limit, window):
+                from fastapi.responses import JSONResponse
+                ra = _rl.retry_after(key, window)
+                return JSONResponse(
+                    {"error": "Too many attempts. Please wait and try again."},
+                    status_code=429, headers={"Retry-After": str(ra)})
     exempt = _AUTH_EXEMPT
     # With the landing bundled, its public SPA routes bypass the API auth wall.
     # "/app" is exempt here but self-gates in its own handler (it carries the
