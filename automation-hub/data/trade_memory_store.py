@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from data.tenant_scope import ensure_tenant_column
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -99,6 +101,8 @@ class TradeMemoryStore:
                     UNIQUE(period, period_key)
                 );
                 """)
+            for _t in ("trade_memories", "memory_reviews"):   # Phase C-3: schema-only, additive
+                ensure_tenant_column(self._c, _t)
             self._c.commit()
             # FTS5 is optional at runtime; degrade to LIKE search if absent.
             try:

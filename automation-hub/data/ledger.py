@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Protocol
 
+from data.tenant_scope import ensure_tenant_column
+
 _SCHEMA = (Path(__file__).resolve().parent / "ledger_schema.sql").read_text(encoding="utf-8")
 
 
@@ -65,6 +67,13 @@ class SqliteLedger:
         self._lock = threading.RLock()
         with self._lock:
             self._c.executescript(_SCHEMA)
+            # Phase C-3: make the ledger tenant-aware (schema only). Each table
+            # gains a tenant_id column defaulting to the owner and existing rows
+            # are backfilled — additive and behaviour-preserving. Reads do NOT
+            # filter by tenant yet (that lands with the per-tenant engine), so
+            # single-owner behaviour is unchanged. See docs/PHASE_C_TENANCY.md.
+            for _t in ("webhook_events", "positions", "paper_trades", "bot_logs", "alerts"):
+                ensure_tenant_column(self._c, _t)
             self._c.commit()
 
     # ----------------------------------------------------------- webhook

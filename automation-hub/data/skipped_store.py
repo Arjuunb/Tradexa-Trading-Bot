@@ -14,6 +14,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
+from data.tenant_scope import ensure_tenant_column
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -58,6 +60,7 @@ class SkippedTradeStore:
                )""")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_skipped_ts ON skipped_trades(ts)")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_skipped_stage ON skipped_trades(stage)")
+        ensure_tenant_column(self._c, "skipped_trades")   # Phase C-3: schema-only, additive
         self._c.commit()
 
     def record(self, *, symbol: str, side: str, stage: str, reason: str,

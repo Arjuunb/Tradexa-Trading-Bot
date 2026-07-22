@@ -28,13 +28,14 @@ Everything keys on **one** function so tenancy has a single source of truth:
 Each store: (1) make schema tenant-aware via the right pattern, (2) thread `tenant=` through its methods (default `OWNER_TENANT`), (3) pass `_tenant(request)` from the router, (4) add reads-are-isolated tests. Do the **money stores last and one at a time.**
 
 - [x] **`watchlist_store` (market prefs)** — singleton → tenant-keyed. *Proven pattern (C-1).*
-- [ ] **`user_settings`** (already `(username, namespace)`) — formalize `username` as the tenant key via the seam. Low risk.
-- [ ] **`custom_store` / strategy JSON** — add `tenant_id` to each record; scope list/get/save. Low risk.
+- [x] **`custom_store` / strategy JSON** — `tenant_id` on each record; every method scoped by `tenant`; legacy records read as owner. *Done (C-2).*
+- [x] **Ledger** (`paper_trades`, `positions`, `webhook_events`, `bot_logs`, `alerts`) — `tenant_id` column added + backfilled via `ensure_tenant_column`. **Schema only — reads do NOT filter yet** (that lands with the per-tenant engine). *Done (C-3, expand step).*
+- [x] **`cycle_store`, `decision_store`, `skipped_store`** — `ensure_tenant_column` (schema only). *Done (C-3).*
+- [x] **`trade_memory` (+`memory_reviews`), `journal` (+`events`, `evolution_memory`)** — `ensure_tenant_column` (schema only; FTS scope deferred to the read-filter step). *Done (C-3).*
+- [ ] **`user_settings`** (already `(username, namespace)`) — already per-user; formalizing to `OWNER_TENANT` needs a row re-home migration (owner's saved settings would otherwise orphan), so deferred until the read-filter step. Low risk but not a no-op.
 - [ ] **`account_store`** (paper account singleton) — re-key by tenant; **each tenant gets their own paper account.** Medium (money).
-- [ ] **Ledger** (`paper_trades`, `positions`, `webhook_events`, `bot_logs`, `alerts`) — `ensure_tenant_column` + tenant-filtered reads. **High (money) — do individually, verify no cross-tenant read.**
-- [ ] **`cycle_store`, `decision_store`, `skipped_store`** — `ensure_tenant_column` + filter. Medium.
-- [ ] **`trade_memory`, `journal`** — `ensure_tenant_column` (+ FTS scope). Medium.
 - [ ] **Grid state** (`grid_store`) — per-tenant snapshot key. Medium.
+- [ ] **Read-filter step (C-4, deferred):** turn on tenant-filtered reads for the flat tables above — only alongside the per-tenant engine, with cross-tenant-isolation tests. Until then the `tenant_id` columns are inert (all `__owner__`).
 
 ## Beyond data isolation (C-3 / Phase E)
 

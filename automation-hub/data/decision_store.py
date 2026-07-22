@@ -13,6 +13,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
+from data.tenant_scope import ensure_tenant_column
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -47,6 +49,7 @@ class DecisionStore:
                )""")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_decisions_ts ON decisions(ts)")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_decisions_decision ON decisions(decision)")
+        ensure_tenant_column(self._c, "decisions")   # Phase C-3: schema-only, additive
         self._c.commit()
 
     def record(self, d: dict) -> int:
