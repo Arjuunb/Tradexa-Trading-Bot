@@ -13,7 +13,7 @@ _spec.loader.exec_module(api)
 def test_run_dashboard_html_default_view():
     doc = api._run_dashboard_html("BTC-USD", n=1500, seed=1)
     assert doc.startswith("<!doctype html>")
-    assert "TRADING BOT DASHBOARD" in doc
+    assert "TradeLogX Nexus" in doc
     assert "10 · Bot Logs" in doc
 
 

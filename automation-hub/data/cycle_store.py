@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from data.tenant_scope import ensure_tenant_column
+
 
 class CycleStore:
     def __init__(self, path: str = ":memory:", keep: int = 5000) -> None:
@@ -38,6 +40,7 @@ class CycleStore:
             CREATE INDEX IF NOT EXISTS ix_cycles_ts ON cycle_reports(ts);
             CREATE INDEX IF NOT EXISTS ix_cycles_symbol ON cycle_reports(symbol);
             """)
+            ensure_tenant_column(self._c, "cycle_reports")   # Phase C-3: schema-only, additive
             self._c.commit()
 
     def record(self, report: dict) -> int:

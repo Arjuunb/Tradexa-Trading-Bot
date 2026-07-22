@@ -23,8 +23,8 @@ def test_dashboard_has_all_ten_panels():
         risk_cfg=risk.cfg,
     )
     assert doc.startswith("<!doctype html>")
-    # Panel 1 is the header (no numbered label).
-    assert "TRADING BOT DASHBOARD" in doc
+    # Panel 1 is the header (no numbered label) — carries the product brand.
+    assert "TradeLogX Nexus" in doc
     assert "EMERGENCY STOP" in doc
     for marker in (
         "2 · Account Summary", "3 · Active Bot Settings",

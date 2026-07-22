@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from data.tenant_scope import ensure_tenant_column
+
 EARLY_SIGNAL_MAX = 30       # < this many trades for a setup = early signal only
 EVIDENCE_MIN = 50           # >= this = strong enough for stronger changes
 
@@ -57,6 +59,8 @@ class JournalStore:
                 stage TEXT, note TEXT);
             CREATE INDEX IF NOT EXISTS idx_evt_trade ON trade_decision_events(trade_id);
             """)
+            for _t in ("trade_decision_journal", "trade_decision_events", "evolution_memory"):
+                ensure_tenant_column(self._c, _t)   # Phase C-3: schema-only, additive
             self._c.commit()
 
     # ------------------------------------------------------------- entry
