@@ -393,6 +393,14 @@ def _require(request: Request):
     return u if u else RedirectResponse("/login", status_code=303)
 
 
+def _tenant(request: Request) -> str:
+    """The data-tenant for this request (Phase C seam). Single-owner: always the
+    owner. Multi-user (HUB_MULTI_USER): the signed-in user. Stores default to the
+    owner, so this only diverges once multi-user is switched on."""
+    from services.tenancy import resolve_tenant
+    return resolve_tenant(_user(request))
+
+
 def _signup_open() -> bool:
     """Signup creates the single OWNER account. It stays open only while the
     seeded default admin is the sole user — after that this hub has an owner."""
@@ -1439,8 +1447,10 @@ def _persistence_info() -> dict:
 
 @app.get("/health")
 def health():
+    from services.tenancy import multi_user_enabled
     return {"status": "ok", "app": settings.app_name, **_deploy_info(),
-            "persistence": _persistence_info()}
+            "persistence": _persistence_info(),
+            "tenancy": {"multi_user": multi_user_enabled(), "mode": "multi" if multi_user_enabled() else "single-owner"}}
 
 
 @app.get("/version")
