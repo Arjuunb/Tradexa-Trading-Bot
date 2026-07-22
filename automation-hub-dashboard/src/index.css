@@ -1125,3 +1125,23 @@ a.brand:hover { opacity: 0.85; }
   .pm-panel { position: fixed; top: 60px; right: 8px; left: 8px; width: auto; max-height: calc(100vh - 76px); }
 }
 @media (prefers-reduced-motion: reduce) { .pm-panel { animation: none; } }
+
+/* ---- Chart tools (ChartTools.tsx): chart-type + persistent price levels ---- */
+.ct-wrap { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.ct-types { display: inline-flex; gap: 2px; }
+.ct-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 280px; z-index: 60; padding: 12px;
+  border-radius: 14px; background: linear-gradient(180deg, rgba(23,23,26,0.99), rgba(18,18,20,0.99));
+  border: 1px solid var(--card-border); box-shadow: 0 20px 50px -24px rgba(0,0,0,0.85); backdrop-filter: blur(12px);
+}
+.ct-pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.ct-note { font-size: 10.5px; margin: 0 0 10px; line-height: 1.4; }
+.ct-empty { font-size: 11.5px; text-align: center; padding: 10px 0; }
+.ct-list { display: grid; gap: 6px; max-height: 220px; overflow-y: auto; }
+.ct-row { display: flex; align-items: center; gap: 6px; }
+.ct-swatch { width: 16px; height: 16px; border-radius: 5px; border: 1px solid var(--card-border); cursor: pointer; flex: none; }
+.ct-price { width: 92px; background: var(--card-2); border: 1px solid var(--card-border); border-radius: 8px; padding: 6px 8px; color: var(--text); font-size: 12px; }
+.ct-label { flex: 1; min-width: 0; background: var(--card-2); border: 1px solid var(--card-border); border-radius: 8px; padding: 6px 8px; color: var(--text); font-size: 12px; }
+.ct-price:focus, .ct-label:focus { outline: none; border-color: var(--gold); }
+.ct-del:hover { color: var(--red); }
+.ct-actions { display: flex; gap: 8px; margin-top: 10px; }

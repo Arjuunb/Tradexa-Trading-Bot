@@ -21,6 +21,13 @@ export interface ExtraLine { key: string; name: string; color: string; dashed?: 
  *  buy = below price (green), sell = above (red), band edges emphasised. */
 export interface GridLine { price: number; side: "buy" | "sell"; edge?: boolean; }
 
+/** A user-drawn horizontal price level — persisted per symbol/timeframe. These
+ *  are the trader's own annotations (clearly distinct from strategy-computed
+ *  overlays); nothing here is invented by the app. */
+export interface PriceLine { id: string; price: number; color: string; label: string; }
+
+export type ChartType = "candles" | "line" | "area";
+
 interface Props {
   data: ReplayData;
   index: number; // current replay bar (inclusive); chart shows [0..index]
@@ -28,6 +35,8 @@ interface Props {
   height?: number;
   extraLines?: ExtraLine[];
   gridLines?: GridLine[];
+  chartType?: ChartType;
+  drawings?: PriceLine[];
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -41,7 +50,7 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -161,6 +170,13 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         lineStyle: { color: col, type: g.edge ? "solid" : "dashed", width: g.edge ? 1.4 : 1, opacity: g.edge ? 0.85 : 0.45 },
         label: g.edge ? { formatter: fmt(g.price), position: "start", color: col, fontSize: 9 } : { show: false } });
     }
+    // User-drawn horizontal price levels (the trader's own annotations, persisted).
+    for (const d of drawings ?? []) {
+      markLines.push({ yAxis: d.price, symbol: "none",
+        lineStyle: { color: d.color, type: "solid", width: 1.2, opacity: 0.9 },
+        label: { formatter: (d.label ? d.label + "  " : "") + fmt(d.price), position: "start",
+          color: "#fff", backgroundColor: d.color, padding: [1, 4], borderRadius: 3, fontSize: 9 } });
+    }
     const zoneAreas = (toggles.zones ? data.zones : [])
       .filter((z) => z.left_idx !== undefined && z.left_idx <= index).slice(-8)
       .map((z) => ([
@@ -168,16 +184,30 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         { xAxis: end - 1, yAxis: z.bottom },
       ]));
 
-    // ---- price-pane overlay line series (only the toggled-on, computed ones) ----
-    const series: any[] = [
-      {
+    // ---- primary price series (candles | line | area) — same real OHLC data ----
+    const primaryMarks = {
+      markPoint: { data: markPts as any, silent: true },
+      markLine: { symbol: "none", data: markLines as any, silent: true },
+      markArea: { silent: true, data: [...zoneAreas, ...tradeAreas] as any },
+    };
+    const series: any[] = [];
+    if (chartType === "line" || chartType === "area") {
+      series.push({
+        type: "line", data: c.map((b) => b.c), xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: false,
+        lineStyle: { color: "#7cb9e8", width: 1.5 },
+        ...(chartType === "area" ? {
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: "rgba(124,185,232,0.28)" }, { offset: 1, color: "rgba(124,185,232,0.02)" }]) },
+        } : {}),
+        ...primaryMarks,
+      });
+    } else {
+      series.push({
         type: "candlestick", data: ohlc, xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 14,
         itemStyle: { color: "#089981", color0: "#f23645", borderColor: "#089981", borderColor0: "#f23645" },
-        markPoint: { data: markPts as any, silent: true },
-        markLine: { symbol: "none", data: markLines as any, silent: true },
-        markArea: { silent: true, data: [...zoneAreas, ...tradeAreas] as any },
-      },
-    ];
+        ...primaryMarks,
+      });
+    }
     const legend: string[] = [];
     const line = (key: string, name: string, color: string, opt: any = {}) => {
       series.push({ type: "line", data: num(ov[key], end), xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
@@ -258,7 +288,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
       series,
     };
     chart.setOption(option, true);
-  }, [data, index, toggles, height]);
+  }, [data, index, toggles, height, chartType, drawings]);
 
   return <div ref={elRef} style={{ width: "100%", height }} />;
 }

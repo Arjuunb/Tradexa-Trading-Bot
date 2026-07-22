@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles, type ExtraLine, type GridLine } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine } from "../components/replay/CandleChart";
+import ChartTools from "../components/replay/ChartTools";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
@@ -130,6 +131,12 @@ export default function BotTerminalPage() {
   const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(false);
   const [full, setFull] = useState(false);
+  // Chart type + user-drawn price levels (persisted; levels keyed per symbol+tf).
+  const [chartType, setChartTypeState] = useState<ChartType>(() => {
+    try { return (localStorage.getItem("hub.charttype") as ChartType) || "candles"; } catch { return "candles"; }
+  });
+  const setChartType = (t: ChartType) => { setChartTypeState(t); try { localStorage.setItem("hub.charttype", t); } catch { /* ignore */ } };
+  const [drawings, setDrawingsState] = useState<PriceLine[]>([]);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -248,6 +255,18 @@ export default function BotTerminalPage() {
 
   const frame = data?.frames?.[Math.min(idx, (data?.frames?.length ?? 1) - 1)];
   const candle = data?.candles?.[idx];
+
+  // Drawn price levels persist per symbol+timeframe — restored on refresh/login.
+  const drawKey = `hub.draw.${symbol}.${tf}`;
+  useEffect(() => {
+    try { const raw = localStorage.getItem(drawKey); setDrawingsState(raw ? (JSON.parse(raw) as PriceLine[]) : []); }
+    catch { setDrawingsState([]); }
+  }, [drawKey]);
+  const setDrawings = (d: PriceLine[]) => {
+    setDrawingsState(d);
+    try { localStorage.setItem(drawKey, JSON.stringify(d)); } catch { /* private mode */ }
+  };
+
   const openPos = useMemo(() => (positions ?? []).find((p) => p.symbol === symbol), [positions, symbol]);
   const signal = ai?.decision === "BUY" ? "LONG" : ai?.decision === "SELL" ? "SHORT" : ai?.decision ?? "—";
   const ma = ai?.market_analysis;
@@ -503,7 +522,8 @@ export default function BotTerminalPage() {
             </div>
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
-              <span className="dim" style={{ fontSize: 11 }}>{viz?.title ?? "strategy view"} · scroll to zoom</span>
+              <ChartTools chartType={chartType} setChartType={setChartType}
+                          drawings={drawings} setDrawings={setDrawings} lastPrice={candle?.c} />
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
@@ -552,7 +572,7 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
