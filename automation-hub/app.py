@@ -697,7 +697,7 @@ def auth_logout(request: Request):
 # strictly isolated by username. The backend DB is the source of truth; the
 # frontends use localStorage only as a fast-boot cache. Nothing here is ever
 # reset implicitly — DELETE is wired only to the user's explicit Reset actions.
-_SETTINGS_NAMESPACES = ("settings-center", "dashboard", "preferences")
+_SETTINGS_NAMESPACES = ("settings-center", "dashboard", "preferences", "profile")
 
 
 @app.get("/user/settings")

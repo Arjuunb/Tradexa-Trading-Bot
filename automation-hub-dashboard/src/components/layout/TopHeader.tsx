@@ -1,6 +1,7 @@
 import Icon from "../common/Icon";
 import HeaderControls from "./HeaderControls";
 import NotificationBell from "./NotificationBell";
+import ProfileMenu from "./ProfileMenu";
 import { useApp } from "../../app-context";
 
 interface TopHeaderProps {
@@ -29,13 +30,7 @@ export default function TopHeader({ onToggleSidebar, title = "Dashboard" }: TopH
         <button className="icon-btn" aria-label="Settings" onClick={() => app.go("Settings")}>
           <Icon name="help" size={18} />
         </button>
-        <div className="profile">
-          <div className="avatar">PA</div>
-          <div className="profile-meta">
-            <b>Paper Account</b>
-            <span className="dim">Simulation</span>
-          </div>
-        </div>
+        <ProfileMenu />
       </div>
     </header>
   );

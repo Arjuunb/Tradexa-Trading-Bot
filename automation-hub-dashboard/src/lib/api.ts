@@ -56,6 +56,22 @@ export async function apiPatchJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Authenticated file download (exports). Fetches with the secret header so it
+ *  works cross-origin, then triggers a browser download of the real payload. */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: { "X-Webhook-Secret": SECRET } });
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** The backend origin — used to redirect to the server-rendered /login on logout. */
+export const APP_ORIGIN = API_BASE;
+
 export interface BotSettings {
   editable: {
     risk_per_trade_pct: number; exposure_limit_pct: number; max_drawdown_pct: number;
