@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CandlestickChart, LineChart, AreaChart, Ruler, TrendingUp, Square, Percent,
-  Plus, Trash2, X,
+  Plus, Trash2, X, Settings2,
 } from "lucide-react";
-import type { ChartType, PriceLine, Shape, DrawTool } from "./CandleChart";
+import type { ChartType, PriceLine, Shape, DrawTool, ChartSettings } from "./CandleChart";
+import { DEFAULT_SETTINGS } from "./CandleChart";
 
 /** Chart toolbar: chart-type selector + drawing tools (horizontal levels,
  *  trend line, rectangle, fibonacci). Trend/rect/fib are placed by clicking two
@@ -11,7 +12,7 @@ import type { ChartType, PriceLine, Shape, DrawTool } from "./CandleChart";
  *  from the strategy-computed overlays — persisted per symbol/timeframe. */
 export default function ChartTools({
   chartType, setChartType, drawings, setDrawings, shapes, setShapes,
-  drawTool, setDrawTool, lastPrice,
+  drawTool, setDrawTool, lastPrice, settings, setSettings,
 }: {
   chartType: ChartType;
   setChartType: (t: ChartType) => void;
@@ -22,16 +23,19 @@ export default function ChartTools({
   drawTool: DrawTool;
   setDrawTool: (t: DrawTool) => void;
   lastPrice: number | undefined;
+  settings: ChartSettings;
+  setSettings: (s: ChartSettings) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [setOpen2, setSetOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    if (!open && !setOpen2) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setSetOpen(false); } };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  }, [open, setOpen2]);
   useEffect(() => { // Esc cancels an active draw tool
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && drawTool !== "none") setDrawTool("none"); };
     document.addEventListener("keydown", onKey);
@@ -79,11 +83,37 @@ export default function ChartTools({
         ))}
       </div>
       <button className={`chip-btn ${nTotal ? "active" : ""}`} title="Manage drawings"
-              aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+              aria-haspopup="dialog" aria-expanded={open} onClick={() => { setOpen((v) => !v); setSetOpen(false); }}>
         <Ruler size={12} /> {nTotal > 0 && <b>{nTotal}</b>}
+      </button>
+      <button className="chip-btn" title="Chart settings" aria-haspopup="dialog" aria-expanded={setOpen2}
+              onClick={() => { setSetOpen((v) => !v); setOpen(false); }}>
+        <Settings2 size={12} />
       </button>
 
       {drawTool !== "none" && <span className="ct-hint">click two points · Esc to cancel</span>}
+
+      {setOpen2 && (
+        <div className="ct-pop" role="dialog" aria-label="Chart settings">
+          <div className="ct-pop-head"><b>Chart settings</b>
+            <button className="icon-btn" aria-label="Close" onClick={() => setSetOpen(false)}><X size={14} /></button></div>
+          <div className="ct-set">
+            <label className="ct-set-row"><span>Up candles</span>
+              <input type="color" value={settings.upColor} onChange={(e) => setSettings({ ...settings, upColor: e.target.value })} /></label>
+            <label className="ct-set-row"><span>Down candles</span>
+              <input type="color" value={settings.downColor} onChange={(e) => setSettings({ ...settings, downColor: e.target.value })} /></label>
+            <label className="ct-set-check"><input type="checkbox" checked={settings.grid}
+              onChange={(e) => setSettings({ ...settings, grid: e.target.checked })} /> Grid lines</label>
+            <label className="ct-set-check"><input type="checkbox" checked={settings.crosshair}
+              onChange={(e) => setSettings({ ...settings, crosshair: e.target.checked })} /> Crosshair</label>
+            <label className="ct-set-check"><input type="checkbox" checked={settings.priceLine}
+              onChange={(e) => setSettings({ ...settings, priceLine: e.target.checked })} /> Current-price line</label>
+          </div>
+          <div className="ct-actions">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSettings({ ...DEFAULT_SETTINGS })}>Reset defaults</button>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="ct-pop" role="dialog" aria-label="Drawings">
