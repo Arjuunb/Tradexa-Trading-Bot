@@ -1157,3 +1157,17 @@ a.brand:hover { opacity: 0.85; }
 .ct-set-row input[type="color"] { width: 34px; height: 24px; border: 1px solid var(--card-border); border-radius: 6px; background: none; padding: 0; cursor: pointer; }
 .ct-set-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
 .ct-set-check input { accent-color: var(--gold); }
+
+/* ---- In-terminal replay controls (ReplayBar.tsx) ---- */
+.rp-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 10px; border-radius: 12px;
+  background: var(--card-2); border: 1px solid var(--card-border); }
+.rp-tag { font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; color: var(--gold);
+  background: rgba(234,181,79,0.12); border: 1px solid rgba(234,181,79,0.28); padding: 2px 6px; border-radius: 999px; }
+.rp-scrub { flex: 1; min-width: 80px; accent-color: var(--gold); height: 4px; cursor: pointer; }
+.rp-speeds { display: inline-flex; gap: 2px; }
+.rp-speed { font-size: 11px; padding: 3px 6px; border-radius: 7px; cursor: pointer; background: var(--card-1);
+  border: 1px solid var(--card-border-soft); color: var(--dim); font-weight: 600; }
+.rp-speed.active { color: #1a1205; background: linear-gradient(135deg, #f2c66e, #eab54f); border-color: transparent; }
+.rp-pos { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.rp-exit { margin-left: 2px; }
+@media (max-width: 640px) { .rp-pos { display: none; } .rp-bar { flex-wrap: wrap; } }
