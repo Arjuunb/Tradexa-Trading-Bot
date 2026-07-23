@@ -4,6 +4,7 @@ import { EngineStatusBar } from "@/components/landing/EngineStatusBar";
 import { Features } from "@/components/landing/Features";
 import { BotThinking } from "@/components/landing/BotThinking";
 import { EnginePipeline } from "@/components/landing/EnginePipeline";
+import { ExecutionFlow } from "@/components/landing/ExecutionFlow";
 import { TradeInAction } from "@/components/landing/TradeInAction";
 import { MarketScanner } from "@/components/landing/MarketScanner";
 import { HowItWorks } from "@/components/landing/HowItWorks";
@@ -26,6 +27,7 @@ export default function Landing() {
       <Features />
       <BotThinking />
       <EnginePipeline />
+      <ExecutionFlow />
       <TradeInAction />
       <MarketScanner />
       <HowItWorks />
