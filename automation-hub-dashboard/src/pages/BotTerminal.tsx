@@ -3,6 +3,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool, type ChartSettings, DEFAULT_SETTINGS } from "../components/replay/CandleChart";
 import ChartTools from "../components/replay/ChartTools";
+import ReplayBar from "../components/replay/ReplayBar";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
@@ -144,6 +145,9 @@ export default function BotTerminalPage() {
     catch { return DEFAULT_SETTINGS; }
   });
   const setChartSettings = (s: ChartSettings) => { setChartSettingsState(s); try { localStorage.setItem("hub.chartsettings", JSON.stringify(s)); } catch { /* ignore */ } };
+  const [replay, setReplay] = useState(false);
+  const replayRef = useRef(replay);
+  useEffect(() => { replayRef.current = replay; }, [replay]);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -172,7 +176,7 @@ export default function BotTerminalPage() {
   const loadRun = (silent = false) => {
     if (!silent) setLoading(true);
     return apiGet<ReplayData>(`/replay/run?symbol=${symbol}&timeframe=${tf}&limit=${LIMIT}&strategy=${encodeURIComponent(strategy)}&source=binance`)
-      .then((d) => { if (d?.candles?.length) { setData(d); setIdx(d.candles.length - 1); } else if (!silent) setData(null); })
+      .then((d) => { if (d?.candles?.length) { setData(d); if (!replayRef.current) setIdx(d.candles.length - 1); } else if (!silent) setData(null); })
       .catch(() => { if (!silent) toast("Could not load live candles", "error"); })
       .finally(() => { if (!silent) setLoading(false); });
   };
@@ -257,8 +261,8 @@ export default function BotTerminalPage() {
       try { ws?.close(); } catch { /* noop */ }
     };
   }, [symbol, tf, streaming]);
-  // the cursor always follows the newest candle
-  useEffect(() => { if (data?.candles?.length) setIdx(data.candles.length - 1); }, [data]);
+  // the cursor follows the newest candle — unless the user is replaying history
+  useEffect(() => { if (!replay && data?.candles?.length) setIdx(data.candles.length - 1); }, [data, replay]);
 
   const frame = data?.frames?.[Math.min(idx, (data?.frames?.length ?? 1) - 1)];
   const candle = data?.candles?.[idx];
@@ -548,6 +552,8 @@ export default function BotTerminalPage() {
                           shapes={shapes} setShapes={setShapes}
                           drawTool={drawTool} setDrawTool={setDrawTool} lastPrice={candle?.c}
                           settings={chartSettings} setSettings={setChartSettings} />
+              <button className={`chip-btn ${replay ? "active" : ""}`} title="Replay historical candles" onClick={() => setReplay((r) => !r)}>
+                <Icon name="play" size={12} /> Replay</button>
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
@@ -596,7 +602,13 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
+            <>
             <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} settings={chartSettings} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            {replay && data.candles.length > 1 && (
+              <ReplayBar len={data.candles.length} idx={idx} setIdx={setIdx}
+                         onExit={() => setReplay(false)} timeLabel={candle?.t} />
+            )}
+            </>
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
