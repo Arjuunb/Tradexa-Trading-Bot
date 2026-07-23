@@ -7,6 +7,7 @@ import { EnginePipeline } from "@/components/landing/EnginePipeline";
 import { TradeInAction } from "@/components/landing/TradeInAction";
 import { MarketScanner } from "@/components/landing/MarketScanner";
 import { HowItWorks } from "@/components/landing/HowItWorks";
+import { Connectivity } from "@/components/landing/Connectivity";
 import { Screenshots } from "@/components/landing/Screenshots";
 import { Performance } from "@/components/landing/Performance";
 import { RiskGuard } from "@/components/landing/RiskGuard";
@@ -28,6 +29,7 @@ export default function Landing() {
       <TradeInAction />
       <MarketScanner />
       <HowItWorks />
+      <Connectivity />
       <Screenshots />
       <Performance />
       <RiskGuard />
