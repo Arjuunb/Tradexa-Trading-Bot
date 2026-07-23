@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool, type ChartSettings, DEFAULT_SETTINGS } from "../components/replay/CandleChart";
 import ChartTools from "../components/replay/ChartTools";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
@@ -139,6 +139,11 @@ export default function BotTerminalPage() {
   const [drawings, setDrawingsState] = useState<PriceLine[]>([]);
   const [shapes, setShapesState] = useState<Shape[]>([]);
   const [drawTool, setDrawTool] = useState<DrawTool>("none");
+  const [chartSettings, setChartSettingsState] = useState<ChartSettings>(() => {
+    try { const raw = localStorage.getItem("hub.chartsettings"); return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS; }
+    catch { return DEFAULT_SETTINGS; }
+  });
+  const setChartSettings = (s: ChartSettings) => { setChartSettingsState(s); try { localStorage.setItem("hub.chartsettings", JSON.stringify(s)); } catch { /* ignore */ } };
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -541,7 +546,8 @@ export default function BotTerminalPage() {
               <ChartTools chartType={chartType} setChartType={setChartType}
                           drawings={drawings} setDrawings={setDrawings}
                           shapes={shapes} setShapes={setShapes}
-                          drawTool={drawTool} setDrawTool={setDrawTool} lastPrice={candle?.c} />
+                          drawTool={drawTool} setDrawTool={setDrawTool} lastPrice={candle?.c}
+                          settings={chartSettings} setSettings={setChartSettings} />
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
@@ -590,7 +596,7 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} settings={chartSettings} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>

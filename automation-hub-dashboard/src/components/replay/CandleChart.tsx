@@ -34,6 +34,10 @@ export type DrawTool = "none" | "trend" | "rect" | "fib";
  *  These are the trader's own drawings — never strategy data. */
 export interface Shape { id: string; kind: "trend" | "rect" | "fib"; p1: [number, number]; p2: [number, number]; color: string; }
 
+/** Chart appearance settings (persisted). Colours affect real candles only. */
+export interface ChartSettings { upColor: string; downColor: string; grid: boolean; crosshair: boolean; priceLine: boolean; }
+export const DEFAULT_SETTINGS: ChartSettings = { upColor: "#089981", downColor: "#f23645", grid: true, crosshair: true, priceLine: true };
+
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
 interface Props {
@@ -48,6 +52,7 @@ interface Props {
   shapes?: Shape[];
   drawTool?: DrawTool;
   onAddShape?: (p1: [number, number], p2: [number, number]) => void;
+  settings?: ChartSettings;
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -61,7 +66,7 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings, shapes, drawTool = "none", onAddShape }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings, shapes, drawTool = "none", onAddShape, settings = DEFAULT_SETTINGS }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   // refs so the persistent zr click handler always sees the latest tool/callback
@@ -102,7 +107,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     const ov = data.overlays as Record<string, (number | null)[]>;
     const cats = c.map((b) => b.t.replace("T", " ").slice(5, 16));
     const ohlc = c.map((b) => [b.o, b.c, b.l, b.h]); // ECharts: open,close,low,high
-    const vol = c.map((b) => ({ value: b.v, itemStyle: { color: b.c >= b.o ? "#089981" : "#f23645" } }));
+    const vol = c.map((b) => ({ value: b.v, itemStyle: { color: b.c >= b.o ? settings.upColor : settings.downColor } }));
 
     const last = c[c.length - 1];
     const prev = c[c.length - 2];
@@ -132,7 +137,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     }));
     const yAxis: any[] = [{ scale: true, position: "right", gridIndex: 0,
       axisLabel: { color: "#8a93a6", fontSize: 10, formatter: (v: number) => fmt(v) },
-      splitLine: { lineStyle: { color: "#161618" } } }];
+      splitLine: { show: settings.grid, lineStyle: { color: "#161618" } } }];
     if (hasVol) yAxis.push({ scale: true, position: "right", gridIndex: volGrid, name: "Vol",
       nameTextStyle: { color: "#5b6478", fontSize: 9 },
       axisLabel: { color: "#5b6478", fontSize: 9, formatter: (v: number) => volFmt(v) }, splitLine: { show: false } });
@@ -168,10 +173,10 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     }
 
     const active = [...data.trades].reverse().find((t) => t.entry_idx <= index && (t.exit_idx === null || t.exit_idx > index));
-    const markLines: any[] = [
+    const markLines: any[] = settings.priceLine ? [
       { yAxis: last.c, symbol: "none", lineStyle: { color: "#5b6478", type: "dashed", opacity: 0.6 },
         label: { formatter: fmt(last.c), position: "end", color: "#fff", backgroundColor: upCol, padding: [2, 4], fontSize: 10, borderRadius: 3 } },
-    ];
+    ] : [];
     const tradeAreas: any[] = [];
     if (active) {
       const beMoved = active.tp1_idx !== null && active.tp1_idx <= index;
@@ -258,7 +263,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     } else {
       series.push({
         type: "candlestick", data: ohlc, xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 14,
-        itemStyle: { color: "#089981", color0: "#f23645", borderColor: "#089981", borderColor0: "#f23645" },
+        itemStyle: { color: settings.upColor, color0: settings.downColor, borderColor: settings.upColor, borderColor0: settings.downColor },
         ...primaryMarks,
       });
     }
@@ -326,7 +331,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
           handleStyle: { color: "#eab54f" }, textStyle: { color: "#8a93a6", fontSize: 9 }, dataBackground: { lineStyle: { color: "#2a2a2f" }, areaStyle: { color: "#161618" } } },
       ],
       tooltip: {
-        trigger: "axis", axisPointer: { type: "cross", crossStyle: { color: "#5b6478" } },
+        trigger: "axis", axisPointer: { type: settings.crosshair ? "cross" : "line", crossStyle: { color: "#5b6478" } },
         backgroundColor: "rgba(13,18,32,0.96)", borderColor: "#2a2a2f", textStyle: { color: "#e6eaf2", fontSize: 11 },
         formatter: (ps: any) => {
           const i = ps[0].dataIndex; const b = c[i]; if (!b) return "";
@@ -342,7 +347,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
       series,
     };
     chart.setOption(option, true);
-  }, [data, index, toggles, height, chartType, drawings, shapes]);
+  }, [data, index, toggles, height, chartType, drawings, shapes, settings]);
 
   return <div ref={elRef} style={{ width: "100%", height, cursor: drawTool !== "none" ? "crosshair" : undefined }} />;
 }

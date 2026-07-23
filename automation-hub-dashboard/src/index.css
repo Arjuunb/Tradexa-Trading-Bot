@@ -1150,3 +1150,10 @@ a.brand:hover { opacity: 0.85; }
 .ct-div { width: 1px; height: 16px; background: var(--card-border); margin: 0 2px; }
 .ct-hint { font-size: 10.5px; color: var(--gold); background: rgba(234,181,79,0.1); border: 1px solid rgba(234,181,79,0.28); padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
 .ct-shape-name { flex: 1; font-size: 12px; }
+
+/* ---- Chart tools Phase 3: settings menu ---- */
+.ct-set { display: grid; gap: 8px; }
+.ct-set-row { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--dim); }
+.ct-set-row input[type="color"] { width: 34px; height: 24px; border: 1px solid var(--card-border); border-radius: 6px; background: none; padding: 0; cursor: pointer; }
+.ct-set-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
+.ct-set-check input { accent-color: var(--gold); }
