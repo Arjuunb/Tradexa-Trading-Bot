@@ -2,6 +2,7 @@ import { Navbar } from "@/components/landing/Navbar";
 import { Hero } from "@/components/landing/Hero";
 import { EngineStatusBar } from "@/components/landing/EngineStatusBar";
 import { Features } from "@/components/landing/Features";
+import { BotThinking } from "@/components/landing/BotThinking";
 import { EnginePipeline } from "@/components/landing/EnginePipeline";
 import { TradeInAction } from "@/components/landing/TradeInAction";
 import { MarketScanner } from "@/components/landing/MarketScanner";
@@ -22,6 +23,7 @@ export default function Landing() {
         <EngineStatusBar />
       </div>
       <Features />
+      <BotThinking />
       <EnginePipeline />
       <TradeInAction />
       <MarketScanner />
