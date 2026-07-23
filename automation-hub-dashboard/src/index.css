@@ -1145,3 +1145,8 @@ a.brand:hover { opacity: 0.85; }
 .ct-price:focus, .ct-label:focus { outline: none; border-color: var(--gold); }
 .ct-del:hover { color: var(--red); }
 .ct-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---- Chart tools Phase 2: draw-tool divider, hint, shape rows ---- */
+.ct-div { width: 1px; height: 16px; background: var(--card-border); margin: 0 2px; }
+.ct-hint { font-size: 10.5px; color: var(--gold); background: rgba(234,181,79,0.1); border: 1px solid rgba(234,181,79,0.28); padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.ct-shape-name { flex: 1; font-size: 12px; }

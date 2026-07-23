@@ -27,6 +27,14 @@ export interface GridLine { price: number; side: "buy" | "sell"; edge?: boolean;
 export interface PriceLine { id: string; price: number; color: string; label: string; }
 
 export type ChartType = "candles" | "line" | "area";
+export type DrawTool = "none" | "trend" | "rect" | "fib";
+
+/** A two-point drawing on the price pane. Points are DATA coords [candleIndex,
+ *  price], so ECharts positions them correctly through zoom/pan automatically.
+ *  These are the trader's own drawings — never strategy data. */
+export interface Shape { id: string; kind: "trend" | "rect" | "fib"; p1: [number, number]; p2: [number, number]; color: string; }
+
+const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
 interface Props {
   data: ReplayData;
@@ -37,6 +45,9 @@ interface Props {
   gridLines?: GridLine[];
   chartType?: ChartType;
   drawings?: PriceLine[];
+  shapes?: Shape[];
+  drawTool?: DrawTool;
+  onAddShape?: (p1: [number, number], p2: [number, number]) => void;
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -50,9 +61,15 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings, shapes, drawTool = "none", onAddShape }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
+  // refs so the persistent zr click handler always sees the latest tool/callback
+  const toolRef = useRef<DrawTool>(drawTool);
+  const addRef = useRef<Props["onAddShape"]>(onAddShape);
+  const pendingRef = useRef<[number, number] | null>(null);
+  useEffect(() => { toolRef.current = drawTool; if (drawTool === "none") pendingRef.current = null; }, [drawTool]);
+  useEffect(() => { addRef.current = onAddShape; }, [onAddShape]);
 
   useEffect(() => {
     if (!elRef.current) return;
@@ -60,6 +77,16 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
     ro.observe(elRef.current);
+    // two-click drawing: convert pixel → [candleIndex, price] on the price grid
+    chart.getZr().on("click", (e: any) => {
+      if (toolRef.current === "none") return;
+      const pt = chart.convertFromPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY]) as number[] | null;
+      if (!pt || pt.length < 2 || !isFinite(pt[0]) || !isFinite(pt[1])) return;
+      const p: [number, number] = [Math.round(pt[0]), pt[1]];
+      if (!pendingRef.current) { pendingRef.current = p; return; }
+      const p1 = pendingRef.current; pendingRef.current = null;
+      addRef.current?.(p1, p);
+    });
     return () => { ro.disconnect(); chart.dispose(); chartRef.current = null; };
   }, []);
 
@@ -177,6 +204,33 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         label: { formatter: (d.label ? d.label + "  " : "") + fmt(d.price), position: "start",
           color: "#fff", backgroundColor: d.color, padding: [1, 4], borderRadius: 3, fontSize: 9 } });
     }
+    // User-drawn shapes (trend / rectangle / fibonacci) — data-coord based, so
+    // ECharts keeps them anchored through zoom/pan. The trader's own drawings.
+    const shapeAreas: any[] = [];
+    for (const s of shapes ?? []) {
+      const [x1, y1] = s.p1, [x2, y2] = s.p2;
+      if (s.kind === "trend") {
+        markLines.push([
+          { coord: [x1, y1], symbol: "none", lineStyle: { color: s.color, width: 1.6 } },
+          { coord: [x2, y2], symbol: "none" },
+        ] as any);
+      } else if (s.kind === "rect") {
+        shapeAreas.push([
+          { coord: [x1, y1], itemStyle: { color: s.color + "18", borderColor: s.color, borderWidth: 1 } },
+          { coord: [x2, y2] },
+        ]);
+      } else if (s.kind === "fib") {
+        for (const r of FIB) {
+          const lvl = y1 + (y2 - y1) * r;
+          markLines.push([
+            { coord: [x1, lvl], symbol: "none",
+              lineStyle: { color: s.color, width: r === 0 || r === 1 ? 1.3 : 0.9, type: r === 0 || r === 1 ? "solid" : "dashed", opacity: 0.8 },
+              label: { formatter: `${r.toFixed(3)}  ${fmt(lvl)}`, position: "start", color: s.color, fontSize: 8.5 } },
+            { coord: [x2, lvl], symbol: "none" },
+          ] as any);
+        }
+      }
+    }
     const zoneAreas = (toggles.zones ? data.zones : [])
       .filter((z) => z.left_idx !== undefined && z.left_idx <= index).slice(-8)
       .map((z) => ([
@@ -188,7 +242,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     const primaryMarks = {
       markPoint: { data: markPts as any, silent: true },
       markLine: { symbol: "none", data: markLines as any, silent: true },
-      markArea: { silent: true, data: [...zoneAreas, ...tradeAreas] as any },
+      markArea: { silent: true, data: [...zoneAreas, ...tradeAreas, ...shapeAreas] as any },
     };
     const series: any[] = [];
     if (chartType === "line" || chartType === "area") {
@@ -288,7 +342,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
       series,
     };
     chart.setOption(option, true);
-  }, [data, index, toggles, height, chartType, drawings]);
+  }, [data, index, toggles, height, chartType, drawings, shapes]);
 
-  return <div ref={elRef} style={{ width: "100%", height }} />;
+  return <div ref={elRef} style={{ width: "100%", height, cursor: drawTool !== "none" ? "crosshair" : undefined }} />;
 }

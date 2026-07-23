@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool } from "../components/replay/CandleChart";
 import ChartTools from "../components/replay/ChartTools";
 import { Badge, StatCard } from "../components/common/ui";
 import EquityCurve from "../components/chart/EquityCurve";
@@ -137,6 +137,8 @@ export default function BotTerminalPage() {
   });
   const setChartType = (t: ChartType) => { setChartTypeState(t); try { localStorage.setItem("hub.charttype", t); } catch { /* ignore */ } };
   const [drawings, setDrawingsState] = useState<PriceLine[]>([]);
+  const [shapes, setShapesState] = useState<Shape[]>([]);
+  const [drawTool, setDrawTool] = useState<DrawTool>("none");
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -256,15 +258,29 @@ export default function BotTerminalPage() {
   const frame = data?.frames?.[Math.min(idx, (data?.frames?.length ?? 1) - 1)];
   const candle = data?.candles?.[idx];
 
-  // Drawn price levels persist per symbol+timeframe — restored on refresh/login.
+  // Drawn levels + shapes persist per symbol+timeframe — restored on refresh/login.
   const drawKey = `hub.draw.${symbol}.${tf}`;
+  const shapeKey = `hub.shapes.${symbol}.${tf}`;
   useEffect(() => {
     try { const raw = localStorage.getItem(drawKey); setDrawingsState(raw ? (JSON.parse(raw) as PriceLine[]) : []); }
     catch { setDrawingsState([]); }
-  }, [drawKey]);
+    try { const raw = localStorage.getItem(shapeKey); setShapesState(raw ? (JSON.parse(raw) as Shape[]) : []); }
+    catch { setShapesState([]); }
+    setDrawTool("none");
+  }, [drawKey, shapeKey]);
   const setDrawings = (d: PriceLine[]) => {
     setDrawingsState(d);
     try { localStorage.setItem(drawKey, JSON.stringify(d)); } catch { /* private mode */ }
+  };
+  const setShapes = (s: Shape[]) => {
+    setShapesState(s);
+    try { localStorage.setItem(shapeKey, JSON.stringify(s)); } catch { /* private mode */ }
+  };
+  const addShape = (p1: [number, number], p2: [number, number]) => {
+    if (drawTool === "none") return;
+    const colors: Record<string, string> = { trend: "#7cb9e8", rect: "#a855f7", fib: "#eab54f" };
+    setShapes([...shapes, { id: `${Date.now()}`, kind: drawTool, p1, p2, color: colors[drawTool] }]);
+    setDrawTool("none");
   };
 
   const openPos = useMemo(() => (positions ?? []).find((p) => p.symbol === symbol), [positions, symbol]);
@@ -523,7 +539,9 @@ export default function BotTerminalPage() {
             <div className="chips">
               {candle && <b className="mono" style={{ fontSize: 13 }}>{candle.c.toLocaleString()}</b>}
               <ChartTools chartType={chartType} setChartType={setChartType}
-                          drawings={drawings} setDrawings={setDrawings} lastPrice={candle?.c} />
+                          drawings={drawings} setDrawings={setDrawings}
+                          shapes={shapes} setShapes={setShapes}
+                          drawTool={drawTool} setDrawTool={setDrawTool} lastPrice={candle?.c} />
               <button className="chip-btn" title="Fullscreen" onClick={() => setFull((f) => !f)}>
                 <Icon name="external" size={12} /> {full ? "Exit" : "Full"}</button>
             </div>
@@ -572,7 +590,7 @@ export default function BotTerminalPage() {
             <div className="dim ta-center" style={{ padding: 120 }}>
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
           )}
           {data && (
             <div className="row-actions" style={{ gap: 10, alignItems: "center", marginTop: 8, fontSize: 11.5 }}>
