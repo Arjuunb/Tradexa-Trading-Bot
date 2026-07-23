@@ -108,6 +108,8 @@ export default function ChartTools({
               onChange={(e) => setSettings({ ...settings, crosshair: e.target.checked })} /> Crosshair</label>
             <label className="ct-set-check"><input type="checkbox" checked={settings.priceLine}
               onChange={(e) => setSettings({ ...settings, priceLine: e.target.checked })} /> Current-price line</label>
+            <label className="ct-set-check"><input type="checkbox" checked={settings.volProfile}
+              onChange={(e) => setSettings({ ...settings, volProfile: e.target.checked })} /> Volume profile</label>
           </div>
           <div className="ct-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => setSettings({ ...DEFAULT_SETTINGS })}>Reset defaults</button>

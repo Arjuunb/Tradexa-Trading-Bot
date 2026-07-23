@@ -35,8 +35,8 @@ export type DrawTool = "none" | "trend" | "rect" | "fib";
 export interface Shape { id: string; kind: "trend" | "rect" | "fib"; p1: [number, number]; p2: [number, number]; color: string; }
 
 /** Chart appearance settings (persisted). Colours affect real candles only. */
-export interface ChartSettings { upColor: string; downColor: string; grid: boolean; crosshair: boolean; priceLine: boolean; }
-export const DEFAULT_SETTINGS: ChartSettings = { upColor: "#089981", downColor: "#f23645", grid: true, crosshair: true, priceLine: true };
+export interface ChartSettings { upColor: string; downColor: string; grid: boolean; crosshair: boolean; priceLine: boolean; volProfile: boolean; }
+export const DEFAULT_SETTINGS: ChartSettings = { upColor: "#089981", downColor: "#f23645", grid: true, crosshair: true, priceLine: true, volProfile: false };
 
 const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
@@ -265,6 +265,40 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         type: "candlestick", data: ohlc, xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 14,
         itemStyle: { color: settings.upColor, color0: settings.downColor, borderColor: settings.upColor, borderColor0: settings.downColor },
         ...primaryMarks,
+      });
+    }
+
+    // ---- Volume Profile: real volume-by-price from the visible candles ----
+    if (settings.volProfile && c.length > 2) {
+      const lo = Math.min(...c.map((b) => b.l));
+      const hi = Math.max(...c.map((b) => b.h));
+      const N = 24;
+      const step = (hi - lo) / N || 1;
+      const buckets = new Array(N).fill(0);
+      for (const b of c) {
+        const b0 = Math.max(0, Math.min(N - 1, Math.floor((b.l - lo) / step)));
+        const b1 = Math.max(0, Math.min(N - 1, Math.floor((b.h - lo) / step)));
+        const per = b.v / (b1 - b0 + 1);
+        for (let k = b0; k <= b1; k++) buckets[k] += per;
+      }
+      const maxV = Math.max(...buckets, 1);
+      const vpData = buckets.map((v, k) => [lo + (k + 0.5) * step, v, step]);
+      series.push({
+        type: "custom", xAxisIndex: 0, yAxisIndex: 0, silent: true, z: 1, data: vpData as any,
+        renderItem: (_params: any, api: any) => {
+          const price = api.value(0), vol = api.value(1), bsize = api.value(2);
+          const cs = _params.coordSys as { x: number; y: number; width: number; height: number };
+          const yA = api.coord([0, price + bsize / 2])[1];
+          const yB = api.coord([0, price - bsize / 2])[1];
+          const h = Math.max(1, Math.abs(yB - yA) - 1);
+          const w = (vol / maxV) * (cs.width * 0.16);
+          const isPoc = vol >= maxV * 0.999;
+          return {
+            type: "rect",
+            shape: { x: cs.x + cs.width - w, y: Math.min(yA, yB), width: w, height: h },
+            style: { fill: isPoc ? "rgba(234,181,79,0.38)" : "rgba(124,185,232,0.16)" },
+          };
+        },
       });
     }
     const legend: string[] = [];
