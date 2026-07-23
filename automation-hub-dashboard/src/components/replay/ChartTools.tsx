@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CandlestickChart, LineChart, AreaChart, Ruler, TrendingUp, Square, Percent,
-  Plus, Trash2, X, Settings2,
+  Plus, Trash2, X, Settings2, Bell, BellOff,
 } from "lucide-react";
 import type { ChartType, PriceLine, Shape, DrawTool, ChartSettings } from "./CandleChart";
 import { DEFAULT_SETTINGS } from "./CandleChart";
@@ -133,6 +133,9 @@ export default function ChartTools({
                        onChange={(e) => patch(d.id, { price: Number(e.target.value) })} aria-label="Price" />
                 <input className="ct-label" placeholder="level" maxLength={16} value={d.label}
                        onChange={(e) => patch(d.id, { label: e.target.value })} aria-label="Label" />
+                <button className={`icon-btn ct-bell ${d.alert ? "on" : ""}`} title={d.alert ? "Alert on — click to disable" : "Alert me when price crosses this"}
+                        aria-label="Toggle price alert" aria-pressed={!!d.alert} onClick={() => patch(d.id, { alert: !d.alert })}>
+                  {d.alert ? <Bell size={13} /> : <BellOff size={13} />}</button>
                 <button className="icon-btn ct-del" aria-label="Delete" onClick={() => removeLevel(d.id)}><Trash2 size={13} /></button>
               </div>
             ))}
