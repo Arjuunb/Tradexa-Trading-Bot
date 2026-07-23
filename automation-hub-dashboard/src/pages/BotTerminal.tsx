@@ -148,6 +148,7 @@ export default function BotTerminalPage() {
   const [replay, setReplay] = useState(false);
   const replayRef = useRef(replay);
   useEffect(() => { replayRef.current = replay; }, [replay]);
+  const alertPriceRef = useRef<number | null>(null);
   const [wsOk, setWsOk] = useState(false);
   const [closing, setClosing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -276,6 +277,7 @@ export default function BotTerminalPage() {
     try { const raw = localStorage.getItem(shapeKey); setShapesState(raw ? (JSON.parse(raw) as Shape[]) : []); }
     catch { setShapesState([]); }
     setDrawTool("none");
+    alertPriceRef.current = null;
   }, [drawKey, shapeKey]);
   const setDrawings = (d: PriceLine[]) => {
     setDrawingsState(d);
@@ -291,6 +293,26 @@ export default function BotTerminalPage() {
     setShapes([...shapes, { id: `${Date.now()}`, kind: drawTool, p1, p2, color: colors[drawTool] }]);
     setDrawTool("none");
   };
+
+  // Price alerts on drawn levels — fire a one-shot toast when the LIVE price
+  // crosses an armed level (real live price, not the replay cursor).
+  useEffect(() => {
+    const live = data?.candles?.length ? data.candles[data.candles.length - 1].c : null;
+    if (live == null) return;
+    const prev = alertPriceRef.current;
+    alertPriceRef.current = live;
+    if (prev == null || prev === live) return;
+    const lo = Math.min(prev, live), hi = Math.max(prev, live);
+    const fired: string[] = [];
+    for (const d of drawings) {
+      if (d.alert && d.price > lo && d.price <= hi) {
+        toast(`${symbol} crossed ${d.price.toLocaleString()} ${live >= prev ? "▲" : "▼"}${d.label ? " · " + d.label : ""}`, "info");
+        fired.push(d.id);
+      }
+    }
+    if (fired.length) setDrawings(drawings.map((d) => (fired.includes(d.id) ? { ...d, alert: false } : d)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, drawings, symbol]);
 
   const openPos = useMemo(() => (positions ?? []).find((p) => p.symbol === symbol), [positions, symbol]);
   const signal = ai?.decision === "BUY" ? "LONG" : ai?.decision === "SELL" ? "SHORT" : ai?.decision ?? "—";

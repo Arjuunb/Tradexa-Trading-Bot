@@ -24,7 +24,7 @@ export interface GridLine { price: number; side: "buy" | "sell"; edge?: boolean;
 /** A user-drawn horizontal price level — persisted per symbol/timeframe. These
  *  are the trader's own annotations (clearly distinct from strategy-computed
  *  overlays); nothing here is invented by the app. */
-export interface PriceLine { id: string; price: number; color: string; label: string; }
+export interface PriceLine { id: string; price: number; color: string; label: string; alert?: boolean; }
 
 export type ChartType = "candles" | "line" | "area";
 export type DrawTool = "none" | "trend" | "rect" | "fib";
@@ -206,7 +206,7 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
     for (const d of drawings ?? []) {
       markLines.push({ yAxis: d.price, symbol: "none",
         lineStyle: { color: d.color, type: "solid", width: 1.2, opacity: 0.9 },
-        label: { formatter: (d.label ? d.label + "  " : "") + fmt(d.price), position: "start",
+        label: { formatter: (d.alert ? "🔔 " : "") + (d.label ? d.label + "  " : "") + fmt(d.price), position: "start",
           color: "#fff", backgroundColor: d.color, padding: [1, 4], borderRadius: 3, fontSize: 9 } });
     }
     // User-drawn shapes (trend / rectangle / fibonacci) — data-coord based, so

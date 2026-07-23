@@ -1171,3 +1171,7 @@ a.brand:hover { opacity: 0.85; }
 .rp-pos { font-size: 11px; color: var(--dim); white-space: nowrap; }
 .rp-exit { margin-left: 2px; }
 @media (max-width: 640px) { .rp-pos { display: none; } .rp-bar { flex-wrap: wrap; } }
+
+/* ---- Price-level alert bell (ChartTools) ---- */
+.ct-bell { color: var(--dim-2); }
+.ct-bell.on { color: var(--gold); }
