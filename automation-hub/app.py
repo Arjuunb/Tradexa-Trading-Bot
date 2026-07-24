@@ -1458,13 +1458,17 @@ def users_page(request: Request, error: str = ""):
              f'<tbody>{rows}</tbody></table></div>')
     if _has_role(request, "admin"):
         err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+        # only the owner may mint admins (privilege-escalation guard); everyone
+        # with the Add-User form can create viewers and operators.
+        admin_opt = '<option value="admin">admin</option>' if _has_role(request, "owner") else ""
         form = ('<div class="card"><h2>Add User</h2>'
                 '<form method="post" action="/users"><div class="formgrid">'
                 '<div><label>Username</label><input name="username" required></div>'
                 '<div><label>Password</label><input name="password" type="password" required></div>'
                 '<div><label>Role</label><select name="role">'
-                '<option value="operator">operator</option>'
-                '<option value="admin">admin</option></select></div>'
+                '<option value="viewer">viewer</option>'
+                '<option value="operator" selected>operator</option>'
+                f'{admin_opt}</select></div>'
                 '</div><div style="margin-top:12px">'
                 '<button class="btn" type="submit">Create User</button></div>'
                 f'{err}</form></div>')
@@ -1481,9 +1485,19 @@ def create_user(request: Request, username: str = Form(...),
         return RedirectResponse("/login", status_code=303)
     if not _has_role(request, "admin"):   # rbac: owner + admin may manage users
         return RedirectResponse("/users?error=Admin+only", status_code=303)
+    # normalise the requested role to a creatable one (owner is never mintable
+    # via the form — there is exactly one owner, seeded at signup).
+    role = (role or "operator").strip().lower()
+    if role not in ("viewer", "operator", "admin"):
+        role = "operator"
+    # privilege-escalation guard: only the OWNER may mint admins, so an admin
+    # can never create a peer that could in turn lock the owner out.
+    if role == "admin" and not _has_role(request, "owner"):
+        return RedirectResponse("/users?error=Only+the+owner+can+create+admins",
+                                status_code=303)
     if store.get_user(username) is not None:
         return RedirectResponse("/users?error=User+already+exists", status_code=303)
-    store.create_user(username, password, role="admin" if role == "admin" else "operator")
+    store.create_user(username, password, role=role)
     return RedirectResponse("/users", status_code=303)
 
 
