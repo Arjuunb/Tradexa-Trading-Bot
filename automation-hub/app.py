@@ -461,6 +461,37 @@ def _tenant(request: Request) -> str:
     return resolve_tenant(_user(request))
 
 
+def _request_role(request: Request):
+    """The RBAC role for this request. A signed-in user's stored role; or
+    'owner' when the caller presents the admin/control secret (automation acts
+    with full authority); else None (anonymous)."""
+    u = _user(request)
+    if u:
+        rec = store.get_user(u)
+        if rec is not None:
+            return rec.role
+    # control-secret callers (admin key, or the webhook secret when it is NOT
+    # scoped) act with full authority — mirror the auth wall's control check.
+    hdr = request.headers.get("x-webhook-secret")
+    if hdr and (hdr == settings.admin_key
+                or (not settings.scope_webhook_secret and hdr == settings.webhook_secret)):
+        return "owner"
+    return None
+
+
+def _has_role(request: Request, minimum: str) -> bool:
+    """True if this request's role is at least ``minimum`` (rbac hierarchy)."""
+    from services import rbac
+    return rbac.role_at_least(_request_role(request), minimum)
+
+
+def _require_role(request: Request, minimum: str):
+    """Raise 403 unless the request's role is at least ``minimum``. For JSON
+    endpoints; HTML pages branch on ``_has_role`` instead."""
+    if not _has_role(request, minimum):
+        raise HTTPException(status_code=403, detail="Insufficient role")
+
+
 def _signup_open() -> bool:
     """Signup creates the single OWNER account. It stays open only while the
     seeded default admin is the sole user — after that this hub has an owner."""
@@ -1425,7 +1456,7 @@ def users_page(request: Request, error: str = ""):
     table = (f'<div class="card"><h2>Users</h2><table><thead><tr><th>Username</th>'
              f'<th></th><th>Role</th><th>Created</th></tr></thead>'
              f'<tbody>{rows}</tbody></table></div>')
-    if me and me.is_admin:
+    if _has_role(request, "admin"):
         err = f'<div class="err">{w.esc(error)}</div>' if error else ""
         form = ('<div class="card"><h2>Add User</h2>'
                 '<form method="post" action="/users"><div class="formgrid">'
@@ -1448,8 +1479,7 @@ def create_user(request: Request, username: str = Form(...),
     u = _user(request)
     if not u:
         return RedirectResponse("/login", status_code=303)
-    me = store.get_user(u)
-    if not (me and me.is_admin):
+    if not _has_role(request, "admin"):   # rbac: owner + admin may manage users
         return RedirectResponse("/users?error=Admin+only", status_code=303)
     if store.get_user(username) is not None:
         return RedirectResponse("/users?error=User+already+exists", status_code=303)

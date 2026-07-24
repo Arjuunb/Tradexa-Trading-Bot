@@ -41,12 +41,14 @@ class User:
     username: str
     password_hash: str = ""
     salt: str = ""
-    role: str = "operator"          # "admin" | "operator"
+    role: str = "operator"          # "owner" | "admin" | "operator" | "viewer"
     created_at: datetime = field(default_factory=_now)
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        # owner is the top role (created at signup) and is admin-capable — it
+        # must not be locked out of admin-only actions like user management.
+        return self.role in ("admin", "owner")
 
 
 @dataclass
