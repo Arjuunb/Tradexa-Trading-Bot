@@ -382,9 +382,39 @@ def _verify_session(token: str):
     return username if store.get_user(username) else None
 
 
+# --------------------------------------------------------------- JWT (Sprint 1)
+# A stateless JWT access token issued ALONGSIDE the signed session cookie. Same
+# server-only secret (HUB_SECRET), same 7-day life for parity with the cookie
+# (short-lived access + refresh rotation arrives with the sessions table). The
+# cookie path is unchanged; a request may present either credential.
+def issue_access(username: str) -> str:
+    from services import jwt_tokens
+    return jwt_tokens.encode({"sub": username, "typ": "access"},
+                             settings.secret_key, ttl_seconds=SESSION_DAYS * 86400)
+
+
+def verify_access(token: str):
+    from services import jwt_tokens
+    body = jwt_tokens.decode(token, settings.secret_key)
+    if not body or body.get("typ") != "access":
+        return None
+    username = body.get("sub")
+    return username if username and store.get_user(username) else None
+
+
+def _bearer(request: Request):
+    """Username from an `Authorization: Bearer <jwt>` header, if present + valid."""
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer ":
+        return verify_access(auth[7:].strip())
+    return None
+
+
 def _user(request: Request):
     token = request.cookies.get(COOKIE, "")
-    return _verify_session(token) or _sessions.get(token)
+    # cookie first (the browser dashboard), then a Bearer JWT (API clients),
+    # then the legacy in-memory map kept only for test fixtures.
+    return _verify_session(token) or _bearer(request) or _sessions.get(token)
 
 
 def _require(request: Request):
@@ -676,6 +706,21 @@ def logout(request: Request):
 
 
 # ------------------------------------------------------------- auth JSON API
+@app.post("/auth/login")
+def auth_login(username: str = Form(...), password: str = Form(...)):
+    """JSON login for API clients: returns a JWT access token AND sets the
+    session cookie, so callers can use `Authorization: Bearer` while browsers
+    keep the cookie. Same credential check as the form /login."""
+    from fastapi.responses import JSONResponse
+    if store.authenticate(username, password) is None:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = issue_access(username)
+    resp = JSONResponse({"ok": True, "user": username, "token": token,
+                         "token_type": "bearer", "expires_in": SESSION_DAYS * 86400})
+    resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
+    return resp
+
+
 @app.get("/auth/status")
 def auth_status(request: Request):
     """For the React app: who am I, and is first-time signup still open?"""
