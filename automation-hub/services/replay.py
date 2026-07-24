@@ -28,6 +28,7 @@ from bot.types import SignalType
 from services.mtf_engine import htf_consensus
 from services.regime import RegimeDetector
 from strategies.smc_strategy import SMCStrategy
+from tradecore.costs import cost_r as _cost_r
 
 # Execution timeframe -> how many execution bars make one higher-tf candle.
 # Intraday timeframes (1m/3m/5m) are where an automated strategy belongs; higher
@@ -760,7 +761,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                 continue
             risk = abs(t["entry"] - t["sl"])
             if risk > 0:
-                cost_r = fill_cost_pct * t["entry"] * 2 / risk
+                cost_r = _cost_r(t["entry"], risk, fill_cost_pct)
                 t["rr"] = round(t["rr"] - cost_r, 2)
                 t["result"] = "Winner" if t["rr"] > 0 else "Break Even" if t["rr"] == 0 else "Loser"
 

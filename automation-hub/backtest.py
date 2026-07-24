@@ -28,6 +28,7 @@ from bot.types import Bar, SignalType
 from strategies.brain_strategy import DecisionBrain
 from strategies.donchian_strategy import DonchianStrategy
 from strategies.supertrend_strategy import SupertrendStrategy
+from tradecore.costs import cost_r as _cost_r
 
 TAKER_FEE = 0.0004  # per side (Binance futures taker)
 
@@ -130,7 +131,7 @@ def run(bars: list[Bar], *, strategy: str = "brain", threshold: float = 0.5,
                 elif b.low <= pos["tp"]:
                     r, exited = rr, True
             if exited:
-                r -= cost * pos["entry"] * 2 / pos["risk"]
+                r -= _cost_r(pos["entry"], pos["risk"], cost)
                 out.append((pos["i"], r) if with_index else r)
                 pos = None
         if pos is None:
