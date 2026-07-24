@@ -104,6 +104,21 @@ elif settings.admin_key == settings.webhook_secret:
 import webhook_api  # noqa: E402
 from webhook_api import router as webhook_router  # noqa: E402
 app.include_router(webhook_router)
+# DSP Sprint 1c: expose the SAME JSON API under a versioned /api/v1 namespace,
+# with the legacy root paths preserved (aliased) so nothing breaks. New clients
+# target /api/v1; existing callers keep working unchanged. The auth/user
+# endpoints defined directly on `app` stay at root for now (they move into a
+# router in a later slice), so /api/v1 covers the router-based API surface.
+API_VERSION = "v1"
+app.include_router(webhook_router, prefix="/api/" + API_VERSION)
+
+
+@app.get("/api/" + API_VERSION)
+@app.get("/api/version")
+def api_info():
+    """Version handshake for the versioned API namespace."""
+    return {"ok": True, "name": settings.app_name, "api_version": API_VERSION,
+            "endpoints_base": "/api/" + API_VERSION, "legacy_base": "/"}
 
 # The React dashboard runs on its own dev origin (Vite) and calls this API, so
 # allow cross-origin during local development.
@@ -200,7 +215,8 @@ async def _require_auth(request: Request, call_next):
         exempt = exempt + ("/settings/", "/app")
     hdr = request.headers.get("x-webhook-secret")
     if (request.method == "OPTIONS"          # CORS preflight — CORSMiddleware answers it
-            or path == "/" or any(path.startswith(p) for p in exempt)
+            or path == "/" or path in ("/api/version", "/api/" + API_VERSION)  # public version handshake (NOT the /api/v1/* API subtree)
+            or any(path.startswith(p) for p in exempt)
             or _user(request)
             or hdr == settings.admin_key
             or (not settings.scope_webhook_secret and hdr == settings.webhook_secret)):
