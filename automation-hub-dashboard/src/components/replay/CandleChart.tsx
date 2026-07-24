@@ -34,6 +34,11 @@ export type DrawTool = "none" | "trend" | "rect" | "fib";
  *  These are the trader's own drawings — never strategy data. */
 export interface Shape { id: string; kind: "trend" | "rect" | "fib"; p1: [number, number]; p2: [number, number]; color: string; }
 
+/** The LIVE open paper position's real, engine-enforced levels. Drawn as
+ *  draggable SL/TP handles — every value comes from the backend (ledger stop +
+ *  engine target), never invented. Dragging commits back through the API. */
+export interface LiveLevels { side: "long" | "short"; entry: number; stop: number | null; target: number | null; }
+
 /** Chart appearance settings (persisted). Colours affect real candles only. */
 export interface ChartSettings { upColor: string; downColor: string; grid: boolean; crosshair: boolean; priceLine: boolean; volProfile: boolean; }
 export const DEFAULT_SETTINGS: ChartSettings = { upColor: "#089981", downColor: "#f23645", grid: true, crosshair: true, priceLine: true, volProfile: false };
@@ -53,6 +58,8 @@ interface Props {
   drawTool?: DrawTool;
   onAddShape?: (p1: [number, number], p2: [number, number]) => void;
   settings?: ChartSettings;
+  liveLevels?: LiveLevels | null;
+  onCommitLevel?: (kind: "stop" | "target", price: number) => void;
 }
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -66,15 +73,17 @@ const num = (a: (number | null)[] | undefined, end: number) => (a ? a.slice(0, e
  *  risk/reward zones, a volume pane and an optional oscillator pane (RSI /
  *  MACD / ATR). Renders ONLY candles up to `index` — the future is never drawn.
  *  Every indicator drawn here is a real, server-computed causal series. */
-export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings, shapes, drawTool = "none", onAddShape, settings = DEFAULT_SETTINGS }: Props) {
+export default function CandleChart({ data, index, toggles, height = 520, extraLines, gridLines, chartType = "candles", drawings, shapes, drawTool = "none", onAddShape, settings = DEFAULT_SETTINGS, liveLevels, onCommitLevel }: Props) {
   const elRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   // refs so the persistent zr click handler always sees the latest tool/callback
   const toolRef = useRef<DrawTool>(drawTool);
   const addRef = useRef<Props["onAddShape"]>(onAddShape);
+  const commitRef = useRef<Props["onCommitLevel"]>(onCommitLevel);
   const pendingRef = useRef<[number, number] | null>(null);
   useEffect(() => { toolRef.current = drawTool; if (drawTool === "none") pendingRef.current = null; }, [drawTool]);
   useEffect(() => { addRef.current = onAddShape; }, [onAddShape]);
+  useEffect(() => { commitRef.current = onCommitLevel; }, [onCommitLevel]);
 
   useEffect(() => {
     if (!elRef.current) return;
@@ -178,7 +187,9 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         label: { formatter: fmt(last.c), position: "end", color: "#fff", backgroundColor: upCol, padding: [2, 4], fontSize: 10, borderRadius: 3 } },
     ] : [];
     const tradeAreas: any[] = [];
-    if (active) {
+    // Backtest overlay's active trade — shown ONLY when there is no LIVE position
+    // to draw (the live SL/TP below take priority so the two never overlap).
+    if (active && !liveLevels) {
       const beMoved = active.tp1_idx !== null && active.tp1_idx <= index;
       const slLevel = beMoved ? active.entry : active.sl;
       markLines.push(
@@ -190,6 +201,23 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
         markLines.push({ yAxis: active.tp1, symbol: "none", lineStyle: { color: "#089981", type: "dotted", opacity: 0.7 }, label: { formatter: "TP1", color: "#089981", fontSize: 9 } });
       tradeAreas.push([{ xAxis: active.entry_idx, yAxis: active.entry, itemStyle: { color: "rgba(242,54,69,0.10)" } }, { xAxis: end - 1, yAxis: slLevel }]);
       tradeAreas.push([{ xAxis: active.entry_idx, yAxis: active.entry, itemStyle: { color: "rgba(8,153,129,0.10)" } }, { xAxis: end - 1, yAxis: active.tp }]);
+    }
+    // LIVE position — the real, engine-enforced entry / SL / TP. Solid lines
+    // (drag handles are placed after layout). Every value is backend-sourced.
+    if (liveLevels) {
+      const ll = liveLevels;
+      markLines.push({ yAxis: ll.entry, symbol: "none", lineStyle: { color: "#8a93a6", width: 1 },
+        label: { formatter: "Entry " + fmt(ll.entry), position: "insideStartTop", color: "#8a93a6", fontSize: 9 } });
+      if (ll.stop != null) {
+        markLines.push({ yAxis: ll.stop, symbol: "none", lineStyle: { color: "#f23645", width: 1.4 },
+          label: { formatter: "SL " + fmt(ll.stop), position: "insideStartTop", color: "#f23645", fontSize: 9 } });
+        tradeAreas.push([{ yAxis: ll.entry, itemStyle: { color: "rgba(242,54,69,0.08)" } }, { yAxis: ll.stop }]);
+      }
+      if (ll.target != null) {
+        markLines.push({ yAxis: ll.target, symbol: "none", lineStyle: { color: "#089981", width: 1.4 },
+          label: { formatter: "TP " + fmt(ll.target), position: "insideStartTop", color: "#089981", fontSize: 9 } });
+        tradeAreas.push([{ yAxis: ll.entry, itemStyle: { color: "rgba(8,153,129,0.08)" } }, { yAxis: ll.target }]);
+      }
     }
     if (toggles.zones) for (const z of data.zones) {
       if (z.price !== undefined)
@@ -381,7 +409,43 @@ export default function CandleChart({ data, index, toggles, height = 520, extraL
       series,
     };
     chart.setOption(option, true);
-  }, [data, index, toggles, height, chartType, drawings, shapes, settings]);
+
+    // ---- draggable SL/TP handles for the LIVE position ----
+    // Placed AFTER layout (pixel coords need the axes resolved). Each handle is
+    // a small right-rail chip pinned to its price line; dragging vertically and
+    // releasing converts the drop pixel back to a price and commits via the API.
+    if (liveLevels && commitRef.current) {
+      const ll = liveLevels;
+      const railX = Math.max(60, chart.getWidth() - 62);
+      const mkHandle = (kind: "stop" | "target", price: number | null, color: string, text: string) => {
+        if (price == null || !isFinite(price)) return null;
+        const px = chart.convertToPixel({ gridIndex: 0 }, [end - 1, price]) as number[] | null;
+        if (!px || !isFinite(px[1])) return null;
+        return {
+          type: "group", id: `lvl-${kind}`, draggable: true, z: 120,
+          x: railX, y: px[1], cursor: "ns-resize",
+          children: [
+            { type: "rect", shape: { x: 0, y: -9, width: 56, height: 18, r: 3 }, style: { fill: color, opacity: 0.95 } },
+            { type: "text", style: { text, x: 5, y: 0, fill: "#fff", fontSize: 10, fontWeight: 600, textVerticalAlign: "middle" as const } },
+          ],
+          ondrag() { (this as any).x = railX; },  // lock to the right rail
+          ondragend() {
+            const y = (this as any).y as number;
+            const back = chart.convertFromPixel({ gridIndex: 0 }, [railX, y]) as number[] | null;
+            const np = back && isFinite(back[1]) ? back[1] : null;
+            if (np != null && np > 0) commitRef.current?.(kind, np);
+          },
+        };
+      };
+      const handles = [
+        mkHandle("stop", ll.stop, "#f23645", "SL ⇕"),
+        mkHandle("target", ll.target, "#089981", "TP ⇕"),
+      ].filter(Boolean);
+      chart.setOption({ graphic: handles }, { replaceMerge: ["graphic"] } as any);
+    } else {
+      chart.setOption({ graphic: [] }, { replaceMerge: ["graphic"] } as any);
+    }
+  }, [data, index, toggles, height, chartType, drawings, shapes, settings, liveLevels]);
 
   return <div ref={elRef} style={{ width: "100%", height, cursor: drawTool !== "none" ? "crosshair" : undefined }} />;
 }

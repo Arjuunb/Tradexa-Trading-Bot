@@ -136,6 +136,18 @@ class SqliteLedger:
         with self._lock:
             return [dict(r) for r in self._c.execute(q, args)]
 
+    def update_position_stop(self, *, symbol, stop) -> int:
+        """Move the stop-loss on the OPEN position for a symbol (manual on-chart
+        adjust). Only the stop is persisted here — the take-profit lives in the
+        engine's in-memory managed state, matching how targets are held today.
+        Returns the number of rows updated (0 if no open position)."""
+        with self._lock:
+            cur = self._c.execute(
+                "UPDATE positions SET stop=? WHERE symbol=? AND status='open'",
+                (stop, symbol))
+            self._c.commit()
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
     # ----------------------------------------------------------- paper trades
     def record_paper_trade(self, trade: dict) -> str:
         tid = trade.get("id") or _id()
@@ -277,6 +289,11 @@ class SupabaseLedger:
         if status:
             q = q.eq("status", status)
         return q.order("opened_at", desc=True).execute().data
+
+    def update_position_stop(self, *, symbol, stop) -> int:  # pragma: no cover
+        self._t("positions").update({"stop": stop})\
+            .eq("symbol", symbol).eq("status", "open").execute()
+        return 1
 
     def record_paper_trade(self, trade):  # pragma: no cover
         tid = trade.get("id") or _id()

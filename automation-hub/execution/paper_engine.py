@@ -66,6 +66,11 @@ class PaperExecutionEngine:
     def _invalidate_history(self) -> None:
         self._hist_cache = None
 
+    def update_stop(self, symbol: str, stop: float) -> int:
+        """Persist a new stop on the OPEN position for a symbol (manual on-chart
+        adjust) through this engine's own ledger. Returns rows updated."""
+        return self.ledger.update_position_stop(symbol=symbol, stop=stop)
+
     def realized_pnl(self) -> float:
         return sum((t.get("pnl") or 0.0) for t in self.history())
 

@@ -96,6 +96,10 @@ class AutoStrategyEngine:
         from services.trade_manager import TradeManager
         self.trade_manager = trade_manager or TradeManager()
         self._managed: dict[str, object] = {}   # symbol -> ManagedTrade
+        # Guards the per-symbol managed state (_managed / _targets) so a manual
+        # on-chart stop/target adjust from a request thread can never interleave
+        # with the engine thread's exit check (a torn read of stop+target+risk).
+        self._adjust_lock = threading.Lock()
         # Maker entries (measured better on all validation suites): a signal
         # parks a resting limit at its price; it fills only when price trades
         # through it (no spread/slippage) and expires unfilled after
@@ -480,14 +484,22 @@ class AutoStrategyEngine:
         if pos is None:
             self._managed.pop(sym, None)
             return
-        mt = self._managed.get(sym)
-        if mt is None:
-            mt = self._adopt(sym, pos)
         exit_price = why = None
-        if mt is not None:
-            # shared TradeManager: stop/target exits + break-even / scale-out /
-            # trailing when enabled (identical to the plain checks when not).
-            act = self.trade_manager.on_bar(mt, bar.high, bar.low, bar.close)
+        act = None
+        # Hold the adjust lock only over the fast, pure management computation so
+        # a manual level change can't tear stop/target/risk mid-read. All IO
+        # (scale-out fill, close routing) happens AFTER the lock is released.
+        with self._adjust_lock:
+            mt = self._managed.get(sym)
+            if mt is None:
+                mt = self._adopt(sym, pos)
+            if mt is not None:
+                # shared TradeManager: stop/target exits + break-even / scale-out
+                # / trailing when enabled (identical to plain checks when not).
+                act = self.trade_manager.on_bar(mt, bar.high, bar.low, bar.close)
+            else:  # no stop on record (e.g. external webhook trade) — legacy
+                legacy_stop, legacy_target = pos.get("stop"), self._targets.get(sym)
+        if mt is not None and act is not None:
             if act.partial_price is not None:
                 fill = self.paper.reduce(symbol=sym, exit_price=act.partial_price,
                                          fraction=self.trade_manager.scale_frac)
@@ -498,8 +510,8 @@ class AutoStrategyEngine:
             if act.exit_price is not None:
                 exit_price = act.exit_price
                 why = "stop-loss" if act.exit_reason == "stop" else "take-profit"
-        else:  # no stop on record (e.g. external webhook trade) — legacy checks
-            stop, target = pos.get("stop"), self._targets.get(sym)
+        elif mt is None:  # no stop on record (e.g. external webhook trade) — legacy
+            stop, target = legacy_stop, legacy_target
             if pos["side"] == "long":
                 if stop and bar.low <= stop:
                     exit_price, why = stop, "stop-loss"
@@ -532,8 +544,9 @@ class AutoStrategyEngine:
             })
             if res is not None and res.accepted:
                 self.stats["trades"] += 1
-                self._targets.pop(sym, None)
-                self._managed.pop(sym, None)
+                with self._adjust_lock:
+                    self._targets.pop(sym, None)
+                    self._managed.pop(sym, None)
 
     def _adopt(self, sym: str, pos: dict):
         """Rebuild management state for a position opened before a restart (or
@@ -550,6 +563,59 @@ class AutoStrategyEngine:
                           target=target, risk=risk)
         self._managed[sym] = mt
         return mt
+
+    # ---------------------------------------------------------- manual levels
+    def apply_manual_levels(self, symbol: str, *, stop=None,
+                            target=None) -> dict:
+        """Apply a manual on-chart stop/target change to the LIVE managed
+        position for ``symbol`` — the same in-memory state the exit check reads,
+        so the engine enforces the new levels on the very next bar. Runs under
+        the adjust lock so it can never tear a concurrent on_bar read.
+
+        A manually moved stop redefines the trade's risk (the new stop is now the
+        real distance being risked) and clears the auto break-even flag so future
+        management, if enabled, references the operator's stop. The caller is
+        responsible for persisting the stop to the ledger; the target is held in
+        memory only (identical to how the engine's own targets are held today).
+        Returns the levels now in force (``{stop, target, side, entry}``)."""
+        with self._adjust_lock:
+            mt = self._managed.get(symbol)
+            if mt is not None:
+                if stop is not None:
+                    mt.stop = float(stop)
+                    new_risk = abs(mt.entry - mt.stop)
+                    if new_risk > 0:
+                        mt.risk = new_risk
+                    mt.be = False
+                if target is not None:
+                    mt.target = float(target)
+                    self._targets[symbol] = float(target)
+                return {"stop": mt.stop, "target": mt.target,
+                        "side": mt.side, "entry": mt.entry}
+            # No managed state (adopt needs a stop to define R). Still honour the
+            # request: remember the target and report the requested stop, which
+            # the caller persists to the ledger for the legacy exit path.
+            if target is not None:
+                self._targets[symbol] = float(target)
+            return {"stop": (float(stop) if stop is not None else None),
+                    "target": self._targets.get(symbol),
+                    "side": None, "entry": None}
+
+    def managed_snapshot(self) -> dict:
+        """Thread-safe read of the live managed levels per symbol. Used to expose
+        the take-profit (memory-only) alongside the persisted stop so the chart
+        can draw the REAL levels the engine is enforcing — never invented."""
+        with self._adjust_lock:
+            out: dict[str, dict] = {}
+            for sym, mt in self._managed.items():
+                out[sym] = {"stop": getattr(mt, "stop", None),
+                            "target": getattr(mt, "target", None),
+                            "side": getattr(mt, "side", None),
+                            "entry": getattr(mt, "entry", None)}
+            for sym, tg in self._targets.items():
+                out.setdefault(sym, {"stop": None, "target": None,
+                                     "side": None, "entry": None})["target"] = tg
+            return out
 
     def _on_signal(self, sym: str, signal: Signal, strategy=None) -> Optional[dict]:
         # The brain re-asserts its view every bar; only act when it CHANGES the

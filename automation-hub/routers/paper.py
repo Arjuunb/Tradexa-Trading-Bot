@@ -5,6 +5,7 @@ Endpoint bodies are unchanged except that references to shared state resolve via
 webhook_api at request time. That keeps the test suite's fixture rebinding
 (``webhook_api.pipeline = <fresh>``) working exactly as before the split.
 """
+import math as _math
 import webhook_api as _wa
 from fastapi import APIRouter, Header, HTTPException, Body, Query, Depends  # noqa: F401
 from typing import Optional, List, Dict  # noqa: F401
@@ -107,7 +108,75 @@ def paper_set_initial_capital(body: InitialCapital,
 
 @router.get("/paper/positions")
 def paper_positions():
-    return _wa.paper.positions()
+    poss = _wa.paper.positions()
+    # Enrich each OPEN position with the take-profit the engine is actually
+    # enforcing (held in memory — there is no target column), so the terminal can
+    # draw the real SL/TP the bot manages. Never invents a target.
+    try:
+        snap = _wa.engine.managed_snapshot()
+    except Exception:  # noqa: BLE001 — a missing/other engine must never break the list
+        snap = {}
+    for p in poss:
+        lvl = snap.get(p.get("symbol"))
+        if lvl and lvl.get("target") is not None:
+            p["target"] = lvl["target"]
+    return poss
+
+
+class AdjustLevels(_wa.BaseModel):
+    symbol: str
+    stop: Optional[float] = None
+    target: Optional[float] = None
+
+
+@router.post("/paper/stop-target")
+def paper_stop_target(body: AdjustLevels,
+                      x_webhook_secret: Optional[str] = Header(default=None)):
+    """Adjust the stop-loss and/or take-profit on an OPEN paper position — the
+    backing endpoint for on-chart drag-to-move. The stop is persisted to the
+    ledger and pushed into the engine's live managed state (enforced next bar);
+    the target updates the engine's in-memory target. Paper only — never live."""
+    _wa._check_secret(x_webhook_secret)
+    symbol = (body.symbol or "").upper().strip()
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+    stop = None if body.stop is None else float(body.stop)
+    target = None if body.target is None else float(body.target)
+    if stop is None and target is None:
+        raise HTTPException(400, "Provide a stop and/or target to update.")
+    for label, v in (("stop", stop), ("target", target)):
+        if v is not None and (not _math.isfinite(v) or v <= 0):
+            raise HTTPException(400, f"{label} must be a positive price.")
+    pos = _wa.paper.open_position(symbol)
+    if pos is None:
+        raise HTTPException(404, f"No open paper position for {symbol}.")
+    side = pos.get("side")
+    # Effective levels after this change — validate SL/TP stay on the right sides
+    # so the operator can't cross them into an instantly-nonsensical bracket.
+    try:
+        managed = _wa.engine.managed_snapshot().get(symbol) or {}
+    except Exception:  # noqa: BLE001
+        managed = {}
+    eff_stop = stop if stop is not None else pos.get("stop")
+    eff_target = target if target is not None else managed.get("target")
+    if eff_stop is not None and eff_target is not None:
+        if side == "long" and not (eff_stop < eff_target):
+            raise HTTPException(400, "For a long, the stop must sit below the target.")
+        if side == "short" and not (eff_stop > eff_target):
+            raise HTTPException(400, "For a short, the stop must sit above the target.")
+    # Persist the stop (durable, through the paper engine's own ledger) then push
+    # both into the live managed state.
+    if stop is not None:
+        _wa.paper.update_stop(symbol, stop)
+    applied = _wa.engine.apply_manual_levels(symbol, stop=stop, target=target)
+    _wa.ledger.log(level="info", stage="execution", symbol=symbol,
+                   message=f"Manual level update {symbol}: "
+                           + (f"SL→{stop} " if stop is not None else "")
+                           + (f"TP→{target}" if target is not None else ""))
+    return {"ok": True, "symbol": symbol, "side": side,
+            "entry": pos.get("entry"),
+            "stop": applied.get("stop") if applied.get("stop") is not None else pos.get("stop"),
+            "target": applied.get("target")}
 
 
 class ClosePosition(_wa.BaseModel):
