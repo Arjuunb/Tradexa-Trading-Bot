@@ -22,6 +22,7 @@ from datetime import timedelta
 
 from bot.data.indicators import atr, ema, rsi
 from tradecore.costs import cost_r as _cost_r
+from tradecore.rmath import net_r as _net_r
 
 RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter",
               "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap",
@@ -575,8 +576,8 @@ def simulate(spec: dict, bars, *, fee: float = 0.0004, slippage: float = 0.0002,
                 if hit:
                     exit_px, exit_reason = bar.close, "ai-exit"
             if exit_px is not None:
-                move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
-                r = move / pos["risk"] - _cost_r(pos["entry"], pos["risk"], cost)
+                r = _net_r(pos["entry"], exit_px, pos["risk"], pos["side"],
+                           _cost_r(pos["entry"], pos["risk"], cost))
                 rec = {
                     "side": pos["side"], "entry": round(pos["entry"], 6), "exit": round(exit_px, 6),
                     "stop": round(pos["stop"], 6), "target": round(pos["target"], 6),
@@ -760,8 +761,7 @@ def simulate_strategy(strat, bars, *, fee: float = 0.0004, slippage: float = 0.0
                 if mgr is not None:
                     r = mgr.r_multiple(mt, exit_px, pos.get("partial"), cost_r=cost_r)
                 else:
-                    move = (exit_px - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_px)
-                    r = move / pos["risk"] - cost_r
+                    r = _net_r(pos["entry"], exit_px, pos["risk"], pos["side"], cost_r)
                 trades.append({
                     "side": pos["side"], "entry": round(pos["entry"], 6), "exit": round(exit_px, 6),
                     "stop": round(mt.stop, 6), "target": round(mt.target, 6),
