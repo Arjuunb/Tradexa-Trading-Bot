@@ -249,6 +249,27 @@ export interface LedgerPosition {
   id: string; symbol: string; side: string; size: number;
   entry: number; stop: number | null; status: string; pnl: number;
   opened_at: string; closed_at: string | null;
+  // take-profit the engine is enforcing (memory-only — present when known).
+  target?: number | null;
+}
+
+/** Adjust the stop-loss and/or take-profit on an open paper position (on-chart
+ *  drag). Surfaces the backend's validation message on a 4xx so the terminal can
+ *  explain WHY a move was rejected (e.g. stop crossed the target). */
+export async function updateStopTarget(
+  symbol: string, levels: { stop?: number; target?: number },
+): Promise<{ ok: boolean; symbol: string; side: string; entry: number; stop: number | null; target: number | null }> {
+  const res = await fetch(`${API_BASE}/paper/stop-target`, {
+    method: "POST",
+    headers: { "X-Webhook-Secret": SECRET, "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol, ...levels }),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { const j = await res.json(); if (j?.detail) detail = String(j.detail); } catch { /* keep status */ }
+    throw new Error(detail);
+  }
+  return res.json();
 }
 // ── multi-asset symbol universe ──
 export type AssetClass = "crypto" | "stock" | "etf" | "index" | "forex" | "commodity";

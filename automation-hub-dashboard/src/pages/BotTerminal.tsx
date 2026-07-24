@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
-import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool, type ChartSettings, DEFAULT_SETTINGS } from "../components/replay/CandleChart";
+import CandleChart, { type ChartToggles, type ExtraLine, type GridLine, type ChartType, type PriceLine, type Shape, type DrawTool, type ChartSettings, type LiveLevels, DEFAULT_SETTINGS } from "../components/replay/CandleChart";
 import ChartTools from "../components/replay/ChartTools";
 import ReplayBar from "../components/replay/ReplayBar";
 import { Badge, StatCard } from "../components/common/ui";
@@ -9,11 +9,45 @@ import EquityCurve from "../components/chart/EquityCurve";
 import { useApp } from "../app-context";
 import { createGridRun, gridOnCandle, gridUnrealized, gridInventory, type GridRun } from "../lib/gridRunner";
 import {
-  apiGet, apiPost, apiPostJson, useLive,
+  apiGet, apiPost, apiPostJson, updateStopTarget, useLive,
   type ReplayData, type AIAnalysis, type EngineStatus, type RiskSummary, type StrategyPerformance,
   type LedgerPosition, type PaperTradeRow, type LogRow, type PaperAccount, type SymbolRow,
   type ServerGridStatus,
 } from "../lib/api";
+
+/** Precise SL/TP editor for the live position — the typed counterpart to the
+ *  on-chart drag. Seeds from the position's real levels and commits through the
+ *  same endpoint; percentages are measured from the actual entry. */
+function LiveLevelEditor({ pos, onCommit }: { pos: LedgerPosition; onCommit: (kind: "stop" | "target", price: number) => void }) {
+  const [sl, setSl] = useState<string>(pos.stop != null ? String(pos.stop) : "");
+  const [tp, setTp] = useState<string>(pos.target != null ? String(pos.target) : "");
+  useEffect(() => { setSl(pos.stop != null ? String(pos.stop) : ""); }, [pos.stop]);
+  useEffect(() => { setTp(pos.target != null ? String(pos.target) : ""); }, [pos.target]);
+  const pct = (v: number) => `${v >= pos.entry ? "+" : ""}${(((v - pos.entry) / pos.entry) * 100).toFixed(2)}%`;
+  const submit = (kind: "stop" | "target", raw: string) => {
+    const n = Number(raw);
+    if (isFinite(n) && n > 0) onCommit(kind, n);
+  };
+  const row = (label: string, kind: "stop" | "target", val: string, setVal: (s: string) => void, color: string) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+      <span className="mono" style={{ width: 22, fontSize: 11, color, fontWeight: 600 }}>{label}</span>
+      <input className="rule-num" style={{ flex: 1, minWidth: 0 }} type="number" step="any" value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(kind, val); }} />
+      <span className="dim mono" style={{ fontSize: 10.5, width: 56, textAlign: "right" }}>
+        {val && isFinite(Number(val)) ? pct(Number(val)) : ""}</span>
+      <button className="btn btn-soft btn-sm" onClick={() => submit(kind, val)}>Set</button>
+    </div>
+  );
+  return (
+    <div style={{ marginTop: 8, borderTop: "1px solid rgba(138,147,166,0.15)", paddingTop: 8 }}>
+      <div className="dim" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6 }}>
+        Adjust levels <span style={{ opacity: 0.55, textTransform: "none", letterSpacing: 0 }}>· or drag on the chart</span></div>
+      {row("SL", "stop", sl, setSl, "#f23645")}
+      {row("TP", "target", tp, setTp, "#089981")}
+    </div>
+  );
+}
 
 /** Bot Terminal — a LIVE, crypto-first paper-trading observation lab.
  *  Candles stream tick-by-tick from Binance's public WebSocket (straight into
@@ -164,7 +198,7 @@ export default function BotTerminalPage() {
   const { data: risk } = useLive<RiskSummary>("/risk/summary", 10000);
   const { data: acct } = useLive<PaperAccount>("/paper/account", 8000);
   const { data: ai } = useLive<AIAnalysis>(`/ai/analyze?symbol=${symbol}&timeframe=${tf}`, 30000);
-  const { data: positions } = useLive<LedgerPosition[]>("/paper/positions", 5000);
+  const { data: positions, refetch: refetchPositions } = useLive<LedgerPosition[]>("/paper/positions", 5000);
   const { data: liveTrades } = useLive<PaperTradeRow[]>("/paper/trades", 8000);
   const { data: logs } = useLive<LogRow[]>("/ledger/logs?limit=40", 8000);
   const { data: perf } = useLive<StrategyPerformance>("/strategy/performance", 10000);
@@ -315,6 +349,28 @@ export default function BotTerminalPage() {
   }, [data, drawings, symbol]);
 
   const openPos = useMemo(() => (positions ?? []).find((p) => p.symbol === symbol), [positions, symbol]);
+  // The LIVE position's real, engine-enforced levels — fed to the chart as
+  // draggable SL/TP handles. Only present for the symbol currently in view.
+  const liveLevels = useMemo<LiveLevels | null>(() => {
+    if (!openPos) return null;
+    return {
+      side: openPos.side === "short" ? "short" : "long",
+      entry: openPos.entry,
+      stop: openPos.stop ?? null,
+      target: openPos.target ?? null,
+    };
+  }, [openPos]);
+  // Commit a dragged stop/target back to the engine (persists SL, updates TP).
+  const commitLevel = useCallback((kind: "stop" | "target", price: number) => {
+    if (!openPos) return;
+    const rounded = Number(price.toPrecision(6));
+    updateStopTarget(openPos.symbol, { [kind]: rounded })
+      .then((r) => {
+        toast(`${kind === "stop" ? "Stop-loss" : "Take-profit"} moved to ${kind === "stop" ? r.stop : r.target}`, "success");
+        refetchPositions();
+      })
+      .catch((e) => toast(e instanceof Error ? e.message : "Could not update the level", "error"));
+  }, [openPos, refetchPositions]);
   const signal = ai?.decision === "BUY" ? "LONG" : ai?.decision === "SELL" ? "SHORT" : ai?.decision ?? "—";
   const ma = ai?.market_analysis;
   const checks = (ai?.checklist ?? []).filter((c) => c.status !== "N/A");
@@ -625,7 +681,7 @@ export default function BotTerminalPage() {
               {loading ? "Connecting to live Binance data…" : "Waiting for live data — check the engine feed in the status bar."}</div>
           ) : (
             <>
-            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} settings={chartSettings} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
+            <CandleChart data={data} index={idx} toggles={chartToggles} extraLines={extraLines} gridLines={gridChartLines} chartType={chartType} drawings={drawings} shapes={shapes} drawTool={drawTool} onAddShape={addShape} settings={chartSettings} liveLevels={replay ? null : liveLevels} onCommitLevel={commitLevel} height={full ? Math.max(420, window.innerHeight - 220) : 548} />
             {replay && data.candles.length > 1 && (
               <ReplayBar len={data.candles.length} idx={idx} setIdx={setIdx}
                          onExit={() => setReplay(false)} timeLabel={candle?.t} />
@@ -792,8 +848,10 @@ export default function BotTerminalPage() {
                     {kv("Position Size", `${openPos.size} ${openPos.symbol.replace(/USDT?$/, "")}`)}
                     {kv("Unrealized", <span className={(liveUPnl ?? 0) >= 0 ? "pos" : "neg"}>
                       {liveUPnl != null ? `${liveUPnl >= 0 ? "+" : "−"}$${Math.abs(liveUPnl).toFixed(2)}` : "—"}</span>)}
+                    {kv("Take Profit", openPos.target != null ? `${openPos.target} (${(((openPos.target - openPos.entry) / openPos.entry) * 100).toFixed(2)}%)` : "—")}
                     {kv("Status", <Badge text="OPEN" tone="green" />)}
                   </div>
+                  {!replay && <LiveLevelEditor pos={openPos} onCommit={commitLevel} />}
                   <button className="btn btn-warn btn-sm" style={{ marginTop: 8, width: "100%" }}
                     disabled={closing} onClick={() => closePosition(openPos)}>
                     <Icon name="close" size={13} /> {closing ? "Closing…" : "Close Position"}</button>
