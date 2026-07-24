@@ -157,7 +157,7 @@ This test is the contract the rest of Sprint 4 is measured against.
 
 | Phase | Change | Deletes / fixes | Risk |
 |---|---|---|---|
-| **S4.0** | Add `tests/test_engine_equivalence.py` characterization gate | — (establishes baseline) | none |
+| **S4.0** | Characterization gate. **Done for replay** (`tests/test_replay_characterization.py` + `tests/fixtures/replay_snapshot.json`) — pins replay's per-trade output on deterministic synthetic fixtures covering the partial→break-even and stop paths, so S4.4's impact shows up as a reviewable snapshot diff. Verified to fail on a 0.01 R drift. Extending it to a cross-engine comparison remains open (blocked with S4.5 by the packaging split). | — (establishes baseline) | none |
 | **S4.1** | Add `tradecore/costs.py` (③) + `tradecore/rmath.py` (④); no callers yet, unit-tested | — | none |
 | **S4.2** | Route `custom.py`, `replay.py`, `execution_sim.py`, `backtest.py` cost math → `tradecore.costs` | 3a, R5 | Low (pure fn) |
 | **S4.3** | Unify R reporting → `tradecore.rmath` across engines | 3d→R2 | Med |
