@@ -12,6 +12,8 @@ from __future__ import annotations
 import random
 from typing import Optional
 
+from tradecore.costs import cost_r as _cost_r
+
 DEFAULTS = {
     "spread_pct": 0.0002,        # half-spread paid each side
     "slippage_pct": 0.0003,      # market-impact slippage each side
@@ -46,7 +48,9 @@ def apply_execution_realism(trades: list, **cfg) -> dict:
             rejected += 1
             continue
         risk = _risk(t)
-        cost_r = (cost_pct * float(t.get("entry", 0)) * 2 / risk) if risk else cost_pct * 4
+        # canonical cost math; the no-risk fallback (a flat 4x per-side cost) is
+        # preserved exactly — cost_r() has no defined R without a risk distance.
+        cost_r = _cost_r(float(t.get("entry", 0)), risk, cost_pct) if risk else cost_pct * 4
         weight = 1.0
         if rnd.random() < float(c["partial_fill_prob"]):
             weight = float(c["partial_fraction"])

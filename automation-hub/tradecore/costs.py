@@ -1,10 +1,12 @@
 """Canonical trade-cost math — one implementation for the whole platform.
 
-Replaces the four copy-pasted variants documented in docs/TRADECORE_PLAN.md §3a:
-  - services/replay.py:763       cost_r = fill_cost_pct * entry * 2 / risk
-  - services/execution_sim.py:49 cost_r = cost_pct * entry * 2 / risk
-  - backtest.py:133              r -= cost * entry * 2 / risk
-  - strategies/custom.py:758     cost_r = (entry_cost + cost) * entry / risk
+Replaces the copy-pasted variants documented in docs/TRADECORE_PLAN.md §3a
+(five, not four — custom.simulate's own copy surfaced during the S4.2 sweep):
+  - services/replay.py           cost_r = fill_cost_pct * entry * 2 / risk
+  - services/execution_sim.py    cost_r = cost_pct * entry * 2 / risk
+  - backtest.py                  r -= cost * entry * 2 / risk
+  - strategies/custom.py (simulate)          same symmetric form
+  - strategies/custom.py (simulate_strategy) (entry_cost + cost) * entry / risk
 …and the dollar form in execution/paper_engine.py:210:
   - _round_trip_fee = rate * size * (|entry| + |exit|)
 
