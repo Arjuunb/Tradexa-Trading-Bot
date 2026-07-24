@@ -39,18 +39,20 @@ def test_jwt_expiry():
 # ------------------------------------------------------- app-level (issue/verify)
 
 @pytest.fixture()
-def app_env(tmp_path, monkeypatch):
+def app_env(tmp_path):
+    # Swap the module-level store to an isolated DB (the same pattern the other
+    # auth suites use) and restore it after — NEVER reload app/config, which
+    # would rebind shared singletons and poison the rest of the suite.
     pytest.importorskip("fastapi")
-    monkeypatch.setenv("HUB_SECRET", "unit-test-secret-key")
-    import importlib
-    import config
-    importlib.reload(config)
     import app as hub_app
-    importlib.reload(hub_app)
     from database.store import SqliteStore
+    orig_store = hub_app.store
     hub_app.store = SqliteStore(str(tmp_path / "hub.db"))
     hub_app.store.seed_admin("admin", "admin")
-    return hub_app
+    try:
+        yield hub_app
+    finally:
+        hub_app.store = orig_store
 
 
 def test_issue_and_verify_access(app_env):
