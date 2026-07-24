@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from data.ledger import Ledger
+from tradecore.rmath import gross_r as _gross_r
 
 
 @dataclass
@@ -228,11 +229,13 @@ class PaperExecutionEngine:
 
     @staticmethod
     def _rr(pos: dict, exit_price: float) -> float:
+        """GROSS R (before costs) — the canonical tradecore definition. Fees are
+        booked separately against realized P&L (see _round_trip_fee), so this
+        stays the pre-cost figure it has always been."""
         stop = pos.get("stop")
         if not stop:
             return 0.0
         risk = abs(pos["entry"] - stop)
         if risk <= 0:
             return 0.0
-        move = (exit_price - pos["entry"]) if pos["side"] == "long" else (pos["entry"] - exit_price)
-        return round(move / risk, 3)
+        return round(_gross_r(pos["entry"], exit_price, risk, pos["side"]), 3)

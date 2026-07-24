@@ -166,6 +166,23 @@ This test is the contract the rest of Sprint 4 is measured against.
 | **S4.6** | Make live paper default fee-consistent with backtest (or make both configurable + documented) | R1 | **High** — changes live P&L numbers |
 | **S4.7** | Tighten equivalence gate to exact-match; make it a required CI gate | proves the sprint | — |
 
+### ⚠️ Structural blocker found during S4.3 — `bot/` cannot import `tradecore`
+
+`tradecore` lives in `automation-hub/`, but **Family B (`bot/backtester.py`,
+`bot/multi_backtester.py`) is a repo-ROOT package**, and the root-level test
+suite imports it *without* `automation-hub` on `sys.path`. Adding a `tradecore`
+import there today breaks the root suite (verified, not assumed).
+
+**Consequence:** S4.5 must be preceded by a packaging decision — either move
+`tradecore` to the repo root, publish it as a small shared package, or have
+Family B keep its own copy behind a pinned equivalence test. This is now a
+prerequisite of S4.5, not an implementation detail of it.
+
+Relatedly, Family B's R is **dollar-denominated** (`net_pnl / risk_dollars`,
+already net of fees) — genuinely a different quantity from the price-based
+`gross_r`/`net_r`, so it must be reconciled deliberately (S4.5/S4.6), never
+mechanically swapped. `tests/test_tradecore.py` pins that divergence.
+
 **Sequencing rationale:** cheap, safe, pure-function consolidations first
 (S4.1–S4.3) to build confidence and shrink the surface; the two behavior-moving
 changes (S4.4 replay, S4.5 Backtester) isolated to their own PRs because each
