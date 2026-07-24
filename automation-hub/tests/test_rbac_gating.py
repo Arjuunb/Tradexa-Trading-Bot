@@ -86,3 +86,38 @@ def test_anonymous_blocked(env):
     # own /login redirect can run — either way, no user is created.
     assert r.status_code in (401, 303)
     assert env.store.get_user("x") is None
+
+
+# ------------------------------------- privilege-escalation guard on role mint
+
+def test_only_owner_can_mint_admins(env):
+    from fastapi.testclient import TestClient
+    env.store.create_user("boss", "pw12345678", role="owner")
+    env.store.create_user("adm", "pw12345678", role="admin")
+
+    # an ADMIN cannot create another admin (no lateral privilege escalation) …
+    ca = TestClient(env.app); _login(ca, "adm", "pw12345678")
+    r = ca.post("/users", data={"username": "wannabe", "password": "pw12345678", "role": "admin"},
+                follow_redirects=False)
+    assert r.status_code == 303 and "Only+the+owner" in r.headers.get("location", "")
+    assert env.store.get_user("wannabe") is None
+
+    # … but an admin CAN create operators and viewers
+    ca.post("/users", data={"username": "vv", "password": "pw12345678", "role": "viewer"},
+            follow_redirects=False)
+    assert env.store.get_user("vv") is not None and env.store.get_user("vv").role == "viewer"
+
+    # the OWNER can mint an admin
+    co = TestClient(env.app); _login(co, "boss", "pw12345678")
+    co.post("/users", data={"username": "newadm", "password": "pw12345678", "role": "admin"},
+            follow_redirects=False)
+    assert env.store.get_user("newadm") is not None and env.store.get_user("newadm").role == "admin"
+
+
+def test_unknown_role_is_normalised_to_operator(env):
+    from fastapi.testclient import TestClient
+    env.store.create_user("boss", "pw12345678", role="owner")
+    c = TestClient(env.app); _login(c, "boss", "pw12345678")
+    c.post("/users", data={"username": "weird", "password": "pw12345678", "role": "superuser"},
+           follow_redirects=False)
+    assert env.store.get_user("weird").role == "operator"   # never the injected value
