@@ -150,8 +150,22 @@ import os as _mw_os  # noqa: E402
 
 
 @app.middleware("http")
-async def _frame_ancestors(request, call_next):
+async def _security_headers(request, call_next):
+    """Baseline security response headers (DSP Sprint 11). Deliberately does NOT
+    set X-Frame-Options — framing is governed by the configurable CSP
+    frame-ancestors below so the dashboard can still be embedded in the Tradexa
+    app when HUB_FRAME_ANCESTORS is set."""
     resp = await call_next(request)
+    # always-safe hardening
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # HSTS only on HTTPS (honours Render's X-Forwarded-Proto) — never on plain
+    # HTTP, where browsers ignore it and it only risks dev confusion.
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if proto == "https":
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    # configurable framing policy (unchanged): opt-in embedding allow-list
     ancestors = _mw_os.environ.get("HUB_FRAME_ANCESTORS", "").strip()
     if ancestors:
         resp.headers["Content-Security-Policy"] = f"frame-ancestors {ancestors}"
