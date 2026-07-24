@@ -1,0 +1,88 @@
+{
+  "BTCUSDT|15m|1200|Supply/Demand": [
+    {
+      "entry": 131.751366,
+      "exit": 131.751366,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 127.843692
+    },
+    {
+      "entry": 121.560422,
+      "exit": 121.560422,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 117.346143
+    },
+    {
+      "entry": 124.559464,
+      "exit": 124.559464,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 120.871636
+    }
+  ],
+  "BTCUSDT|15m|1200|Trend Following": [
+    {
+      "entry": 135.483823,
+      "exit": 135.483823,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 132.195846
+    },
+    {
+      "entry": 133.667359,
+      "exit": 129.501215,
+      "exit_reason": "Stop loss hit",
+      "partial": true,
+      "result": "Loser",
+      "rr": -1.0,
+      "side": "long",
+      "sl": 129.501215
+    }
+  ],
+  "ETHUSDT|15m|1200|Supply/Demand": [
+    {
+      "entry": 131.751366,
+      "exit": 131.751366,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 127.843692
+    },
+    {
+      "entry": 121.560422,
+      "exit": 121.560422,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 117.346143
+    },
+    {
+      "entry": 124.559464,
+      "exit": 124.559464,
+      "exit_reason": "Break-even stop after partial",
+      "partial": true,
+      "result": "Winner",
+      "rr": 0.5,
+      "side": "long",
+      "sl": 120.871636
+    }
+  ]
+}
