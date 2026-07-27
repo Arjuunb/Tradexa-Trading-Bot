@@ -141,7 +141,9 @@ class PublishStore:
                 "verified": snapshot, "risk": _risk_profile(spec, metrics),
                 "updated_at": _now(),
             })
-            existing["history"].append(snapshot)      # append-only: never pruned
+            # append-only: never pruned, and never absent — a listing without a
+            # history is a listing whose record could be quietly restarted.
+            existing.setdefault("history", []).append(snapshot)
             listing = existing
         else:
             lid = uuid.uuid4().hex
