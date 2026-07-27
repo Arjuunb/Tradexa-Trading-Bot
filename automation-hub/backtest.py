@@ -28,7 +28,7 @@ from bot.types import Bar, SignalType
 from strategies.brain_strategy import DecisionBrain
 from strategies.donchian_strategy import DonchianStrategy
 from strategies.supertrend_strategy import SupertrendStrategy
-from tradecore.costs import cost_r as _cost_r
+from bot.tradecore.costs import cost_r as _cost_r
 
 TAKER_FEE = 0.0004  # per side (Binance futures taker)
 

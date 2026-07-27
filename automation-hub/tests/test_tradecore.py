@@ -7,7 +7,7 @@ touched. If an engine's inline math ever changes, the matching test here fails,
 forcing the divergence to be reconciled deliberately."""
 import math
 
-from tradecore import costs, rmath
+from bot.tradecore import costs, rmath
 
 
 # ------------------------------------------------------------- unit behaviour

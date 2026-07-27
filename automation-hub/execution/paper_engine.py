@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from data.ledger import Ledger
-from tradecore.rmath import gross_r as _gross_r
+from bot.tradecore.rmath import gross_r as _gross_r
 
 
 @dataclass

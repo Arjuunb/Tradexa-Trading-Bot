@@ -21,8 +21,8 @@ from typing import Optional
 from datetime import timedelta
 
 from bot.data.indicators import atr, ema, rsi
-from tradecore.costs import cost_r as _cost_r
-from tradecore.rmath import net_r as _net_r
+from bot.tradecore.costs import cost_r as _cost_r
+from bot.tradecore.rmath import net_r as _net_r
 
 RULE_TYPES = ("ema_cross", "rsi", "sma_trend", "macd", "breakout", "volume", "atr_filter",
               "pullback", "support_bounce", "liquidity_sweep", "fair_value_gap",

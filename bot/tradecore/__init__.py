@@ -17,9 +17,11 @@ from .costs import (
     round_trip_cost_pct,
 )
 from .rmath import gross_r, net_r
+from .trade_manager import Action, ManagedTrade, TradeManager
 
 __all__ = [
     "DEFAULT_FEE_PCT", "DEFAULT_SLIPPAGE_PCT",
     "cost_r", "cost_dollars", "round_trip_cost_pct",
     "gross_r", "net_r",
+    "Action", "ManagedTrade", "TradeManager",
 ]
