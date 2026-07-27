@@ -872,6 +872,81 @@ def strategy_ai_review(body: dict):
     return ai_review(spec, results)
 
 
+def _run_spec(spec: dict, bars: int):
+    """Run a spec through the EXISTING simulate path. One engine, everywhere."""
+    from strategies.custom import simulate
+    from strategies.brain import TradeBrain
+    from data.market_data import get_bars
+    rows, _src = get_bars(spec.get("symbol", "BTCUSDT"), n=bars,
+                          timeframe=spec.get("timeframe", "4h"))
+    if not rows:
+        return None
+    use_brain = spec.get("quality_filter", True)
+    return simulate(spec, rows, brain=TradeBrain() if use_brain else None,
+                    min_score=int(spec.get("min_score", 60)) if use_brain else 0)
+
+
+@router.post("/strategy/ai-strategy-review")
+def strategy_full_review(body: dict):
+    """AI Strategy Review — scorecard + analytics + evidence-backed optimisation
+    suggestions, all computed from ONE real backtest.
+
+    Nothing is applied: every suggestion carries a patch the USER chooses to
+    accept. Body: {spec, range?|bars?}."""
+    from services.strategy_review import bars_for_range, evidence_review
+    from services.strategy_scorecard import scorecard
+    from services.strategy_optimizer import suggestions
+    spec = body.get("spec") or {}
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    bars = int(body.get("bars") or 0) or bars_for_range(
+        spec.get("timeframe", "4h"), body.get("range") or "1Y")
+    try:
+        results = _run_spec(spec, bars)
+    except Exception:  # noqa: BLE001 — an honest "no review" beats a fabricated one
+        results = None
+    card = scorecard(spec, results)
+    if not card.get("available"):
+        return {"available": False, "note": card.get("note"), "bars_requested": bars}
+    return {"available": True, "bars_requested": bars,
+            "scorecard": card,
+            "evidence": evidence_review(spec, results),
+            "suggestions": suggestions(spec, results)}
+
+
+@router.post("/strategy/apply-suggestion")
+def strategy_apply_suggestion(body: dict):
+    """Apply ONE suggestion's patch to a COPY of the spec, re-run the backtest on
+    the same window, and return the before/after comparison.
+
+    The stored strategy is never touched — the caller decides whether to keep
+    the optimised spec. Body: {spec, patch, range?|bars?}."""
+    from services.strategy_review import bars_for_range
+    from services.strategy_optimizer import apply_patch, compare
+    from services.strategy_scorecard import scorecard
+    spec = body.get("spec") or {}
+    patch = body.get("patch")
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    if not patch:
+        raise HTTPException(400, "This suggestion has no automatic change to apply.")
+    bars = int(body.get("bars") or 0) or bars_for_range(
+        spec.get("timeframe", "4h"), body.get("range") or "1Y")
+    optimised = apply_patch(spec, patch)
+    try:
+        before = _run_spec(spec, bars)
+        after = _run_spec(optimised, bars)
+    except Exception:  # noqa: BLE001
+        before = after = None
+    if not before or not after:
+        return {"available": False,
+                "note": "Could not run the comparison — market data unavailable."}
+    return {"available": True, "spec": optimised, "bars_requested": bars,
+            "comparison": compare(before, after),
+            "before": {"scorecard": scorecard(spec, before)},
+            "after": {"scorecard": scorecard(optimised, after)}}
+
+
 @router.post("/strategy/evidence-review")
 def strategy_evidence_review(body: dict):
     """Evidence-based review of a strategy, computed from a REAL backtest.
