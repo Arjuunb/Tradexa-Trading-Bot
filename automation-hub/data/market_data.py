@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from bot.data.csv_loader import load_csv_bars
+from bot.data.resample import TF_SECONDS, resample, tf_seconds, to_timeframe
 from bot.data.synthetic import generate_bars
 from bot.types import Bar
 
@@ -27,7 +28,13 @@ _SAMPLE_MAP = {
 
 
 def _from_local_store(symbol: str, n: int, timeframe: str, since_ms):
-    """Read REAL cached Binance candles from the local historical store, if any."""
+    """Read REAL cached candles from the local historical store, if any.
+
+    Falls back to aggregating a FINER stored timeframe when the requested one was
+    never synced: one ``/data/sync`` at 1h therefore also answers 4h, 6h, 12h and
+    1d, from the same real candles. Without this, asking for 4h after syncing 1h
+    would drop through to the bundled sample — swapping real data for demo data
+    purely because of a label."""
     try:
         from config import settings
         from data.historical import HistoricalStore
@@ -36,6 +43,22 @@ def _from_local_store(symbol: str, n: int, timeframe: str, since_ms):
         # need a meaningful amount of real history to use it
         if len(bars) >= min(n, 200):
             return bars
+
+        want = tf_seconds(timeframe)
+        if not want:
+            return None
+        # Coarsest usable source first: fewer rows to read and aggregate for the
+        # same output. Only whole divisors — anything else is not an aggregation.
+        for src in sorted((t for t, s in TF_SECONDS.items()
+                           if s < want and want % s == 0),
+                          key=lambda t: TF_SECONDS[t], reverse=True):
+            ratio = want // TF_SECONDS[src]
+            fine = store.get_bars(symbol, src, n=n * ratio, start_ms=since_ms)
+            if len(fine) < min(n * ratio, 200):
+                continue
+            out = resample(fine, timeframe, source_tf=src)
+            if len(out) >= min(n, 200):
+                return out
     except Exception:  # noqa: BLE001 — store missing/empty -> fall through
         pass
     return None
@@ -92,7 +115,18 @@ def get_bars(symbol: str, n: int = 1500, timeframe: str = "1h",
         if path.exists():
             bars = load_csv_bars(str(path))
             if bars:
-                return bars[-n:] if len(bars) > n else bars, "bundled sample"
+                # The CSVs are 1h candles. Returning them unchanged for a 4h or
+                # 1d request made every "4h strategy" silently a 1h strategy and
+                # let the multi-timeframe sweep compare a series against itself.
+                # Aggregate properly instead; refuse when the request would mean
+                # inventing candles finer than the data.
+                resampled, _note = to_timeframe(bars, timeframe)
+                if resampled:
+                    return (resampled[-n:] if len(resampled) > n else resampled,
+                            "bundled sample")
+                # The sample cannot produce this candle size (asking for 15m from
+                # 1h data). Fall through to the next source rather than returning
+                # the wrong candles — that is what the fallback ladder is for.
 
     # 4. deterministic synthetic (demo/tests only; not all timeframes supported)
     try:

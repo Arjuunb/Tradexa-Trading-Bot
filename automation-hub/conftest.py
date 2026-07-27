@@ -14,6 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pytest
 
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "uses_store: exercises the local historical store path directly")
+
 # symbols / timeframes the replay + stats tests touch
 _SEED_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT")
 # replay uses 15m/5m; the control-center simulation/compare/auto-tune use 4h/1h/1d
