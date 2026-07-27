@@ -934,6 +934,65 @@ def strategy_tune(body: dict):
     return out
 
 
+@router.post("/strategy/monitor")
+def strategy_monitor(body: dict):
+    """AI Monitoring Agent — compare LIVE behaviour against this strategy's own
+    backtest and report where the two have diverged.
+
+    The baseline is recomputed here through the same ``simulate`` path the
+    review and tuner use, so both sides of every comparison came out of one
+    engine. Live metrics come from real closed paper trades.
+
+    It never changes a strategy: every finding carries a recommendation for a
+    human, and the response says ``auto_modify: false``.
+    Body: {spec, range?}."""
+    from services import monitor_agent as ma
+    from services.strategy_review import bars_for_range
+    spec = body.get("spec") or {}
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    rng = body.get("range") or "1Y"
+    tf = spec.get("timeframe", "4h")
+    bars = int(body.get("bars") or 0) or bars_for_range(tf, rng)
+
+    baseline, band, current_atr, source = None, None, None, None
+    try:
+        results = _run_spec(spec, bars)
+        baseline = ma.baseline_from_results(results)
+    except Exception:  # noqa: BLE001 — no baseline is a reported state, not a 500
+        results = None
+    try:
+        from data.market_data import get_bars
+        rows, source = get_bars(spec.get("symbol", "BTCUSDT"), n=bars, timeframe=tf)
+        if rows:
+            # The band describes the whole tested window; "current" is the most
+            # recent slice of the same feed, so both are measured identically.
+            band = ma.atr_pct_band(rows)
+            recent = ma.atr_pct_band(rows[-120:]) if len(rows) > 60 else None
+            current_atr = (recent or {}).get("median")
+    except Exception:  # noqa: BLE001 — the volatility check simply stays silent
+        band = None
+
+    trades = _wa.paper.history()
+    live = ma.live_metrics(trades)
+    live["span_days"] = ma.span_days(trades)
+
+    out = ma.evaluate(baseline=baseline, live=live, volatility_band=band,
+                      current_atr_pct=current_atr,
+                      execution=_wa.exec_quality.report(_wa.paper.fill_model))
+    out["range"] = rng
+    out["symbol"] = spec.get("symbol", "BTCUSDT")
+    out["timeframe"] = tf
+    out["data_source"] = source
+    out["volatility"] = {"band": band, "current_atr_pct": current_atr}
+    if band and source and "live" not in str(source).lower():
+        # Do not let a bundled-sample feed masquerade as "current market".
+        out["volatility"]["note"] = (
+            f"Volatility read from the '{source}' feed, not a live exchange stream — "
+            "treat the current reading as indicative.")
+    return out
+
+
 @router.post("/strategy/sweep")
 def strategy_sweep(body: dict):
     """Run the SAME spec across symbols x timeframes to answer "best asset" and

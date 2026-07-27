@@ -9,6 +9,7 @@ interface IconProps {
 // dependency-free while covering every glyph the dashboard needs.
 const PATHS: Record<string, string> = {
   menu: "M3 6h18M3 12h18M3 18h18",
+  activity: "M3 12h4l3 8 4-16 3 8h4",
   bell: "M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0",
   help: "M9.1 9a3 3 0 1 1 4.6 2.5c-.9.6-1.7 1.2-1.7 2.5M12 17h.01",
   theme: "M12 3v1M12 20v1M4 12H3M21 12h-1M6 6 5 5M19 19l-1-1M6 18l-1 1M19 5l-1 1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",

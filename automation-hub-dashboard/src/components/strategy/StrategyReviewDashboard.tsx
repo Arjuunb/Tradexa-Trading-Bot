@@ -5,6 +5,7 @@ import { Badge } from "../common/ui";
 import StrategySweep from "./StrategySweep";
 import ReviewEquityChart from "./ReviewEquityChart";
 import StrategyTuner from "./StrategyTuner";
+import StrategyMonitor from "./StrategyMonitor";
 import {
   apiPostJson,
   type CustomSpec, type OptimisationSuggestion, type Scorecard,
@@ -215,6 +216,9 @@ export default function StrategyReviewDashboard({
 
       {/* sweep — answers best asset / timeframe, which one backtest cannot */}
       <StrategySweep spec={spec} range={range} toast={toast} />
+
+      {/* monitoring — the same metrics, backtest vs the live paper account */}
+      <StrategyMonitor spec={spec} range={range} toast={toast} />
 
       {/* ── monthly ── */}
       {!!sc.monthly.length && (

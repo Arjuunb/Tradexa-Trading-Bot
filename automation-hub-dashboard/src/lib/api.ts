@@ -584,6 +584,38 @@ export interface TuneResult {
   suggestions: TuneSuggestion[];
 }
 
+/** AI Monitoring Agent — live behaviour measured against this strategy's own
+ *  backtest. Advisory only: `auto_modify` is always false and every finding
+ *  carries a recommendation a human performs. */
+export interface MonitorFinding {
+  key: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  detail: string;
+  evidence: { stat: string; value: string }[];
+  recommendation: string;
+}
+export interface MonitorMetrics {
+  total_trades: number; win_rate: number; profit_factor: number; net_r: number;
+  expectancy_r: number; max_drawdown_r: number; span_days?: number;
+}
+export interface MonitorResult {
+  available: boolean;
+  status: "no_baseline" | "warming_up" | "in_line" | "info" | "warning" | "critical";
+  auto_modify: false;
+  findings: MonitorFinding[];
+  baseline?: MonitorMetrics | null;
+  live?: MonitorMetrics | null;
+  note?: string | null;
+  range?: string; symbol?: string; timeframe?: string;
+  data_source?: string | null;
+  volatility?: {
+    band?: { p10: number; median: number; p90: number; samples: number } | null;
+    current_atr_pct?: number | null;
+    note?: string;
+  };
+}
+
 export interface StrategyFullReview {
   available: boolean; note?: string; bars_requested?: number;
   scorecard?: Scorecard;
