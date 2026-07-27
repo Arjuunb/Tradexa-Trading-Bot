@@ -90,6 +90,36 @@ def test_replay_output_matches_snapshot(case):
     )
 
 
+def test_s44_documented_semantic_change_wide_bar_reaches_target_same_bar():
+    """S4.4's ONE intentional behaviour change, pinned so it is never a surprise.
+
+    Replay's old inline state machine, on a single bar that traded through BOTH
+    the 1R partial AND the final target, would book the partial and leave the
+    runner OPEN until a later bar. The shared TradeManager closes it on that bar
+    at the target — which is the more faithful reading of the data (price really
+    did reach the target on that bar), so the old behaviour was a latent bug.
+
+    This case does NOT occur anywhere in the snapshot fixtures (88 closed trades
+    across 24 symbol/timeframe/strategy combinations showed byte-identical
+    output), because a synthetic candle rarely spans 2R — but it is reachable on
+    real, volatile data, so it is asserted here rather than left implicit."""
+    from services.replay import PARTIAL_FRAC, TP1_R
+    from services.trade_manager import ManagedTrade, TradeManager
+
+    # long: entry 100, stop 95 (risk 5) -> TP1 at 105 (1R), final target 115 (3R)
+    mt = ManagedTrade(side="long", entry=100.0, stop=95.0, target=115.0, risk=5.0)
+    mgr = TradeManager(be_at_r=TP1_R, scale_at_r=TP1_R, scale_frac=PARTIAL_FRAC,
+                       trail_r=0.0, max_hold_bars=0)
+    act = mgr.on_bar(mt, high=116.0, low=99.0, close=115.5)   # one wide bar
+
+    assert act.partial_price == 105.0        # partial booked at 1R
+    assert act.exit_price == 115.0           # AND closed at the target, same bar
+    assert act.exit_reason == "target"
+    assert mt.scaled is True
+    # blended R is the same formula replay always used: 0.5*1R + 0.5*3R
+    assert mgr.r_multiple(mt, act.exit_price, act.partial_price) == pytest.approx(2.0)
+
+
 if __name__ == "__main__":  # pragma: no cover - maintenance helper
     import sys
     if "--update" in sys.argv:

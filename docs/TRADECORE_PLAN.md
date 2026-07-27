@@ -161,7 +161,7 @@ This test is the contract the rest of Sprint 4 is measured against.
 | **S4.1** | Add `tradecore/costs.py` (③) + `tradecore/rmath.py` (④); no callers yet, unit-tested | — | none |
 | **S4.2** | Route `custom.py`, `replay.py`, `execution_sim.py`, `backtest.py` cost math → `tradecore.costs` | 3a, R5 | Low (pure fn) |
 | **S4.3** | Unify R reporting → `tradecore.rmath` across engines | 3d→R2 | Med |
-| **S4.4** | `build_replay` adopts `TradeManager` for SL/TP (drop `replay.py:644-680`) | 3b, R4 | **Med-High** — replay UI parity |
+| **S4.4** | ✅ **Done.** `build_replay` adopts `TradeManager` (inline TP1/BE/TP2 state machine deleted). Mapped exactly: `scale_at_r=be_at_r=TP1_R`, `scale_frac=PARTIAL_FRAC`, `target=tp2`, no trail/time-stop — the blended-R formula is algebraically the one replay computed inline. **Verified byte-identical across 24 fixtures / 88 closed trades.** One intentional semantic change is pinned by a test: on a single bar spanning both the 1R partial and the final target, the runner now closes that bar instead of staying open (the old behaviour was a latent bug). | 3b, R4 | **Med-High** — replay UI parity |
 | **S4.5** | `Backtester` adopts `TradeManager` for SL/TP (drop `backtester.py:314-412`) | 3b, R4 | **High** — drives live bot runner |
 | **S4.6** | Make live paper default fee-consistent with backtest (or make both configurable + documented) | R1 | **High** — changes live P&L numbers |
 | **S4.7** | Tighten equivalence gate to exact-match; make it a required CI gate | proves the sprint | — |
