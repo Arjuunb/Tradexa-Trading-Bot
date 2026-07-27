@@ -534,6 +534,29 @@ export interface AgentCompileResult {
   note?: string;
 }
 
+/** Evidence-based review — every finding carries the statistic behind it, and
+ *  dimensions the trade data cannot support are declared in `not_derivable`. */
+export interface EvidenceFinding { claim: string; stat: string; value: unknown; }
+export interface EvidenceSession {
+  session: string; trades: number; net_r: number; avg_r: number; win_rate: number;
+}
+export interface EvidenceExit {
+  exit_reason: string; trades: number; net_r: number; avg_r: number; win_rate: number;
+}
+export interface EvidenceReview {
+  available: boolean; note?: string; trades_reviewed?: number;
+  strengths: EvidenceFinding[]; weaknesses: EvidenceFinding[];
+  sessions: EvidenceSession[]; best_session?: EvidenceSession | null;
+  exit_reasons: EvidenceExit[]; most_common_loss?: EvidenceExit | null;
+  direction?: { better_side: string; long_net_r: number; short_net_r: number;
+                long_trades: number; short_trades: number } | null;
+  hold_times?: { avg_bars_winners: number; avg_bars_losers: number } | null;
+  risk?: Record<string, unknown> | null;
+  not_derivable: { question: string; why: string }[];
+  bars_requested?: number;
+  headline?: Record<string, number | null>;
+}
+
 export interface CustomRule { type: string; negate?: boolean; source?: string; [k: string]: unknown; }
 // ── no-code strategy builder ──
 export interface BlockParam { name: string; type: "number" | "select"; default: unknown; label: string; options?: string[]; }

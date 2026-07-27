@@ -433,7 +433,11 @@ def custom_simulate(body: _wa.SimRequest):
     spec = body.spec
     symbol = spec.get("symbol", "BTCUSDT")
     timeframe = spec.get("timeframe", "4h")
-    n = max(300, min(int(body.bars or 3000), 10000))
+    if getattr(body, "range", None):
+        from services.strategy_review import bars_for_range
+        n = bars_for_range(timeframe, body.range)
+    else:
+        n = max(300, min(int(body.bars or 3000), 10000))
     rows, source = get_bars(symbol, n=n, timeframe=timeframe)
 
     use_brain = spec.get("quality_filter", True)
