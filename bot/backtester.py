@@ -187,6 +187,10 @@ class Backtester:
         self._partial_done: bool = False
         self._breakeven_done: bool = False
         self._bars_held: int = 0
+        # Risk-per-unit as it stood AT ENTRY. R must always be measured against
+        # the risk actually taken, so it has to survive the break-even move that
+        # rewrites ``planned_sl`` mid-trade (see _handle_fill / _manage_open_trade).
+        self._risk_per_unit: float = 0.0
         # Incremental-engine state (shared by batch run() and the live runner).
         self._bar_history: list[Bar] = []
         self._atr_enabled: bool = self.risk.cfg.atr_stop_mult > 0
@@ -324,7 +328,9 @@ class Backtester:
         sl = self._open_trade["planned_sl"]
         side = self._open_trade["side"]
         qty = self._open_trade["qty"]
-        risk_per_unit = abs(entry - sl)
+        # original entry risk — after a break-even move ``sl == entry``, and
+        # recomputing from it would both zero R and silently disable partial-TP.
+        risk_per_unit = self._risk_per_unit or abs(entry - sl)
         if risk_per_unit <= 0:
             return
 
@@ -430,6 +436,8 @@ class Backtester:
                 "entry_price": fill.price,
                 "entry_fee": fill.fee,
             }
+            # capture the ORIGINAL risk before any break-even move can zero it
+            self._risk_per_unit = abs(fill.price - self._open_trade["planned_sl"])
             self._pending_trade = None
             self._bars_held = 0
             self._partial_done = False
@@ -445,7 +453,11 @@ class Backtester:
         gross = (fill.price - entry_px) * qty if side == "buy" else (entry_px - fill.price) * qty
         net_pnl = gross - self._open_trade["entry_fee"] - fill.fee
         sl = self._open_trade["planned_sl"]
-        risk_dollars = abs(entry_px - sl) * qty
+        # Measure R against the risk taken AT ENTRY. Using ``planned_sl`` here
+        # was a bug: once break-even rewrites it to the entry price the risk
+        # collapses to 0 and a profitable remainder was reported as 0.0R.
+        risk_per_unit = self._risk_per_unit or abs(entry_px - sl)
+        risk_dollars = risk_per_unit * qty
         r_multiple = net_pnl / risk_dollars if risk_dollars > 0 else 0.0
         trade = {
             **self._open_trade,
@@ -464,6 +476,7 @@ class Backtester:
         ))
         self.risk.on_trade_closed(net_pnl, fill.timestamp)
         self._open_trade = None
+        self._risk_per_unit = 0.0
         self._bars_held = 0
         self._partial_done = False
         self._breakeven_done = False
