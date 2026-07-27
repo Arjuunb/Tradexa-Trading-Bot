@@ -16,6 +16,13 @@ strategy, the tuner measures a variant, or the monitor computes a baseline, they
 all call the same simulate path — which is what makes those numbers comparable
 to each other and reproducible by the person reading them.
 
+That claim used to be true but fragile: five call sites each wired up
+`get_bars` → `TradeBrain` → `simulate` themselves, with the quality-filter and
+min-score defaults copy-pasted into each, and nothing stopping one from drifting.
+`services/spec_runner.py` is now that wiring, once. A test asserts none of the
+callers re-implements it or calls `simulate` directly, so the claim above is
+enforced rather than asserted.
+
 | Stage | Where | Key refusal |
 |---|---|---|
 | 1. AI Strategy Agent | `services/strategy_agent.py` | Never invents a rule. Unclear phrasing becomes a clarifying question, not a guess. |
@@ -52,7 +59,40 @@ Gating that matters:
 - The endpoint reports its data source and refuses to let a bundled-sample feed
   present itself as current market volatility.
 
-`POST /strategy/monitor`.
+### Continuous mode
+
+`services/monitor_runner.py` runs the same agent on a timer (default 15 min)
+against `engine.deployed_spec` — what is *actually* running, not whatever is open
+in the editor — and raises alerts through the ledger and notifier, the same path
+the watchdog uses.
+
+Three decisions worth stating, because each is a trap avoided:
+
+- **The baseline is cached on the spec, not the clock.** Re-running a one-year
+  backtest every cycle would burn minutes of CPU per hour recomputing a number
+  that only changes when the strategy changes. The cache key is the spec's
+  *definition*, so editing a rule invalidates it immediately and renaming or
+  tagging does not. A 24h TTL still forces an eventual refresh, because the data
+  behind the baseline does move. Measured: 0.2s cold, 0.00s warm.
+- **Alerts have a per-finding cooldown** (default 1h). A strategy in drawdown
+  produces the same finding every cycle; without a cooldown the operator learns
+  to ignore the channel, which is worse than not alerting.
+- **A built-in engine strategy reports "nothing to monitor", not "fine".**
+  `deployed_spec` is cleared on every reconfigure that isn't a rule-spec deploy,
+  so the agent can never silently compare against a strategy that stopped
+  running.
+
+One thing it deliberately does *not* block on: a feed that ignores the requested
+candle size. The live engine fetches through the same `get_bars` path as the
+baseline, so both sides get the same candles and the deviation verdict still
+holds — what is wrong is the *label*, and that is reported as a
+`timeframe_warning` beside the result. The sweep's identical check *does* block,
+correctly: there the whole point is comparing one timeframe against another, so a
+mismatch fabricates the answer.
+
+`POST /strategy/monitor` (on-demand, arbitrary spec) ·
+`GET /strategy/monitor/status` (last evaluation, no recomputation) ·
+`POST /strategy/monitor/check` (force a cycle).
 
 ## 8 · Marketplace
 
@@ -125,3 +165,9 @@ Two environment variables are inert until set:
   input; it simply cannot parse free prose.
 - `HUB_UNIFIED_FEES=1` — routes live paper fills through the same cost model the
   backtests use (S4.6), closing the live-vs-backtest cost gap.
+
+One is on by default:
+
+- `HUB_MONITOR_AGENT=0` stops the monitoring timer without disabling its
+  endpoints — set it if you ever run multiple workers, since each would otherwise
+  run its own loop and alert the same deviation once per worker.

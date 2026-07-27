@@ -983,17 +983,10 @@ def strategy_ai_review(body: dict):
 
 
 def _run_spec(spec: dict, bars: int):
-    """Run a spec through the EXISTING simulate path. One engine, everywhere."""
-    from strategies.custom import simulate
-    from strategies.brain import TradeBrain
-    from data.market_data import get_bars
-    rows, _src = get_bars(spec.get("symbol", "BTCUSDT"), n=bars,
-                          timeframe=spec.get("timeframe", "4h"))
-    if not rows:
-        return None
-    use_brain = spec.get("quality_filter", True)
-    return simulate(spec, rows, brain=TradeBrain() if use_brain else None,
-                    min_score=int(spec.get("min_score", 60)) if use_brain else 0)
+    """Run a spec through the EXISTING simulate path. One engine, everywhere —
+    literally: services.spec_runner is the only place that wiring lives."""
+    from services.spec_runner import run_spec
+    return run_spec(spec, bars)
 
 
 @router.post("/strategy/ai-strategy-review")
@@ -1101,6 +1094,22 @@ def strategy_monitor(body: dict):
             f"Volatility read from the '{source}' feed, not a live exchange stream — "
             "treat the current reading as indicative.")
     return out
+
+
+@router.get("/strategy/monitor/status")
+def strategy_monitor_status():
+    """The continuous monitor's LAST evaluation, with no recomputation.
+
+    Cheap enough for the dashboard to poll. The reading carries its own
+    timestamp, so a stale one is visibly stale rather than passing as current."""
+    return _wa.monitor_runner.status()
+
+
+@router.post("/strategy/monitor/check")
+def strategy_monitor_check(x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Force a monitoring cycle now instead of waiting for the timer."""
+    _wa._check_secret(x_webhook_secret)
+    return _wa.monitor_runner.check()
 
 
 @router.post("/strategy/sweep")
@@ -1467,6 +1476,7 @@ def custom_deploy(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(def
         timeframe=spec.get("timeframe", "4h"),
         strategy_factory=lambda sym, _s=spec: CustomStrategyAdapter(sym, _s, on_block=_log_block),
         label=f"Custom: {name}",
+        spec=spec,       # so the monitoring agent baselines what is really running
     )
     _wa.ledger.log(level="info", stage="engine", message=f"Deployed custom strategy '{name}' to paper trading")
     _wa.ledger.add_alert(severity="info", category="system", title="Custom strategy deployed",

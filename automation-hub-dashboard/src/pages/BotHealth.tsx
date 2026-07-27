@@ -1,4 +1,5 @@
 import Card from "../components/common/Card";
+import LiveMonitorPanel from "../components/strategy/LiveMonitorPanel";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, hhmmss, API_BASE } from "../lib/api";
@@ -184,6 +185,10 @@ export default function BotHealthPage() {
           )}
         </Card>
       </div>
+
+      {/* strategy-level monitoring: the watchdog above watches the machine,
+          this watches whether the strategy still behaves like its backtest */}
+      <LiveMonitorPanel />
 
       <Card title="Latest Errors" subtitle="most recent error / critical log lines"
         right={d && <Badge text={`${d.errors.length}`} tone={d.errors.length ? "red" : "green"} />}>

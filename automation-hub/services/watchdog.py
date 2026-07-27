@@ -118,7 +118,11 @@ class Watchdog:
         self.last_findings = findings
         self.last_heartbeat = datetime.now(timezone.utc).isoformat()
         for f in findings:
-            if now - self._last_sent.get(f["key"], 0.0) < self.cooldown_s:
+            last = self._last_sent.get(f["key"])
+            # "never sent" is not "sent recently" — defaulting to 0 only looks
+            # right because wall-clock time is large, and would swallow a first
+            # alert on any clock starting near zero.
+            if last is not None and now - last < self.cooldown_s:
                 continue                     # already alerted recently
             self._last_sent[f["key"]] = now
             self.ledger.add_alert(severity=f["severity"], category="watchdog",
