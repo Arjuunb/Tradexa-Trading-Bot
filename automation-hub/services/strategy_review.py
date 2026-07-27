@@ -55,6 +55,32 @@ def session_breakdown(trades: list[dict]) -> list[dict]:
     return sorted(out, key=lambda d: d["net_r"], reverse=True)
 
 
+def regime_breakdown(trades: list[dict]) -> list[dict]:
+    """Net R per MARKET REGIME, when the quality filter tagged trades with one.
+
+    The TradeBrain records the regime at entry (Trending / Ranging / High
+    Volatility / …), so market-condition performance is real evidence — not an
+    inference. Returns [] when the filter was off and no trade carries a tag."""
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for t in trades:
+        rg = t.get("regime")
+        if rg:
+            groups[str(rg)].append(t)
+    return sorted(({"regime": k, **_bucket_stats(v)} for k, v in groups.items()),
+                  key=lambda d: d["net_r"], reverse=True)
+
+
+def setup_breakdown(trades: list[dict]) -> list[dict]:
+    """Net R per setup type tagged by the brain (when available)."""
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for t in trades:
+        st = t.get("setup_type")
+        if st:
+            groups[str(st)].append(t)
+    return sorted(({"setup_type": k, **_bucket_stats(v)} for k, v in groups.items()),
+                  key=lambda d: d["net_r"], reverse=True)
+
+
 def exit_reason_breakdown(trades: list[dict]) -> list[dict]:
     groups: dict[str, list[dict]] = defaultdict(list)
     for t in trades:
@@ -156,19 +182,36 @@ def evidence_review(spec: dict, results: Optional[dict]) -> dict:
             "risk_per_trade_pct": spec.get("risk_per_trade_pct"),
             "worst_trade_r": results.get("worst_r")}
 
+    # market conditions — real evidence when the quality filter tagged regimes
+    regimes = regime_breakdown(trades)
+    best_regime = next((r for r in regimes if r["trades"] >= _MIN_SAMPLE), None)
+    worst_regime = next((r for r in reversed(regimes) if r["trades"] >= _MIN_SAMPLE), None)
+    if best_regime:
+        add(strengths, f"Performs best in {best_regime['regime']} conditions",
+            "net R in that regime", best_regime["net_r"])
+    if worst_regime and worst_regime is not best_regime and worst_regime["net_r"] < 0:
+        add(weaknesses, f"Loses money in {worst_regime['regime']} conditions",
+            "net R in that regime", worst_regime["net_r"])
+    setups = setup_breakdown(trades)
+
     # What this data honestly cannot answer — stated, not invented.
-    not_derivable = [
-        {"question": "Best / worst market conditions (trending, ranging, volatile)",
-         "why": "Backtest trades do not record the market regime at entry, so a "
-                "regime verdict would not be evidence-based."},
-        {"question": "Most profitable asset",
-         "why": "A strategy runs on a single symbol, so one backtest cannot rank "
-                "assets. Run the same strategy on other symbols to compare."},
-    ]
+    not_derivable = []
+    if not regimes:
+        not_derivable.append({
+            "question": "Best / worst market conditions (trending, ranging, volatile)",
+            "why": "These trades carry no regime tag, which happens when the quality "
+                   "filter is switched off. Re-run with quality_filter enabled to get "
+                   "a regime breakdown."})
+    not_derivable.append({
+        "question": "Most profitable asset",
+        "why": "A strategy runs on a single symbol, so one backtest cannot rank "
+               "assets. Run the same strategy on other symbols to compare."})
 
     return {"available": True, "trades_reviewed": n,
             "strengths": strengths, "weaknesses": weaknesses,
             "sessions": sessions, "best_session": best_session,
+            "regimes": regimes, "best_regime": best_regime, "worst_regime": worst_regime,
+            "setups": setups,
             "exit_reasons": exits, "most_common_loss": common_loss,
             "direction": direction, "hold_times": hold, "risk": risk,
             "not_derivable": not_derivable}
