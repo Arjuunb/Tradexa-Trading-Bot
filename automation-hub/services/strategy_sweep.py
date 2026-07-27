@@ -151,21 +151,9 @@ def timeframe_matches(rows, timeframe: str) -> bool:
 
 
 def make_runner(bars_for_range, range_key: str) -> Callable[[dict, str, str], Any]:
-    """Default runner: the same simulate path the rest of the app uses."""
-    def _run(spec: dict, symbol: str, timeframe: str):
-        from data.market_data import get_bars
-        from strategies.brain import TradeBrain
-        from strategies.custom import simulate
-        cell_spec = {**spec, "symbol": symbol, "timeframe": timeframe}
-        n = bars_for_range(timeframe, range_key)
-        rows, _src = get_bars(symbol, n=n, timeframe=timeframe)
-        if not rows:
-            return None
-        use_brain = cell_spec.get("quality_filter", True)
-        res = simulate(cell_spec, rows,
-                       brain=TradeBrain() if use_brain else None,
-                       min_score=int(cell_spec.get("min_score", 60)) if use_brain else 0)
-        if isinstance(res, dict):
-            res["__tf_verified"] = timeframe_matches(rows, timeframe)
-        return res
-    return _run
+    """Default runner: the shared spec runner, with the timeframe-integrity check
+    wired in so a feed that ignores the requested candle size cannot produce a
+    fabricated "best timeframe"."""
+    from services.spec_runner import make_cell_runner
+    return make_cell_runner(bars_for_range, range_key,
+                            verify_timeframe=timeframe_matches)

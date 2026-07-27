@@ -667,6 +667,21 @@ export interface MonitorResult {
   };
 }
 
+/** The continuous monitor's last evaluation, served without recomputation.
+ *  `last_check` is the reading's own timestamp — a stale one is visibly stale. */
+export interface MonitorStatus {
+  running: boolean; interval_s: number; cooldown_s: number;
+  last_check: string | null;
+  result: (MonitorResult & {
+    strategy?: string; baseline_cached?: boolean;
+    baseline_computed_at?: string | null; checked_at?: string;
+    /** Set when the feed did not honour the strategy's timeframe. Live and
+     *  backtest both read the same feed, so the comparison still holds — what is
+     *  wrong is the label on it. */
+    timeframe_warning?: string;
+  }) | null;
+}
+
 export interface StrategyFullReview {
   available: boolean; note?: string; bars_requested?: number;
   scorecard?: Scorecard;

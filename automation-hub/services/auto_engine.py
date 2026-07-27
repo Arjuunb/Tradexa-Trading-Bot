@@ -70,6 +70,11 @@ class AutoStrategyEngine:
         self.warmup = warmup
         self.live_bars = live_bars
         self.strategy_factory = strategy_factory
+        # The rule spec behind the running strategy, when there is one. Set by
+        # reconfigure() at deploy time so the monitoring agent can re-derive a
+        # baseline for what is ACTUALLY running rather than whatever the user
+        # happens to have open in the editor.
+        self.deployed_spec = None
         # Live forward mode: poll for NEW closed candles and trade only those
         # (vs. replaying a historical batch). Real forward paper-trading.
         self.live = live
@@ -173,14 +178,22 @@ class AutoStrategyEngine:
         self.ledger.log(level="info", stage="engine", message="Autonomous engine stopped")
         return True
 
-    def reconfigure(self, *, symbols, timeframe, strategy_factory, label) -> dict:
+    def reconfigure(self, *, symbols, timeframe, strategy_factory, label,
+                    spec=None) -> dict:
         """Swap the running strategy / symbols / timeframe and restart (paper).
-        Used to deploy a user-built custom strategy from the Strategy Builder."""
+        Used to deploy a user-built custom strategy from the Strategy Builder.
+
+        ``spec`` is the rule spec behind the deployment, when there is one. It is
+        recorded so the monitoring agent can re-derive a backtest baseline for
+        whatever is ACTUALLY running. It defaults to None and is cleared on every
+        reconfigure, because a built-in engine strategy has no rule spec to
+        compare against and a stale one would silently monitor the wrong thing."""
         self.stop()
         self.symbols = list(symbols)
         self.timeframe = timeframe
         self.strategy_factory = strategy_factory
         self.strategy_label = label
+        self.deployed_spec = spec
         self._targets.clear()
         self._managed.clear()
         self._pending.clear()

@@ -1,0 +1,349 @@
+"""Continuous monitoring loop.
+
+Contract: it watches the DEPLOYED strategy, recomputes the expensive baseline
+only when the strategy definition changes, alerts once per finding per cooldown,
+and never modifies anything.
+"""
+import pytest
+
+from services import monitor_runner as mr
+
+SPEC = {
+    "id": "s1", "name": "EMA Trend", "symbol": "BTCUSDT", "timeframe": "4h",
+    "entry": {"op": "AND", "rules": [{"type": "ema_cross", "fast": 20, "slow": 50}]},
+    "stop": {"type": "atr", "mult": 1.5}, "target": {"type": "rr", "rr": 2},
+    "risk_per_trade_pct": 0.01,
+}
+
+BASE = {"total_trades": 120, "win_rate": 55.0, "profit_factor": 1.9,
+        "net_r": 60.0, "expectancy_r": 0.5, "max_drawdown_r": 8.0, "span_days": 365}
+
+
+class FakeEngine:
+    def __init__(self, spec=SPEC):
+        self.deployed_spec = spec
+        self.strategy_label = "Custom: EMA Trend"
+
+
+class FakePaper:
+    def __init__(self, trades=None):
+        self._t = trades or []
+        self.fill_model = None
+
+    def history(self):
+        return self._t
+
+
+class FakeLedger:
+    def __init__(self):
+        self.alerts, self.logs = [], []
+
+    def add_alert(self, **kw):
+        self.alerts.append(kw)
+
+    def log(self, **kw):
+        self.logs.append(kw)
+
+
+def _trades(n, r):
+    return [{"rr": r, "closed_at": f"2026-01-{(i % 28) + 1:02d}T00:00:00"}
+            for i in range(n)]
+
+
+def _runner(*, engine=None, trades=None, baseline=BASE, vol=None, calls=None,
+            **kw):
+    def baseline_fn(spec, rng):
+        if calls is not None:
+            calls.append(spec_snapshot(spec))
+        return dict(baseline)
+    return mr.MonitorRunner(
+        engine or FakeEngine(), FakePaper(trades or []), FakeLedger(),
+        baseline_fn=baseline_fn,
+        volatility_fn=lambda spec, rng: dict(vol or {}),
+        **kw)
+
+
+def spec_snapshot(spec):
+    return spec.get("entry", {}).get("rules", [{}])[0].get("fast")
+
+
+# ------------------------------------------------------------ what it watches
+
+def test_no_deployed_strategy_is_reported_not_guessed():
+    r = _runner(engine=FakeEngine(spec=None))
+    out = r.check()
+    assert out["available"] is False and out["status"] == "no_strategy"
+    assert "Deploy a strategy" in out["note"]
+
+
+def test_a_builtin_strategy_with_no_rules_is_also_no_strategy():
+    """A built-in engine strategy has no rule spec, so there is nothing to
+    baseline against — that must read as 'nothing to monitor', not as 'fine'."""
+    out = _runner(engine=FakeEngine(spec={"name": "Decision Brain"})).check()
+    assert out["status"] == "no_strategy"
+
+
+def test_it_evaluates_the_deployed_spec_against_a_real_baseline():
+    out = _runner(trades=_trades(40, 1.0)).check()
+    assert out["available"] is True
+    assert out["strategy"] == "EMA Trend" and out["symbol"] == "BTCUSDT"
+    assert out["baseline"]["profit_factor"] == 1.9
+
+
+# -------------------------------------------------------------- baseline cache
+
+def test_the_baseline_is_computed_once_and_reused():
+    """Re-running a one-year backtest every cycle would burn minutes of CPU per
+    hour recomputing a number that did not change."""
+    calls = []
+    r = _runner(trades=_trades(40, 1.0), calls=calls)
+    r.check(now=1000.0)
+    r.check(now=2000.0)
+    r.check(now=3000.0)
+    assert len(calls) == 1
+    assert r.last_result["baseline_cached"] is True
+
+
+def test_editing_a_rule_invalidates_the_baseline_immediately():
+    calls = []
+    eng = FakeEngine()
+    r = _runner(engine=eng, trades=_trades(40, 1.0), calls=calls)
+    r.check(now=1000.0)
+    eng.deployed_spec = {**SPEC, "entry": {"op": "AND", "rules": [
+        {"type": "ema_cross", "fast": 30, "slow": 50}]}}
+    r.check(now=1001.0)
+    assert calls == [20, 30], "the changed rule must force a fresh baseline"
+
+
+def test_renaming_a_strategy_does_not_invalidate_the_baseline():
+    """A rename changes no behaviour, so it must not trigger a backtest."""
+    calls = []
+    eng = FakeEngine()
+    r = _runner(engine=eng, trades=_trades(40, 1.0), calls=calls)
+    r.check(now=1000.0)
+    eng.deployed_spec = {**SPEC, "name": "Renamed", "favorite": True,
+                         "tags": ["btc"], "updated_at": "2026-05-05"}
+    r.check(now=1001.0)
+    assert len(calls) == 1
+
+
+def test_the_baseline_refreshes_after_its_ttl():
+    calls = []
+    r = _runner(trades=_trades(40, 1.0), calls=calls, baseline_ttl_s=100.0)
+    r.check(now=1000.0)
+    r.check(now=1050.0)
+    assert len(calls) == 1
+    r.check(now=1200.0)
+    assert len(calls) == 2
+
+
+def test_spec_key_ignores_library_metadata_but_not_risk():
+    a = mr.spec_key(SPEC, "1Y")
+    assert mr.spec_key({**SPEC, "name": "x", "favorite": True}, "1Y") == a
+    assert mr.spec_key({**SPEC, "risk_per_trade_pct": 0.05}, "1Y") != a
+    assert mr.spec_key(SPEC, "3Y") != a, "the window is part of the baseline"
+
+
+# ---------------------------------------------------------------- alerting
+
+def test_a_deviation_raises_an_alert_and_a_log_line():
+    r = _runner(trades=_trades(40, -1.0))          # every live trade loses
+    r.check(now=1000.0)
+    assert r.ledger.alerts, "a deviation must reach the operator"
+    assert all(a["category"] == "monitor" for a in r.ledger.alerts)
+    assert r.ledger.logs
+
+
+def test_the_same_finding_is_not_re_alerted_within_the_cooldown():
+    """A strategy in drawdown produces the same finding every cycle. Without a
+    cooldown the operator learns to ignore the channel."""
+    r = _runner(trades=_trades(40, -1.0), cooldown_s=3600.0)
+    r.check(now=1000.0)
+    first = len(r.ledger.alerts)
+    r.check(now=1500.0)
+    r.check(now=2000.0)
+    assert len(r.ledger.alerts) == first
+
+
+def test_the_finding_is_re_alerted_once_the_cooldown_expires():
+    r = _runner(trades=_trades(40, -1.0), cooldown_s=100.0)
+    r.check(now=1000.0)
+    first = len(r.ledger.alerts)
+    r.check(now=1200.0)
+    assert len(r.ledger.alerts) > first
+
+
+def test_a_healthy_strategy_raises_nothing():
+    """Live matching the baseline must be silent — an alert channel that fires
+    on normal behaviour is noise."""
+    r = _runner(trades=_trades(40, 0.5), baseline=BASE)
+    out = r.check(now=1000.0)
+    assert out["findings"] == [] or out["status"] == "warming_up"
+    assert r.ledger.alerts == []
+
+
+def test_the_alert_carries_the_recommendation_not_just_the_complaint():
+    r = _runner(trades=_trades(40, -1.0))
+    r.check(now=1000.0)
+    assert any(len(a["detail"]) > len(a["title"]) for a in r.ledger.alerts)
+
+
+def test_a_failing_notifier_does_not_break_the_check():
+    def boom(*a, **k):
+        raise RuntimeError("telegram down")
+    r = _runner(trades=_trades(40, -1.0), notifier=boom)
+    assert r.check(now=1000.0)["available"] is True
+
+
+def test_a_failing_ledger_does_not_break_the_check():
+    class BadLedger(FakeLedger):
+        def add_alert(self, **kw):
+            raise RuntimeError("disk full")
+    r = _runner(trades=_trades(40, -1.0))
+    r.ledger = BadLedger()
+    assert r.check(now=1000.0)["available"] is True
+
+
+# ------------------------------------------------------------------ status
+
+def test_status_returns_the_last_result_without_recomputing():
+    calls = []
+    r = _runner(trades=_trades(40, 1.0), calls=calls)
+    r.check(now=1000.0)
+    s1, s2 = r.status(), r.status()
+    assert len(calls) == 1
+    assert s1["last_check"] == s2["last_check"]
+    assert s1["result"]["available"] is True
+
+
+def test_status_before_any_check_is_empty_not_fabricated():
+    s = _runner().status()
+    assert s["result"] is None and s["last_check"] is None
+    assert s["running"] is False
+
+
+def test_the_runner_never_modifies_and_says_so():
+    r = _runner(trades=_trades(40, -1.0))
+    assert r.check(now=1000.0)["auto_modify"] is False
+    for forbidden in ("apply", "fix", "retune", "adjust_strategy"):
+        assert not hasattr(r, forbidden)
+
+
+def test_the_deployed_spec_is_never_written_back():
+    eng = FakeEngine()
+    before = dict(eng.deployed_spec)
+    r = _runner(engine=eng, trades=_trades(40, -1.0))
+    r.check(now=1000.0)
+    assert eng.deployed_spec == before
+
+
+# --------------------------------------------------------------- lifecycle
+
+def test_start_is_idempotent_and_stop_ends_the_thread():
+    r = _runner(interval_s=0.05)
+    assert r.start() is True
+    assert r.start() is False, "a second start must not spawn a second thread"
+    assert r.status()["running"] is True
+    r.stop()
+
+
+def test_an_exception_inside_check_does_not_kill_the_loop():
+    r = _runner()
+    calls = {"n": 0}
+
+    def boom(now=None):
+        calls["n"] += 1
+        raise RuntimeError("bad cycle")
+    r.check = boom
+    r.interval_s = 0.01
+    r.start()
+    deadline = __import__("time").time() + 1.0
+    while calls["n"] < 2 and __import__("time").time() < deadline:
+        __import__("time").sleep(0.01)
+    r.stop()
+    assert calls["n"] >= 2, "the loop must survive a failing cycle"
+
+
+# ------------------------------------------------------------------ endpoint
+
+@pytest.fixture()
+def client():
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import webhook_api
+    app = FastAPI()
+    app.include_router(webhook_api.router)
+    return TestClient(app)
+
+
+def test_monitor_status_endpoint_reports_without_running_a_backtest(client):
+    r = client.get("/strategy/monitor/status")
+    assert r.status_code == 200
+    j = r.json()
+    assert "running" in j and "last_check" in j
+
+
+def test_monitor_check_endpoint_forces_a_cycle(client):
+    from config import settings
+    r = client.post("/strategy/monitor/check",
+                    headers={"X-Webhook-Secret": settings.webhook_secret})
+    assert r.status_code == 200
+    assert r.json()["auto_modify"] is False
+
+
+def test_monitor_check_requires_the_control_credential(client):
+    assert client.post("/strategy/monitor/check").status_code == 401
+
+
+def test_the_first_alert_is_never_swallowed_by_the_cooldown():
+    """Regression: a never-sent finding must not count as recently-sent.
+    Defaulting the last-sent stamp to 0 only looks correct because wall-clock
+    time is huge — it silently ate the first alert of any run whose clock
+    started near zero, including every test that passes an explicit `now`."""
+    r = _runner(trades=_trades(40, -1.0), cooldown_s=3600.0)
+    r.check(now=1.0)
+    assert r.ledger.alerts, "the very first finding must alert immediately"
+
+
+def test_the_timer_can_be_disabled_without_disabling_the_endpoints():
+    """Multi-worker deployments would otherwise alert the same deviation once
+    per worker. Turning the loop off must leave on-demand checks working."""
+    import os
+    import subprocess
+    import sys
+    code = ("import webhook_api as w;"
+            "print(w.monitor_runner.status()['running'],"
+            " w.monitor_runner.check()['auto_modify'])")
+    env = {**os.environ, "HUB_MONITOR_AGENT": "0"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                         text=True, env=env, timeout=120).stdout.strip()
+    assert out.endswith("False False"), out
+
+
+# ------------------------------------------------- timeframe integrity
+
+def test_a_feed_serving_the_wrong_candle_size_is_flagged_but_not_blocking():
+    """The live engine fetches through the SAME get_bars path as the baseline, so
+    both sides get the same candles and the deviation verdict still holds. What
+    is wrong is the label — the strategy is not trading the timeframe it claims —
+    so that is reported alongside the result rather than suppressing it.
+    (The sweep's identical check DOES block, correctly: there the whole point is
+    comparing one timeframe against another.)"""
+    r = _runner(trades=_trades(40, -1.0),
+                baseline={**BASE, "__tf_mismatch": "4h"})
+    out = r.check(now=1000.0)
+    assert out["available"] is True, "a shared-feed mismatch must not disable monitoring"
+    assert out["findings"], "the deviation is still real and must still be reported"
+    assert "not actually trading on 4h" in out["timeframe_warning"]
+
+
+def test_no_timeframe_warning_when_the_feed_is_honest():
+    out = _runner(trades=_trades(40, 1.0)).check(now=1000.0)
+    assert "timeframe_warning" not in out
+
+
+def test_the_mismatch_marker_never_leaks_into_a_reported_baseline():
+    r = _runner(trades=_trades(40, 1.0), baseline={**BASE, "__tf_mismatch": "4h"})
+    r.check(now=1000.0)
+    assert "__tf_mismatch" not in (r.last_result.get("baseline") or {})

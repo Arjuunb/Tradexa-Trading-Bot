@@ -236,6 +236,18 @@ from services.watchdog import Watchdog  # noqa: E402
 watchdog = Watchdog(engine, ledger, notifier.dispatch, ws_feed=ws_feed)
 watchdog.start()
 
+# AI Monitoring Agent, on a timer: compares the DEPLOYED strategy's live
+# behaviour against a backtest of that same spec and alerts on deviation. Reads
+# and reports only — it never edits a strategy or touches risk.
+from services.monitor_runner import MonitorRunner  # noqa: E402
+monitor_runner = MonitorRunner(engine, paper, ledger, exec_quality=exec_quality,
+                               notifier=notifier.dispatch)
+# Opt-out for multi-worker deployments: each worker would otherwise run its own
+# loop and alert the same deviation N times. The endpoints keep working either
+# way — only the timer stops.
+if _os.environ.get("HUB_MONITOR_AGENT", "1").strip().lower() not in ("0", "false", "no", "off"):
+    monitor_runner.start()
+
 # Daily report + nightly backup: one honest digest to Telegram per UTC day
 # (HUB_DAILY_REPORT_HOUR, default 08:00 UTC; -1 disables) and a pruned
 # snapshot of every db/json store under DATA_DIR/backups.

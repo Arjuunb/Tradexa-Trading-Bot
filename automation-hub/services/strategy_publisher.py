@@ -326,18 +326,7 @@ def sort_listings(rows: list[dict], sort: str) -> list[dict]:
 
 
 def make_runner(bars_for_range, range_key: str):
-    """Default runner: the same simulate path backtest, review and tuning use.
-    One engine — a published number is reproducible by the person reading it."""
-    def _run(spec: dict):
-        from data.market_data import get_bars
-        from strategies.brain import TradeBrain
-        from strategies.custom import simulate
-        tf = spec.get("timeframe", "4h")
-        rows, _src = get_bars(spec.get("symbol", "BTCUSDT"),
-                              n=bars_for_range(tf, range_key), timeframe=tf)
-        if not rows:
-            return None
-        use_brain = spec.get("quality_filter", True)
-        return simulate(spec, rows, brain=TradeBrain() if use_brain else None,
-                        min_score=int(spec.get("min_score", 60)) if use_brain else 0)
-    return _run
+    """Default runner: the shared spec runner. One engine — a published number is
+    reproducible by the person reading it, using the same path."""
+    from services.spec_runner import make_runner as _shared
+    return _shared(bars_for_range, range_key)
