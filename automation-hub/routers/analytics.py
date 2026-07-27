@@ -868,6 +868,51 @@ def strategy_ai_review(body: dict):
     return ai_review(spec, results)
 
 
+@router.get("/strategy/agent/status")
+def strategy_agent_status():
+    """Is the AI Strategy Agent usable, and what vocabulary can it speak?
+
+    The UI calls this on mount so it can say plainly whether natural-language
+    compilation is available instead of failing at submit time."""
+    from services import strategy_agent as sa
+    grammar = sa.rule_grammar()
+    return {
+        "available": sa.llm_available(),
+        "note": None if sa.llm_available() else
+                "No LLM API key configured. Set HUB_LLM_API_KEY (or "
+                "ANTHROPIC_API_KEY) to enable natural-language compilation. "
+                "The visual Strategy Builder works without it.",
+        "rule_types": sorted(grammar),
+        "rule_count": len(grammar),
+        "categories": sorted({m["category"] for m in grammar.values()}),
+    }
+
+
+@router.post("/strategy/ai-compile")
+def strategy_ai_compile(body: dict):
+    """Interpret a plain-English strategy into the engine's executable spec.
+
+    Returns the spec ONLY when it is grounded and valid; otherwise returns the
+    clarifying questions / errors that block compilation. Capability gaps the
+    engine cannot express are always reported, even with no LLM configured.
+    Never returns an invented or templated strategy."""
+    from services import strategy_agent as sa
+    text = (body.get("text") or "").strip()
+    answers = body.get("answers") or None
+    if len(text) > 8000:
+        raise HTTPException(400, "Strategy description is too long (8000 char max).")
+    out = sa.compile_strategy(text, answers)
+    # Plain-English read-back of what was actually compiled, straight from the
+    # engine's own describe() — so the user confirms the ENGINE's reading.
+    if out.get("spec"):
+        try:
+            from strategies.custom import describe
+            out["description"] = describe(out["spec"])
+        except Exception:  # noqa: BLE001 — read-back is a convenience, not a gate
+            out["description"] = None
+    return out
+
+
 @router.get("/strategy/custom")
 def custom_list():
     return _wa.custom_store.list()
