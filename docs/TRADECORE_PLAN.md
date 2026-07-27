@@ -204,7 +204,7 @@ trade's ORIGINAL risk. Pinned rather than fixed because this engine drives live
 trading: correcting R changes reported live numbers and must be an explicit,
 reviewed decision. **Suggested fix when approved:** keep the original
 `risk_per_unit` on the trade at entry and divide by that.
-| **S4.6** | Make live paper default fee-consistent with backtest (or make both configurable + documented) | R1 | **High** — changes live P&L numbers |
+| **S4.6** | ✅ **Done (opt-in).** `HUB_UNIFIED_FEES=1` makes live paper charge exactly what the research backtest charges — `DEFAULT_FEE_PCT + DEFAULT_SLIPPAGE_PCT = 0.0006` per side, sourced from `bot.tradecore.costs` so the two cannot drift. **Default OFF**, because enabling it changes live paper P&L and must be a deliberate choice. `HUB_FILL_MODEL=realistic` still wins as an explicit override. Verified: default 0.0 per side vs backtest 0.0006 (the R1 gap); with the flag both are 0.0006. | R1 | **High** — changes live P&L numbers |
 | **S4.7** | Tighten equivalence gate to exact-match; make it a required CI gate | proves the sprint | — |
 
 ### ✅ RESOLVED in S4.5a — TradeCore now lives in `bot/tradecore/`
