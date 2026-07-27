@@ -183,7 +183,17 @@ behaviour change disguised as a refactor, so it is deliberately **not** taken
 here. `tests/test_backtester_characterization.py` now pins the engine so that
 whenever this is done, the impact is visible.
 
-### 🐛 Pre-existing bug found by the S4.5 gate (pinned, NOT fixed)
+### ✅ FIXED — the break-even R bug (approved and corrected)
+
+R is now measured against `self._risk_per_unit`, captured **at entry**, so the
+break-even move can no longer collapse the denominator. The profitable
+remainder in the fixture reports **2.0R** instead of 0.0R. The same fix also
+cleared a **second latent effect**: when break-even fired *before* the partial,
+`_manage_open_trade` recomputed risk as 0 and returned early, silently
+**disabling partial-TP** for the rest of the trade — now covered by its own
+regression test. Both suites green (105 root + 920 hub).
+
+### 🐛 The bug as originally found (kept for the record)
 
 After T3b moves the stop to break-even, `planned_sl == entry_price`, so
 `risk_dollars = |entry - sl| * qty == 0` and `bot/backtester.py`'s

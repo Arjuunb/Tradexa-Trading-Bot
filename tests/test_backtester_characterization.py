@@ -124,27 +124,37 @@ def test_partial_take_profit_books_a_real_broker_fill():
     assert p["qty"] == pytest.approx(rest[0]["qty"])
 
 
-def test_breakeven_zeroes_the_reported_r_of_the_remainder():
-    """PINNED BUG (pre-existing, not introduced here).
+def test_breakeven_does_not_corrupt_the_remainder_r():
+    """REGRESSION TEST for the break-even R bug.
 
-    After T3b moves the stop to break-even, ``planned_sl == entry_price``, so
-    ``risk_dollars = |entry - sl| * qty == 0`` and bot/backtester.py's
-    ``r_multiple = net_pnl / risk_dollars if risk_dollars > 0 else 0.0`` reports
-    **0.0R for a profitable remainder**. The P&L is right (+$49.02 here); only
-    the R attribution is wrong, because it divides by the POST-break-even risk
-    instead of the trade's ORIGINAL risk.
+    T3b rewrites ``planned_sl`` to the entry price. R used to be computed from
+    that mutated stop, so ``risk_dollars`` collapsed to 0 and a profitable
+    remainder was reported as **0.0R** despite making +$49.02.
 
-    Pinned rather than fixed: this engine drives live trading, so correcting R
-    changes reported live numbers and must be an explicit, reviewed decision.
+    R is now measured against the risk taken AT ENTRY, which is the only
+    meaningful denominator, so the remainder correctly reports 2.0R
+    (entry 103 -> exit 107, original risk 2).
     """
     trades = _run(_series(14), fee_bps=0.0, slippage_bps=0.0,
                   partial_tp_r=1.0, partial_tp_frac=0.5, breakeven_after_r=1.0)
     rest = [t for t in trades if not t.get("is_partial")][0]
     assert rest["planned_sl"] == pytest.approx(rest["entry_price"])   # BE moved
     assert rest["exit_price"] == pytest.approx(107.0)                 # ran to target
-    assert rest["pnl"] > 0                                            # genuinely profitable
-    assert rest["pnl"] == pytest.approx(49.0196, abs=1e-3)
-    assert rest["r"] == 0.0            # <-- the misreport, pinned
+    assert rest["pnl"] == pytest.approx(49.0196, abs=1e-3)            # profitable
+    assert rest["r"] == pytest.approx(2.0)     # <-- corrected (was 0.0)
+    # and R stays consistent with P&L: same sign, non-zero for a winner
+    assert rest["r"] > 0
+
+
+def test_breakeven_before_partial_still_allows_partial_tp():
+    """Second latent effect of the same bug: when break-even fires BEFORE the
+    partial, recomputing risk from the mutated stop gave 0 and
+    ``_manage_open_trade`` bailed out early — silently disabling partial-TP for
+    the rest of the trade. Using the entry risk keeps it armed."""
+    trades = _run(_series(16), fee_bps=0.0, slippage_bps=0.0,
+                  breakeven_after_r=0.5, partial_tp_r=1.0, partial_tp_frac=0.5)
+    assert any(t.get("is_partial") for t in trades), \
+        "partial-TP must still fire after an earlier break-even move"
 
 
 def test_time_exit_is_pinned():
