@@ -380,36 +380,18 @@ def _cookie_kwargs() -> dict:
 # --------------------------------------------------------------- auth helpers
 def _sign_session(username: str) -> str:
     """Stateless signed session token (survives server restarts — important on
-    hosts that spin down): username|expiry|HMAC(secret, username|expiry)."""
-    import hashlib
-    import hmac as _hmac
-    import time
-    exp = str(int(time.time()) + SESSION_DAYS * 86400)
-    msg = f"{username}|{exp}"
-    # CR-1: sign with the server-only secret_key (HUB_SECRET), NOT the
-    # webhook_secret — the webhook secret is embedded in every authed page, so
-    # signing sessions with it would let any logged-in user forge an owner token.
-    sig = _hmac.new(settings.secret_key.encode(), msg.encode(),
-                    hashlib.sha256).hexdigest()
-    return f"{msg}|{sig}"
+    hosts that spin down). The HMAC itself lives in services.session_auth so the
+    API routers verify the same token with the same code, not a copy of it."""
+    from services.session_auth import sign
+    return sign(username, settings.secret_key, ttl_days=SESSION_DAYS)
 
 
 def _verify_session(token: str):
-    import hashlib
-    import hmac as _hmac
-    import time
-    try:
-        username, exp, sig = token.rsplit("|", 2)
-    except ValueError:
-        return None
-    msg = f"{username}|{exp}"
-    good = _hmac.new(settings.secret_key.encode(), msg.encode(),
-                     hashlib.sha256).hexdigest()
-    if not _hmac.compare_digest(sig, good):
-        return None
-    if int(exp) < time.time():
-        return None
-    return username if store.get_user(username) else None
+    """Authentic + unexpired + still a real account. session_auth answers the
+    first two; the user store answers the third."""
+    from services.session_auth import verify
+    username = verify(token, settings.secret_key)
+    return username if username and store.get_user(username) else None
 
 
 # --------------------------------------------------------------- JWT (Sprint 1)

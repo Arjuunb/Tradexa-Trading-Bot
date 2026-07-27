@@ -1,5 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import Card from "../components/common/Card";
+import StrategyCollab from "../components/strategy/StrategyCollab";
 import Icon from "../components/common/Icon";
 import Modal from "../components/common/Modal";
 import { PageHeader, StatCard } from "../components/common/ui";
@@ -498,6 +499,9 @@ export default function StrategyStudioPage() {
           </table>
         )}
       </Card>
+
+      {/* change log, discussion and sharing for the strategy being edited */}
+      {!!spec.id && <StrategyCollab sid={spec.id} toast={toast} />}
 
       <Modal open={!!histFor} title={`Version history — ${histFor?.name ?? ""}`} onClose={() => setHistFor(null)}>
         {versions == null ? <div className="dim">Loading…</div>

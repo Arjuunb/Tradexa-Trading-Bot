@@ -12,7 +12,7 @@ import hmac
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -455,6 +455,32 @@ def _check_secret(secret: Optional[str]) -> None:
     raise HTTPException(status_code=401, detail="Invalid or missing credential")
 
 
+def request_user(request) -> str:
+    """The author identity for a request — who is publishing / rating / commenting.
+
+    Reads the same signed cookie ``app.py`` mints, via the same code
+    (``services.session_auth``), then the Bearer JWT. Falls back to ``"owner"``
+    when neither resolves: on a single-owner install there is exactly one person,
+    and a stable label beats inventing an anonymous one. This is an AUTHOR name,
+    not a tenant key — it must not be the tenancy sentinel, which is a storage
+    concept and would leak ``__owner__`` into the UI as a byline."""
+    from services.session_auth import verify as _verify_cookie
+    try:
+        token = request.cookies.get("hub_session", "")
+    except Exception:  # noqa: BLE001 — a request without cookies is still valid
+        token = ""
+    user = _verify_cookie(token, settings.secret_key) if token else None
+    if not user:
+        try:
+            auth = request.headers.get("authorization", "")
+            if auth[:7].lower() == "bearer ":
+                from services.jwt_tokens import decode
+                user = (decode(auth[7:].strip(), settings.secret_key) or {}).get("sub")
+        except Exception:  # noqa: BLE001 — an unreadable token is simply not an identity
+            user = None
+    return user or "owner"
+
+
 
 
 
@@ -767,6 +793,16 @@ class NotifUpdate(BaseModel):
 # ------------------------------------------------- custom strategy builder
 from services.custom_store import CustomStore  # noqa: E402
 custom_store = CustomStore(settings.custom_path)
+
+# ------------------------------------------------- marketplace (publishing)
+from services.strategy_publisher import PublishStore  # noqa: E402
+publish_store = PublishStore(_os.path.join(_os.path.dirname(settings.custom_path),
+                                           "marketplace.json"))
+
+# ------------------------------------------------- collaboration (comments/shares)
+from services.strategy_collab import CollabStore  # noqa: E402
+collab_store = CollabStore(_os.path.join(_os.path.dirname(settings.custom_path),
+                                         "collab.json"))
 
 # ------------------------------------------------- evolution engine stores
 from services.lessons import LessonStore  # noqa: E402

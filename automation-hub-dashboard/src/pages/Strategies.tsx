@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge, PageHeader } from "../components/common/ui";
 import Card from "../components/common/Card";
+import PublishedStrategies from "../components/marketplace/PublishedStrategies";
 import Icon from "../components/common/Icon";
 import CustomBuilder from "../components/strategy/CustomBuilder";
 import { useApp } from "../app-context";
@@ -175,6 +176,9 @@ function Marketplace() {
           ))}
         </div>
       </Card>
+
+      {/* published listings — publish, browse, follow, rate, import */}
+      <PublishedStrategies toast={app.toast} />
     </>
   );
 }
