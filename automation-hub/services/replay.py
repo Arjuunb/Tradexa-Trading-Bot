@@ -27,6 +27,7 @@ from bot.data.indicators import atr, ema, true_range
 from bot.types import SignalType
 from services.mtf_engine import htf_consensus
 from services.regime import RegimeDetector
+from services.trade_manager import ManagedTrade, TradeManager
 from strategies.smc_strategy import SMCStrategy
 from tradecore.costs import cost_r as _cost_r
 
@@ -642,43 +643,40 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
             avg = sum(view[j].volume or 0 for j in range(li - 20, li)) / 20
             vol_ratio = (bar.volume / avg) if avg > 0 else 1.0
 
-        # ---------------- manage an open trade (multi-stage exits) ----------------
+        # ------------- manage an open trade (shared TradeManager, S4.4) -------------
+        # The multi-stage TP1 -> partial -> break-even -> TP2 behaviour is now the
+        # SHARED services/trade_manager.TradeManager, configured to replay's exact
+        # semantics (scale 50% at 1R, stop to break-even at the same 1R, final
+        # target = tp2, no trailing, no time stop). The blended-R formula is
+        # algebraically the one this block used to compute inline:
+        #     booked + (1 - PARTIAL_FRAC) * final_r
+        #   == scale_frac * part_r + (1 - scale_frac) * final_r   (part_r == TP1_R)
+        # Replay keeps ownership of the journal bookkeeping (markers/events/status).
         if pos is not None:
             s = pos["side"]
-            hit_sl = (bar.low <= pos["sl"]) if s == "long" else (bar.high >= pos["sl"])
-            if pos["stage"] == 0:
-                hit_tp1 = (bar.high >= pos["tp1"]) if s == "long" else (bar.low <= pos["tp1"])
-                if hit_sl:  # full stop before any partial -> -1R
-                    _close_trade(trades, pos, li, pos["sl"], "Stop loss hit", -1.0, trends, regime, events)
-                    pos = None
-                elif hit_tp1 and pos["partial"]:  # book a partial, move stop to break-even
-                    pos["booked"] = PARTIAL_FRAC * TP1_R
-                    pos["stage"] = 1
-                    pos["sl"] = pos["entry"]
-                    pos["tp1_idx"] = li
-                    tr = trades[pos["trade_ref"]]
-                    tr["tp1_idx"] = li
-                    tr["status"] = "Partial TP / BE"
-                    markers.append({"idx": li, "price": round(pos["tp1"], 6), "type": "TP1",
-                                    "side": "bull" if s == "long" else "bear"})
-                    events.append({"idx": li, "kind": "partial",
-                                   "text": f"Partial take-profit (+{TP1_R:g}R) — {int(PARTIAL_FRAC*100)}% "
-                                           f"booked, stop moved to break-even."})
-                elif hit_tp1 and not pos["partial"]:  # single-target trade
-                    r = (pos["tp1"] - pos["entry"]) / pos["risk"] if s == "long" else (pos["entry"] - pos["tp1"]) / pos["risk"]
-                    _close_trade(trades, pos, li, pos["tp1"], "Take profit reached", r, trends, regime, events)
-                    pos = None
-            elif pos["stage"] == 1:  # runner: break-even stop or final target
-                hit_tp2 = (bar.high >= pos["tp2"]) if s == "long" else (bar.low <= pos["tp2"])
-                if hit_sl:  # break-even stop on the remainder
-                    total = pos["booked"] + (1 - PARTIAL_FRAC) * 0.0
-                    _close_trade(trades, pos, li, pos["entry"], "Break-even stop after partial", total, trends, regime, events)
-                    pos = None
-                elif hit_tp2:
-                    r2 = (pos["tp2"] - pos["entry"]) / pos["risk"] if s == "long" else (pos["entry"] - pos["tp2"]) / pos["risk"]
-                    total = pos["booked"] + (1 - PARTIAL_FRAC) * r2
-                    _close_trade(trades, pos, li, pos["tp2"], "Final take-profit reached", total, trends, regime, events)
-                    pos = None
+            mt, mgr = pos["mt"], pos["mgr"]
+            act = mgr.on_bar(mt, bar.high, bar.low, bar.close)
+            if act.partial_price is not None:   # TP1 -> book the partial, stop to BE
+                pos["booked"] = PARTIAL_FRAC * TP1_R
+                pos["stage"] = 1
+                pos["sl"] = mt.stop             # TradeManager moved it to break-even
+                pos["tp1_idx"] = li
+                tr = trades[pos["trade_ref"]]
+                tr["tp1_idx"] = li
+                tr["status"] = "Partial TP / BE"
+                markers.append({"idx": li, "price": round(act.partial_price, 6), "type": "TP1",
+                                "side": "bull" if s == "long" else "bear"})
+                events.append({"idx": li, "kind": "partial",
+                               "text": f"Partial take-profit (+{TP1_R:g}R) — {int(PARTIAL_FRAC*100)}% "
+                                       f"booked, stop moved to break-even."})
+            if act.exit_price is not None:
+                if act.exit_reason == "stop":
+                    reason = "Break-even stop after partial" if mt.scaled else "Stop loss hit"
+                else:
+                    reason = "Final take-profit reached" if mt.scaled else "Take profit reached"
+                total = mgr.r_multiple(mt, act.exit_price, act.partial_price)
+                _close_trade(trades, pos, li, act.exit_price, reason, total, trends, regime, events)
+                pos = None
 
         # ---------------- score / trigger / entry ----------------
         side = 0
@@ -724,9 +722,19 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
                     "status": "Open", "partial": partial, "rr": None, "loss_analysis": None,
                     "regime": regime, "entry_time": bar.timestamp.isoformat(), "bars_held": None,
                 })
-                pos = {"side": "long" if side > 0 else "short", "entry": sig.entry, "sl": sig.stop_loss,
+                _side = "long" if side > 0 else "short"
+                # Shared management state: scale PARTIAL_FRAC at TP1_R and move the
+                # stop to break-even at the same point (replay's exact semantics);
+                # no trailing, no time stop. Non-partial trades disable scaling and
+                # simply run to tp2.
+                _mt = ManagedTrade(side=_side, entry=sig.entry, stop=sig.stop_loss,
+                                   target=tp2, risk=risk)
+                _mgr = TradeManager(be_at_r=TP1_R if partial else 0.0,
+                                    scale_at_r=TP1_R if partial else 0.0,
+                                    scale_frac=PARTIAL_FRAC, trail_r=0.0, max_hold_bars=0)
+                pos = {"side": _side, "entry": sig.entry, "sl": sig.stop_loss,
                        "tp1": tp1 if partial else tp2, "tp2": tp2, "risk": risk, "partial": partial,
-                       "stage": 0, "booked": 0.0, "tp1_idx": None,
+                       "stage": 0, "booked": 0.0, "tp1_idx": None, "mt": _mt, "mgr": _mgr,
                        "trade_ref": len(trades) - 1, "entry_idx": li, "regime": regime}
                 events.append({"idx": li, "kind": "entry",
                                "text": f"{pos['side'].title()} opened — score {score}/100, "
