@@ -559,6 +559,14 @@ export interface OptimisationSuggestion {
   expected_benefit: string; tradeoffs: string;
   confidence: "high" | "medium" | "low";
   patch: Record<string, unknown> | null;
+  /** The REAL trades this suggestion would have changed — count, their net R,
+   *  and a capped sample of the actual rows (never a description of them). */
+  affected?: {
+    count: number; net_r: number;
+    sample: { side: string; entry: number; exit: number; r: number;
+              result: string; exit_reason: string | null; entry_time: string;
+              bars_held: number | null; regime: string | null }[];
+  };
 }
 export interface StrategyFullReview {
   available: boolean; note?: string; bars_requested?: number;

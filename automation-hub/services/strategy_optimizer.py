@@ -30,8 +30,27 @@ _MED = "medium"
 _LOW = "low"
 
 
+_SAMPLE = 12       # affected-trade examples returned per suggestion
+
+
 def _ev(stat: str, value: Any) -> dict:
     return {"stat": stat, "value": value}
+
+
+def _trade_row(t: dict) -> dict:
+    """The fields a user needs to recognise a trade in the review."""
+    return {k: t.get(k) for k in
+            ("side", "entry", "exit", "r", "result", "exit_reason",
+             "entry_time", "exit_time", "bars_held", "regime")}
+
+
+def _affected(trades: list[dict], pred) -> dict:
+    """The REAL trades a suggestion would have changed — count, their net R, and
+    a sample. Never a description of trades: the actual rows."""
+    rows = [t for t in trades if pred(t)]
+    net = round(sum(float(t.get("r") or 0.0) for t in rows), 2)
+    return {"count": len(rows), "net_r": net,
+            "sample": [_trade_row(t) for t in rows[:_SAMPLE]]}
 
 
 def _session_by_label(label: str) -> Optional[dict]:
@@ -39,6 +58,17 @@ def _session_by_label(label: str) -> Optional[dict]:
         if s.get("label") == label:
             return s
     return None
+
+
+def _in_session_pred(label: str):
+    """Match trades whose real entry hour falls inside a named session."""
+    from services.strategy_review import _hour
+    preset = _session_by_label(label) or {}
+    start, end = int(preset.get("start", 0)), int(preset.get("end", 24))
+    def _p(t):
+        h = _hour(t.get("entry_time"))
+        return h is not None and start <= h < end
+    return _p
 
 
 def suggestions(spec: dict, results: Optional[dict]) -> list[dict]:
@@ -72,6 +102,7 @@ def suggestions(spec: dict, results: Optional[dict]) -> list[dict]:
                                   "becomes smaller — the edge may not hold out of sample."),
                     "confidence": _HIGH if worst["trades"] >= 15 else _MED,
                     "patch": {"session": {"start": preset["start"], "end": preset["end"]}},
+                    "affected": _affected(trades, _in_session_pred(worst["session"])),
                 })
 
     # 2. One side loses while the other pays -> trade the profitable side only.
@@ -92,6 +123,7 @@ def suggestions(spec: dict, results: Optional[dict]) -> list[dict]:
                 "tradeoffs": "Halves the opportunity set and gives up any hedging effect.",
                 "confidence": _HIGH,
                 "patch": {"side": keep},
+                "affected": _affected(trades, lambda t: str(t.get("side")) == drop),
             })
 
     # 3. Drawdown large relative to return -> size down.
@@ -129,6 +161,7 @@ def suggestions(spec: dict, results: Optional[dict]) -> list[dict]:
                           "that often follows."),
             "confidence": _MED,
             "patch": {"max_consecutive_losses": max(3, int(streak) - 2)},
+            "affected": _affected(trades, lambda t: float(t.get("r") or 0) <= 0),
         })
 
     # 5. Fixed-% stop while volatility varies -> ATR stop.
@@ -187,8 +220,12 @@ def suggestions(spec: dict, results: Optional[dict]) -> list[dict]:
                           "those exits happen, so this one is for you to judge."),
             "confidence": _MED,
             "patch": None,          # deliberately not auto-applicable
+            "affected": _affected(
+                trades, lambda t: str(t.get("exit_reason")) == w["exit_reason"]),
         })
 
+    for sug in out:
+        sug.setdefault("affected", {"count": 0, "net_r": 0.0, "sample": []})
     order = {_HIGH: 0, _MED: 1, _LOW: 2}
     return sorted(out, key=lambda s: order.get(s["confidence"], 3))
 
