@@ -789,6 +789,10 @@ provider_settings = ProviderSettings(settings.providers_path)
 class SimRequest(BaseModel):
     spec: dict
     bars: int = 3000
+    # Optional named window (3M|6M|1Y|3Y|5Y). Resolved to candles server-side
+    # from the spec's own timeframe, so "1Y" means a year on every timeframe and
+    # the range->bars maths lives in exactly one place.
+    range: Optional[str] = None
 
 
 

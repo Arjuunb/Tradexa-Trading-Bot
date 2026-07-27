@@ -7,7 +7,7 @@ import { useApp } from "../app-context";
 import {
   apiPostJson, apiGet, apiDelete, useLive,
   type BlockCatalog, type BlockDef, type CustomRule, type CustomSpec,
-  type SimResult, type AIStrategyReview, type StrategyVersion,
+  type SimResult, type AIStrategyReview, type StrategyVersion, type EvidenceReview,
 } from "../lib/api";
 
 // Compact field-level diff between two strategy definitions (version vs current).
@@ -48,6 +48,10 @@ export default function StrategyStudioPage() {
 
   const [spec, setSpec] = useState<CustomSpec>(EMPTY);
   const [sim, setSim] = useState<SimResult | null>(null);
+  // Backtest window — a named range means the same SPAN on every timeframe
+  // (the server converts it to candles using the spec's own timeframe).
+  const [range, setRange] = useState<string>("1Y");
+  const [evidence, setEvidence] = useState<EvidenceReview | null>(null);
   const [review, setReview] = useState<AIStrategyReview | null>(null);
   const [busy, setBusy] = useState<string>("");
   const [mode, setMode] = useState<"form" | "canvas">("form");
@@ -81,9 +85,19 @@ export default function StrategyStudioPage() {
   const setExitRule = (i: number, r: CustomRule) => patchExit({ rules: exitRules.map((x, j) => (j === i ? r : x)) });
   const delExitRule = (i: number) => patchExit({ rules: exitRules.filter((_, j) => j !== i) });
 
+  const runEvidence = async () => {
+    setBusy("evidence");
+    try {
+      setEvidence(await apiPostJson<EvidenceReview>(
+        "/strategy/evidence-review", { spec, range }));
+    } catch { toast("Evidence review failed", "error"); } finally { setBusy(""); }
+  };
+
   const backtest = async () => {
     setBusy("sim");
-    try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, bars: 3000 })); }
+    // `range` is resolved to candles SERVER-side (one implementation, using the
+    // spec's own timeframe) so the client never duplicates that maths.
+    try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range })); }
     catch { toast("Backtest failed", "error"); } finally { setBusy(""); }
   };
   const aiReview = async () => {
@@ -194,8 +208,16 @@ export default function StrategyStudioPage() {
         <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
         <div className="chips">{(["long", "short"] as const).map((s) => <button key={s} className={`chip-btn ${spec.side === s ? "active" : ""}`} onClick={() => patch({ side: s })}>{s}</button>)}</div>
         <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
+        {/* backtest window — the same SPAN on every timeframe (resolved server-side) */}
+        <span className="chips" style={{ gap: 4 }} title="Backtest window">
+          {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
+            <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
+              onClick={() => { setRange(k); setSim(null); setEvidence(null); }}>{k}</button>
+          ))}
+        </span>
         <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
         <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
+        <button className="btn btn-soft" onClick={runEvidence} disabled={busy === "evidence"}><Icon name="ai" size={13} /> {busy === "evidence" ? "Analysing…" : "Evidence Review"}</button>
         <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
         <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
       </div>
@@ -321,6 +343,77 @@ export default function StrategyStudioPage() {
           {(catalog?.categories ?? []).map((c) => <optgroup key={c.key} label={c.label}>{c.blocks.map((b) => <option key={b.type} value={b.type}>{b.label}</option>)}</optgroup>)}
         </select>
       </Card>
+
+      {/* Evidence review — every claim carries the statistic that produced it,
+          and dimensions the trade data can't support are declared, not guessed. */}
+      {evidence && (
+        <Card title="Evidence Review"
+              subtitle={evidence.available
+                ? `From ${evidence.trades_reviewed} real trades over ${range}`
+                : "No backtest to review"}>
+          {!evidence.available ? (
+            <div className="dim" style={{ padding: 10 }}>{evidence.note}</div>
+          ) : (
+            <div className="grid-2-eq">
+              <div>
+                <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: .6, marginBottom: 4 }}>Strengths</div>
+                {evidence.strengths.map((f, i) => (
+                  <div key={i} style={{ fontSize: 12.5, marginBottom: 5 }}>
+                    <span className="pos">✓</span> {f.claim}
+                    <span className="dim"> — {f.stat}: <b>{String(f.value)}</b></span>
+                  </div>
+                ))}
+                {!evidence.strengths.length && <div className="dim" style={{ fontSize: 12 }}>None found.</div>}
+
+                <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: .6, margin: "10px 0 4px" }}>Weaknesses</div>
+                {evidence.weaknesses.map((f, i) => (
+                  <div key={i} style={{ fontSize: 12.5, marginBottom: 5 }}>
+                    <span className="neg">!</span> {f.claim}
+                    <span className="dim"> — {f.stat}: <b>{String(f.value)}</b></span>
+                  </div>
+                ))}
+                {!evidence.weaknesses.length && <div className="dim" style={{ fontSize: 12 }}>None found.</div>}
+              </div>
+
+              <div>
+                {!!evidence.sessions.length && (
+                  <>
+                    <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: .6, marginBottom: 4 }}>By session</div>
+                    <table className="data-table"><tbody>
+                      {evidence.sessions.map((s) => (
+                        <tr key={s.session}>
+                          <td>{s.session}</td>
+                          <td className="mono dim">{s.trades} trades</td>
+                          <td className={`mono ${s.net_r >= 0 ? "pos" : "neg"}`}>{s.net_r > 0 ? "+" : ""}{s.net_r}R</td>
+                          <td className="mono dim">{s.win_rate}%</td>
+                        </tr>
+                      ))}
+                    </tbody></table>
+                  </>
+                )}
+                {evidence.most_common_loss && (
+                  <div style={{ fontSize: 12.5, marginTop: 8 }}>
+                    <span className="dim">Most common losing exit: </span>
+                    <b>{evidence.most_common_loss.exit_reason}</b>
+                    <span className="dim"> ({evidence.most_common_loss.trades} trades)</span>
+                  </div>
+                )}
+                {/* declared limits — asked for, but not answerable from this data */}
+                {!!evidence.not_derivable.length && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="dim" style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: .6 }}>Not answerable from this data</div>
+                    {evidence.not_derivable.map((q, i) => (
+                      <div key={i} className="dim" style={{ fontSize: 11.5, marginTop: 4 }}>
+                        <b>{q.question}</b> — {q.why}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* AI review + backtest */}
       <div className="grid-2-eq">
