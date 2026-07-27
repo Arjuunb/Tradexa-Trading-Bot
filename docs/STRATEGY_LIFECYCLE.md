@@ -90,9 +90,49 @@ holds — what is wrong is the *label*, and that is reported as a
 correctly: there the whole point is comparing one timeframe against another, so a
 mismatch fabricates the answer.
 
+Since the resampling fix (next section), no bundled-sample request trips either check —
+they remain as a safety net for a live feed or a partial sync that returns the
+wrong candle size.
+
 `POST /strategy/monitor` (on-demand, arbitrary spec) ·
 `GET /strategy/monitor/status` (last evaluation, no recomputation) ·
 `POST /strategy/monitor/check` (force a cycle).
+
+## Timeframes are real
+
+The bundled sample CSVs are 1-hour candles, and `get_bars` used to return them
+unchanged for **any** requested timeframe. A "4h strategy" was silently a 1h
+strategy, and the multi-timeframe sweep was comparing a series against itself —
+which is what the sweep's integrity check caught.
+
+`bot/data/resample.py` fixes it at the source. Aggregating N candles into one is
+exact — open of the first, high of the highest, low of the lowest, close of the
+last, volume summed — so a 4h candle built from four real 1h candles *is* the 4h
+candle. Four rules keep it honest:
+
+- **Downsample only.** 1h → 4h is aggregation; 1h → 15m would mean inventing
+  price action inside an hour nobody recorded, so it is refused and the request
+  falls through to the next source in the ladder.
+- **Whole multiples only.** 1h → 4h (×4) and 4h → 1d (×6) work; 4h → 6h does not.
+- **Aligned to exchange buckets.** 4h candles start at 00:00 / 04:00 / 08:00 UTC,
+  so a result can be checked against any chart.
+- **No partial trailing candle.** A bucket short of its source candles is a bar
+  the market has not closed; emitting it would let a strategy trade on it.
+
+Measured on the bundled BTC sample: 2000×1h → 500×4h → 83×1d, every one passing
+`timeframe_matches`.
+
+The same aggregation applies to the **local synced store**: one `/data/sync` at
+1h now also answers 4h, 6h, 12h and 1d from those real candles. Without it,
+asking for 4h after syncing 1h dropped through to the bundled sample — swapping
+real data for demo data purely because of a label.
+
+**A limitation this exposes.** 2000 hourly candles is 83 days. That is plenty for
+1h, thin for 4h (a typical spec produced 4 trades), and not enough for 1d. The
+sweep flags thin cells and the review refuses to score them — but the real answer
+is more history: run `/data/sync` to populate the local store, or set
+`HUB_USE_LIVE_DATA=1`. The fix makes the candles correct; it cannot make the
+sample longer.
 
 ## 8 · Marketplace
 

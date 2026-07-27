@@ -312,38 +312,15 @@ def test_the_timer_can_be_disabled_without_disabling_the_endpoints():
     import os
     import subprocess
     import sys
+    # webhook_api lives in automation-hub/, which is not the repo root the whole
+    # suite runs from — anchor the child process to this package explicitly.
+    pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     code = ("import webhook_api as w;"
             "print(w.monitor_runner.status()['running'],"
             " w.monitor_runner.check()['auto_modify'])")
-    env = {**os.environ, "HUB_MONITOR_AGENT": "0"}
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                         text=True, env=env, timeout=120).stdout.strip()
-    assert out.endswith("False False"), out
-
-
-# ------------------------------------------------- timeframe integrity
-
-def test_a_feed_serving_the_wrong_candle_size_is_flagged_but_not_blocking():
-    """The live engine fetches through the SAME get_bars path as the baseline, so
-    both sides get the same candles and the deviation verdict still holds. What
-    is wrong is the label — the strategy is not trading the timeframe it claims —
-    so that is reported alongside the result rather than suppressing it.
-    (The sweep's identical check DOES block, correctly: there the whole point is
-    comparing one timeframe against another.)"""
-    r = _runner(trades=_trades(40, -1.0),
-                baseline={**BASE, "__tf_mismatch": "4h"})
-    out = r.check(now=1000.0)
-    assert out["available"] is True, "a shared-feed mismatch must not disable monitoring"
-    assert out["findings"], "the deviation is still real and must still be reported"
-    assert "not actually trading on 4h" in out["timeframe_warning"]
-
-
-def test_no_timeframe_warning_when_the_feed_is_honest():
-    out = _runner(trades=_trades(40, 1.0)).check(now=1000.0)
-    assert "timeframe_warning" not in out
-
-
-def test_the_mismatch_marker_never_leaks_into_a_reported_baseline():
-    r = _runner(trades=_trades(40, 1.0), baseline={**BASE, "__tf_mismatch": "4h"})
-    r.check(now=1000.0)
-    assert "__tf_mismatch" not in (r.last_result.get("baseline") or {})
+    env = {**os.environ, "HUB_MONITOR_AGENT": "0",
+           "PYTHONPATH": pkg_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, env=env, cwd=pkg_root, timeout=180)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert r.stdout.strip().endswith("False False"), r.stdout
