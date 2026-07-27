@@ -2,6 +2,7 @@ import { useState } from "react";
 import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
+import StrategySweep from "./StrategySweep";
 import {
   apiPostJson,
   type CustomSpec, type OptimisationSuggestion, type Scorecard,
@@ -174,6 +175,9 @@ export default function StrategyReviewDashboard({
           )}
         </Card>
       </div>
+
+      {/* sweep — answers best asset / timeframe, which one backtest cannot */}
+      <StrategySweep spec={spec} range={range} toast={toast} />
 
       {/* ── monthly ── */}
       {!!sc.monthly.length && (
