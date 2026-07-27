@@ -100,12 +100,40 @@ def test_hold_time_insight_flags_holding_losers_too_long():
 
 # ------------------------------------------------ declared limits, not invented
 
-def test_undeliverable_dimensions_are_declared():
-    """The spec asked for market-conditions and best-asset analysis; the trade
-    record cannot support either, so they must be declared rather than faked."""
+def test_regime_breakdown_is_real_evidence_when_the_brain_tagged_trades():
+    """The quality filter records the market regime at entry, so market-condition
+    performance is measured, not inferred."""
+    trades = ([_trade(2.0, 9) | {"regime": "Trending"} for _ in range(8)]
+              + [_trade(-1.0, 9) | {"regime": "Ranging"} for _ in range(8)])
+    out = evidence_review({}, {"trades": trades})
+    assert out["best_regime"]["regime"] == "Trending"
+    assert out["worst_regime"]["regime"] == "Ranging"
+    assert any("Performs best in Trending" in s["claim"] for s in out["strengths"])
+    assert any("Loses money in Ranging" in w["claim"] for w in out["weaknesses"])
+    # ...and it is no longer listed as un-answerable
+    assert not any("market conditions" in q["question"].lower()
+                   for q in out["not_derivable"])
+
+
+def test_regime_verdict_needs_a_minimum_sample():
+    out = evidence_review({}, {"trades": [_trade(5.0, 9) | {"regime": "Trending"}]})
+    assert out["best_regime"] is None
+
+
+def test_missing_regime_tags_are_declared_with_the_reason():
+    """With the quality filter off, trades carry no regime — say so and explain
+    how to get it, rather than inferring conditions from price alone."""
     out = evidence_review({}, {"trades": [_trade(1.0, 9) for _ in range(10)]})
     qs = " ".join(q["question"] for q in out["not_derivable"])
     assert "market conditions" in qs.lower()
+    assert any("quality filter" in q["why"] for q in out["not_derivable"])
+
+
+def test_asset_ranking_is_always_declared_unanswerable():
+    """A spec runs on ONE symbol, so this stays un-answerable regardless."""
+    trades = [_trade(1.0, 9) | {"regime": "Trending"} for _ in range(10)]
+    out = evidence_review({}, {"trades": trades})
+    qs = " ".join(q["question"] for q in out["not_derivable"])
     assert "profitable asset" in qs.lower()
     for q in out["not_derivable"]:
         assert q["why"]
