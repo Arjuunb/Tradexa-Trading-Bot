@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import Card from "../components/common/Card";
 import StrategyCollab from "../components/strategy/StrategyCollab";
+import StrategyLifecycle from "../components/strategy/StrategyLifecycle";
 import Icon from "../components/common/Icon";
 import Modal from "../components/common/Modal";
 import { PageHeader, StatCard } from "../components/common/ui";
@@ -499,6 +500,10 @@ export default function StrategyStudioPage() {
           </table>
         )}
       </Card>
+
+      {/* the nine stages for THIS strategy — the connective tissue between the
+          pages that each own one stage */}
+      {!!spec.id && <StrategyLifecycle sid={spec.id} />}
 
       {/* change log, discussion and sharing for the strategy being edited */}
       {!!spec.id && <StrategyCollab sid={spec.id} toast={toast} />}

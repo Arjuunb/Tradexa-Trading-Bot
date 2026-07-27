@@ -1309,6 +1309,54 @@ def custom_history(sid: str):
         raise _wa.HTTPException(404, "Strategy not found")
     return {"id": sid, "versions": versions}
 
+@router.get("/strategy/custom/{sid}/lifecycle")
+def custom_lifecycle(sid: str, request: _wa.Request, range: str = "1Y"):
+    """Where this strategy is across all nine stages, and what it needs next.
+
+    Every signal is observed state — the saved spec, a real backtest, the paper
+    ledger, the running engine, the monitor, the marketplace and the share
+    grants. Nothing here is a checkbox a user ticks."""
+    from services.strategy_lifecycle import evaluate
+    from services.strategy_review import bars_for_range
+    spec = _wa.custom_store.get(sid)
+    if not spec:
+        raise HTTPException(404, "Strategy not found")
+
+    backtest = None
+    if (spec.get("entry") or {}).get("rules"):
+        try:
+            backtest = _run_spec(spec, bars_for_range(spec.get("timeframe", "4h"), range))
+        except Exception:  # noqa: BLE001 — an untested stage is a state, not a 500
+            backtest = None
+
+    deployed_spec = getattr(_wa.engine, "deployed_spec", None) or {}
+    deployed = bool(deployed_spec.get("id") and deployed_spec.get("id") == sid)
+
+    # Attributed trades are this strategy's; if it has none we fall back to the
+    # account's history and SAY so, because trades taken before attribution
+    # existed belong to whatever was running, not to this strategy.
+    trades = _wa.paper.strategy_history(sid)
+    attributed = bool(trades)
+    if not trades:
+        trades = _wa.paper.history()
+    from services.monitor_agent import live_metrics
+    pm = live_metrics(trades)
+
+    listing = next((l for l in _wa.publish_store.browse()
+                    if (l.get("spec") or {}).get("id") == sid), None)
+
+    return evaluate(
+        spec=spec, backtest=backtest,
+        paper={"trades": pm["total_trades"], "net_r": pm["net_r"],
+               "attributed": attributed},
+        deployed=deployed,
+        monitor=(_wa.monitor_runner.status() or {}).get("result"),
+        listing=listing,
+        shares=_wa.collab_store.shares(sid),
+        comments=len(_wa.collab_store.comments(sid)),
+    )
+
+
 @router.get("/strategy/custom/{sid}/changelog")
 def custom_changelog(sid: str):
     """What actually changed at each version, DERIVED from the stored snapshots.
@@ -1478,6 +1526,9 @@ def custom_deploy(sid: str, x_webhook_secret: _wa.Optional[str] = _wa.Header(def
         label=f"Custom: {name}",
         spec=spec,       # so the monitoring agent baselines what is really running
     )
+    # Attribute everything this deployment trades to this strategy, so its paper
+    # record is its own rather than the account's.
+    _wa.paper.strategy_id = spec.get("id") or ""
     _wa.ledger.log(level="info", stage="engine", message=f"Deployed custom strategy '{name}' to paper trading")
     _wa.ledger.add_alert(severity="info", category="system", title="Custom strategy deployed",
                      detail=f"{name} — paper mode (simulation only, no live broker)")

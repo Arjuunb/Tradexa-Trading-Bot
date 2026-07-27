@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Protocol
 
-from data.tenant_scope import ensure_tenant_column
+from data.tenant_scope import ensure_column, ensure_tenant_column
 
 _SCHEMA = (Path(__file__).resolve().parent / "ledger_schema.sql").read_text(encoding="utf-8")
 
@@ -74,6 +74,15 @@ class SqliteLedger:
             # single-owner behaviour is unchanged. See docs/PHASE_C_TENANCY.md.
             for _t in ("webhook_events", "positions", "paper_trades", "bot_logs", "alerts"):
                 ensure_tenant_column(self._c, _t)
+            # Per-strategy attribution. Without it the paper account is a single
+            # undifferentiated track record: "how did THIS strategy do in paper?"
+            # is unanswerable, and switching deployed strategy silently blends two
+            # strategies' trades into one history. Rows written before this
+            # migration keep an empty strategy_id and are reported as the
+            # account's, never as a particular strategy's.
+            ensure_column(self._c, "paper_trades", "strategy_id")
+            self._c.execute("CREATE INDEX IF NOT EXISTS idx_paper_strategy "
+                            "ON paper_trades(strategy_id, closed_at)")
             self._c.commit()
 
     # ----------------------------------------------------------- webhook
@@ -153,10 +162,11 @@ class SqliteLedger:
         tid = trade.get("id") or _id()
         with self._lock:
             self._c.execute(
-                "INSERT INTO paper_trades(id,alert_id,symbol,side,size,entry,stop,status,opened_at)"
-                " VALUES (?,?,?,?,?,?,?, 'open', ?)",
+                "INSERT INTO paper_trades(id,alert_id,symbol,side,size,entry,stop,status,"
+                "opened_at,strategy_id) VALUES (?,?,?,?,?,?,?, 'open', ?,?)",
                 (tid, trade.get("alert_id"), trade["symbol"], trade["side"], trade["size"],
-                 trade["entry"], trade.get("stop"), _now()))
+                 trade["entry"], trade.get("stop"), _now(),
+                 trade.get("strategy_id") or ""))
             self._c.commit()
         return tid
 

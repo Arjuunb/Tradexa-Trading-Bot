@@ -584,6 +584,27 @@ export interface TuneResult {
   suggestions: TuneSuggestion[];
 }
 
+/** Where a strategy stands across all nine lifecycle stages. Every state is
+ *  derived from evidence that exists; "unknown" means the stage leaves no
+ *  record (replay), not that it was skipped. */
+export interface LifecycleStage {
+  key: string; n: number; title: string; page: string; purpose: string;
+  state: "done" | "ready" | "blocked" | "unknown";
+  detail: string;
+  evidence: { stat: string; value: unknown }[];
+  action?: string | null;
+  blocked_by?: string | null;
+  caveat?: string;
+}
+export interface Lifecycle {
+  available: boolean;
+  strategy?: { id: string; name: string; symbol?: string; timeframe?: string };
+  stages: LifecycleStage[];
+  completed: number; total: number; unknown: number;
+  next?: LifecycleStage | null;
+  note?: string | null;
+}
+
 /** Versioning & collaboration. Changelog entries are DERIVED server-side by
  *  diffing stored version snapshots — nobody authors them, so the log cannot
  *  drift from the strategy it describes. */
@@ -878,6 +899,11 @@ export interface ReplayData {
           start: string | null; end: string | null; htf_available: Record<string, boolean>;
           strategy?: string; data_source_label?: string; data_is_real?: boolean;
           data_warning?: string | null; needs_download?: boolean; note?: string;
+          /** Replay supports only 1m/3m/5m/15m execution. A coarser strategy is
+           *  run at 15m — a DIFFERENT strategy from the one backtested — so the
+           *  swap is reported rather than applied silently. */
+          requested_timeframe?: string; timeframe_substituted?: boolean;
+          timeframe_note?: string | null;
           viz?: ReplayViz;
           debug?: { strategy_id: string; strategy_class: string; candles_loaded: number;
                     warmup_bars: number; trades_generated: number; data_source: string;

@@ -47,6 +47,11 @@ class PaperExecutionEngine:
         # Cache the closed-trade list and invalidate on any write, so one
         # process() call scans the ledger once, not ten times.
         self._hist_cache = None
+        # Which strategy's trades these are. Set when a rule spec is deployed;
+        # "" means the trade was taken by a built-in strategy or predates
+        # attribution, and is reported as the ACCOUNT's rather than any one
+        # strategy's — see strategy_history().
+        self.strategy_id = ""
 
     # --------------------------------------------------------------- queries
     def open_position(self, symbol: str) -> Optional[dict]:
@@ -63,6 +68,16 @@ class PaperExecutionEngine:
             self._hist_cache = [t for t in self.ledger.get_paper_trades()
                                 if t["status"] == "closed"]
         return self._hist_cache
+
+    def strategy_history(self, strategy_id: str) -> list[dict]:
+        """Closed trades belonging to ONE strategy.
+
+        Trades written before attribution carry an empty strategy_id and are
+        deliberately excluded: counting them would credit this strategy with a
+        record it did not produce."""
+        if not strategy_id:
+            return []
+        return [t for t in self.history() if t.get("strategy_id") == strategy_id]
 
     def _invalidate_history(self) -> None:
         self._hist_cache = None
@@ -129,6 +144,7 @@ class PaperExecutionEngine:
         tid = self.ledger.record_paper_trade({
             "alert_id": alert_id, "symbol": symbol, "side": direction,
             "size": size, "entry": entry, "stop": stop,
+            "strategy_id": self.strategy_id,
         })
         self._invalidate_history()
         return FillResult("opened", symbol, direction, size, entry, 0.0, pid, tid)
@@ -164,6 +180,7 @@ class PaperExecutionEngine:
         self.ledger.record_paper_trade({
             "alert_id": "", "symbol": symbol, "side": pos["side"],
             "size": remainder, "entry": pos["entry"], "stop": pos.get("stop"),
+            "strategy_id": self.strategy_id,
         })
         self._invalidate_history()
         self._persist_account_snapshot()

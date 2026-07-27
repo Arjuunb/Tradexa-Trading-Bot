@@ -19,10 +19,9 @@ from typing import Callable, Optional
 
 from bot.types import Bar
 
-_TF_S = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-         "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400}
-
-
+# Candle durations come from bot.data.resample — the one definition. This used
+# to be a local copy, and six copies of the same fact had already drifted apart.
+from bot.data.resample import TF_SECONDS as _TF_S  # noqa: E402
 def _to_pair(symbol: str) -> str:
     s = symbol.upper().replace("/", "")
     for quote in ("USDT", "USDC", "BUSD", "USD"):
