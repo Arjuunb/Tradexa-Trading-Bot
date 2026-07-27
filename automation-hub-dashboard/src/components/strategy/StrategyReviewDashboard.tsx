@@ -4,6 +4,7 @@ import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
 import StrategySweep from "./StrategySweep";
 import ReviewEquityChart from "./ReviewEquityChart";
+import StrategyTuner from "./StrategyTuner";
 import {
   apiPostJson,
   type CustomSpec, type OptimisationSuggestion, type Scorecard,
@@ -208,6 +209,9 @@ export default function StrategyReviewDashboard({
           </div>
         </Card>
       </div>
+
+      {/* measured parameter tuning — the empirical counterpart to the heuristics */}
+      <StrategyTuner spec={spec} range={range} onUseOptimised={onUseOptimised} toast={toast} />
 
       {/* sweep — answers best asset / timeframe, which one backtest cannot */}
       <StrategySweep spec={spec} range={range} toast={toast} />

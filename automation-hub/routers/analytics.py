@@ -914,6 +914,26 @@ def strategy_full_review(body: dict):
             "suggestions": suggestions(spec, results)}
 
 
+@router.post("/strategy/tune")
+def strategy_tune(body: dict):
+    """Test neighbouring parameter values and return only the ones that
+    MEASURABLY beat the current settings on the same data.
+
+    Unlike the heuristic suggestions, each result here carries the backtest it
+    won — the benefit is observed, not predicted. Nothing is applied.
+    Body: {spec, range?, limit?}."""
+    from services.strategy_review import bars_for_range
+    from services.strategy_tuner import MAX_VARIANTS, make_runner, tune
+    spec = body.get("spec") or {}
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    rng = body.get("range") or "1Y"
+    limit = max(1, min(int(body.get("limit") or MAX_VARIANTS), MAX_VARIANTS))
+    out = tune(spec, make_runner(bars_for_range, rng), limit=limit)
+    out["range"] = rng
+    return out
+
+
 @router.post("/strategy/sweep")
 def strategy_sweep(body: dict):
     """Run the SAME spec across symbols x timeframes to answer "best asset" and
