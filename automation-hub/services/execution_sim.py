@@ -12,7 +12,7 @@ from __future__ import annotations
 import random
 from typing import Optional
 
-from tradecore.costs import cost_r as _cost_r
+from bot.tradecore.costs import cost_r as _cost_r
 
 DEFAULTS = {
     "spread_pct": 0.0002,        # half-spread paid each side

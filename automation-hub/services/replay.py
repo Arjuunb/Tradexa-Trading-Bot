@@ -29,7 +29,7 @@ from services.mtf_engine import htf_consensus
 from services.regime import RegimeDetector
 from services.trade_manager import ManagedTrade, TradeManager
 from strategies.smc_strategy import SMCStrategy
-from tradecore.costs import cost_r as _cost_r
+from bot.tradecore.costs import cost_r as _cost_r
 
 # Execution timeframe -> how many execution bars make one higher-tf candle.
 # Intraday timeframes (1m/3m/5m) are where an automated strategy belongs; higher

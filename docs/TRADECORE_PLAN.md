@@ -166,7 +166,18 @@ This test is the contract the rest of Sprint 4 is measured against.
 | **S4.6** | Make live paper default fee-consistent with backtest (or make both configurable + documented) | R1 | **High** — changes live P&L numbers |
 | **S4.7** | Tighten equivalence gate to exact-match; make it a required CI gate | proves the sprint | — |
 
-### ⚠️ Structural blocker found during S4.3 — `bot/` cannot import `tradecore`
+### ✅ RESOLVED in S4.5a — TradeCore now lives in `bot/tradecore/`
+
+The blocker below is fixed. `tradecore` (and `trade_manager`) moved into
+**`bot/tradecore/`** — `bot` is the repo-root package the editable install
+already maps (`{'bot': '<repo>/bot'}`, and CI runs `pip install -e ".[dev]"`),
+so it is importable from *both* the root test suite and `automation-hub/` with
+**no new packaging mechanism**. `automation-hub/services/trade_manager.py`
+remains as a re-export shim, so all 16 existing import sites keep working.
+Verified: `bot/` imports TradeCore with `automation-hub` off `sys.path`; both
+suites green (96 root + 920 hub).
+
+### ⚠️ Structural blocker found during S4.3 (now resolved above)
 
 `tradecore` lives in `automation-hub/`, but **Family B (`bot/backtester.py`,
 `bot/multi_backtester.py`) is a repo-ROOT package**, and the root-level test
