@@ -584,6 +584,57 @@ export interface TuneResult {
   suggestions: TuneSuggestion[];
 }
 
+/** Versioning & collaboration. Changelog entries are DERIVED server-side by
+ *  diffing stored version snapshots — nobody authors them, so the log cannot
+ *  drift from the strategy it describes. */
+export interface ChangelogEntry {
+  v: number | "current"; at?: string; name?: string;
+  changes: string[];
+  detail?: { changed: boolean; rules: unknown[]; fields: unknown[]; summary: string[] } | null;
+}
+export interface Changelog {
+  available: boolean; entries: ChangelogEntry[]; versions?: number;
+  note?: string; id?: string;
+}
+export interface StrategyComment {
+  id: string; author: string; body: string;
+  version?: number | string | null; reply_to?: string | null;
+  at: string; edited_at?: string | null; deleted?: boolean;
+}
+export interface StrategyShares {
+  strategy_id: string; owner?: string | null;
+  grants: Record<string, { role: string; at: string; by: string }>;
+  me?: string; my_role?: string | null; roles?: string[];
+}
+
+/** A published marketplace listing. `verified` metrics are produced by a
+ *  backtest the SERVER ran — the publish endpoint accepts no numbers — and
+ *  `history` is append-only, so a strategy that got worse shows that it did. */
+export interface ListingSnapshot {
+  version: string; ran_at: string; range: string;
+  symbol?: string; timeframe?: string;
+  metrics: Record<string, number>;
+}
+export interface Listing {
+  id: string; publisher: string; name: string; description: string; version: string;
+  symbol?: string; timeframe?: string; side?: string; tags: string[];
+  verified: ListingSnapshot;
+  risk: {
+    risk_per_trade_pct?: number; stop?: string; target?: string;
+    max_drawdown_r?: number; max_consecutive_losses?: number; losses?: number;
+  };
+  history: ListingSnapshot[];
+  publish_count: number;
+  rating: { count: number; average: number | null; note?: string; distribution?: Record<string, number> };
+  reviews: { user: string; stars: number; comment?: string; at?: string }[];
+  imports: number; published_at: string; updated_at: string;
+  spec?: CustomSpec;
+}
+export interface ListingsResponse {
+  listings: Listing[]; count: number; sort: string;
+  me?: string | null; following: string[];
+}
+
 /** AI Monitoring Agent — live behaviour measured against this strategy's own
  *  backtest. Advisory only: `auto_modify` is always false and every finding
  *  carries a recommendation a human performs. */

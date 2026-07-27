@@ -133,6 +133,116 @@ def marketplace_clone_template(body: _wa.CloneTemplateBody, x_webhook_secret: _w
         raise _wa.HTTPException(400, r["error"])
     return r
 
+# ---------------------------------------------------------- marketplace (publish)
+# Publishing is deliberately narrow: you may list, delist, rate, follow and
+# import. There is no endpoint that accepts performance numbers and none that
+# edits or hides them, because the whole point of a strategy marketplace is that
+# the numbers on a listing are the server's, not the seller's.
+
+@router.post("/marketplace/publish")
+def marketplace_publish(body: dict, request: _wa.Request,
+                        x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Publish a strategy. The backtest is run HERE, on this server, and its
+    output becomes the listing — the request body cannot carry metrics.
+    Body: {spec | strategy_id, range?, description?, tags?}."""
+    _wa._check_secret(x_webhook_secret)
+    from services.strategy_publisher import make_runner
+    from services.strategy_review import bars_for_range
+    spec = body.get("spec")
+    if not spec and body.get("strategy_id"):
+        spec = _wa.custom_store.get(body["strategy_id"])
+    if not spec:
+        raise HTTPException(400, "A strategy spec (or strategy_id) is required.")
+    rng = body.get("range") or "1Y"
+    out = _wa.publish_store.publish(
+        spec, publisher=_wa.request_user(request), runner=make_runner(bars_for_range, rng),
+        range_key=rng, description=(body.get("description") or "").strip()[:2000],
+        tags=body.get("tags"))
+    if "error" in out:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+@router.get("/marketplace/listings")
+def marketplace_listings(sort: str = "recent", tag: _wa.Optional[str] = None,
+                         publisher: _wa.Optional[str] = None,
+                         symbol: _wa.Optional[str] = None,
+                         following: bool = False,
+                         request: _wa.Request = None):
+    """Browse published strategies. Every row carries its verified backtest, its
+    risk profile and its full publish history — there is no summary view that
+    omits them."""
+    me = _wa.request_user(request) if request is not None else None
+    rows = _wa.publish_store.browse(sort=sort, tag=tag, publisher=publisher,
+                                    symbol=symbol,
+                                    follower=me if following else None)
+    return {"listings": rows, "count": len(rows), "sort": sort,
+            "me": me, "following": _wa.publish_store.following(me) if me else []}
+
+
+@router.get("/marketplace/listings/{listing_id}")
+def marketplace_listing(listing_id: str):
+    l = _wa.publish_store.get(listing_id)
+    if not l:
+        raise HTTPException(404, "Listing not found")
+    return l
+
+
+@router.delete("/marketplace/listings/{listing_id}")
+def marketplace_unpublish(listing_id: str, request: _wa.Request,
+                          x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Delist. This removes the listing whole — there is no way to keep a
+    storefront while dropping its performance record."""
+    _wa._check_secret(x_webhook_secret)
+    if not _wa.publish_store.unpublish(listing_id, publisher=_wa.request_user(request)):
+        raise HTTPException(404, "Listing not found, or not yours to remove")
+    return {"removed": True}
+
+
+@router.post("/marketplace/listings/{listing_id}/rate")
+def marketplace_rate(listing_id: str, body: dict, request: _wa.Request,
+                     x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Rate someone else's strategy 1-5 with an optional review."""
+    _wa._check_secret(x_webhook_secret)
+    out = _wa.publish_store.rate(listing_id, user=_wa.request_user(request),
+                                 stars=int(body.get("stars") or 0),
+                                 comment=body.get("comment") or "")
+    if out is None:
+        raise HTTPException(404, "Listing not found")
+    if "error" in out:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+@router.post("/marketplace/follow")
+def marketplace_follow(body: dict, request: _wa.Request,
+                       x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Follow or unfollow a creator. Body: {creator, follow?}."""
+    _wa._check_secret(x_webhook_secret)
+    creator = (body.get("creator") or "").strip()
+    if not creator:
+        raise HTTPException(400, "A creator is required.")
+    me = _wa.request_user(request)
+    out = (_wa.publish_store.follow(follower=me, creator=creator)
+           if body.get("follow", True) else
+           _wa.publish_store.unfollow(follower=me, creator=creator))
+    if "error" in out:
+        raise HTTPException(400, out["error"])
+    return out
+
+
+@router.post("/marketplace/listings/{listing_id}/import")
+def marketplace_import(listing_id: str,
+                       x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Copy a published strategy into your library as a new, editable strategy
+    with its provenance recorded."""
+    _wa._check_secret(x_webhook_secret)
+    out = _wa.publish_store.import_listing(listing_id, _wa.custom_store)
+    if "error" in out:
+        raise HTTPException(404, out["error"])
+    return out
+
+
 @router.post("/research/run")
 def research_run(body: _wa.ResearchRunBody, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
     """Run an A/B research experiment on real data (train/test + overfit verdict)
@@ -1189,6 +1299,121 @@ def custom_history(sid: str):
     if versions is None:
         raise _wa.HTTPException(404, "Strategy not found")
     return {"id": sid, "versions": versions}
+
+@router.get("/strategy/custom/{sid}/changelog")
+def custom_changelog(sid: str):
+    """What actually changed at each version, DERIVED from the stored snapshots.
+
+    No one writes these notes — each entry is the diff between two saved specs,
+    so the log cannot describe a change that did not happen or miss one that
+    did."""
+    from services.strategy_collab import changelog
+    spec = _wa.custom_store.get(sid)
+    if not spec:
+        raise _wa.HTTPException(404, "Strategy not found")
+    out = changelog(spec)
+    out["id"] = sid
+    return out
+
+
+@router.get("/strategy/custom/{sid}/compare")
+def custom_compare(sid: str, a: str = "", b: str = "current"):
+    """Compare two versions of a strategy. ``a``/``b`` are version numbers, or
+    ``current`` for the live spec."""
+    from services.strategy_collab import diff_specs
+    spec = _wa.custom_store.get(sid)
+    if not spec:
+        raise _wa.HTTPException(404, "Strategy not found")
+    versions = {str(v.get("v")): v.get("spec") for v in (spec.get("versions") or [])}
+    versions["current"] = spec
+
+    def _pick(key: str):
+        if key in versions:
+            return versions[key]
+        raise _wa.HTTPException(404, f"Version '{key}' not found")
+
+    left = _pick(a) if a else (versions.get(str(max((int(k) for k in versions if k.isdigit()),
+                                                   default=0))) or spec)
+    return {"id": sid, "a": a or "previous", "b": b,
+            "diff": diff_specs(left, _pick(b))}
+
+
+@router.get("/strategy/custom/{sid}/comments")
+def custom_comments(sid: str, version: _wa.Optional[str] = None):
+    """Discussion on a strategy, optionally filtered to one version."""
+    return {"id": sid, "comments": _wa.collab_store.comments(sid, version=version)}
+
+
+@router.post("/strategy/custom/{sid}/comments")
+def custom_comment_add(sid: str, body: dict, request: _wa.Request,
+                       x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Add a comment. Body: {body, version?, reply_to?}."""
+    _wa._check_secret(x_webhook_secret)
+    out = _wa.collab_store.add_comment(sid, author=_wa.request_user(request),
+                                       body=body.get("body") or "",
+                                       version=body.get("version"),
+                                       reply_to=body.get("reply_to"))
+    if "error" in out:
+        raise _wa.HTTPException(400, out["error"])
+    return out
+
+
+@router.patch("/strategy/custom/{sid}/comments/{cid}")
+def custom_comment_edit(sid: str, cid: str, body: dict, request: _wa.Request,
+                        x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Edit your OWN comment. The edit is stamped, so a rewritten comment cannot
+    pass as the original."""
+    _wa._check_secret(x_webhook_secret)
+    out = _wa.collab_store.edit_comment(sid, cid, author=_wa.request_user(request),
+                                        body=body.get("body") or "")
+    if out is None:
+        raise _wa.HTTPException(404, "Comment not found")
+    if "error" in out:
+        raise _wa.HTTPException(403, out["error"])
+    return out
+
+
+@router.delete("/strategy/custom/{sid}/comments/{cid}")
+def custom_comment_delete(sid: str, cid: str, request: _wa.Request,
+                          x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    _wa._check_secret(x_webhook_secret)
+    if not _wa.collab_store.delete_comment(sid, cid, author=_wa.request_user(request)):
+        raise _wa.HTTPException(403, "Comment not found, or not yours to delete")
+    return {"removed": True}
+
+
+@router.get("/strategy/custom/{sid}/shares")
+def custom_shares(sid: str, request: _wa.Request):
+    """Who this strategy is shared with, and what the caller may do with it."""
+    from services.strategy_collab import SHARE_ROLES
+    me = _wa.request_user(request)
+    out = _wa.collab_store.shares(sid)
+    out["me"] = me
+    out["my_role"] = _wa.collab_store.role_for(sid, me)
+    out["roles"] = list(SHARE_ROLES)
+    return out
+
+
+@router.post("/strategy/custom/{sid}/share")
+def custom_share(sid: str, body: dict, request: _wa.Request,
+                 x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
+    """Grant or revoke a collaborator. Body: {user, role?, revoke?}.
+
+    Only viewer/commenter/editor can be granted — ownership is never shareable,
+    and account roles (admin/operator) are a different axis that would hand out
+    privileges nobody chose to share."""
+    _wa._check_secret(x_webhook_secret)
+    me = _wa.request_user(request)
+    user = (body.get("user") or "").strip()
+    if not user:
+        raise _wa.HTTPException(400, "A user is required.")
+    out = (_wa.collab_store.unshare(sid, owner=me, user=user) if body.get("revoke")
+           else _wa.collab_store.share(sid, owner=me, user=user,
+                                       role=body.get("role") or "viewer"))
+    if "error" in out:
+        raise _wa.HTTPException(400, out["error"])
+    return out
+
 
 @router.post("/strategy/custom/{sid}/restore")
 def custom_restore(sid: str, body: dict, x_webhook_secret: _wa.Optional[str] = _wa.Header(default=None)):
