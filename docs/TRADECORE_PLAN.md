@@ -162,7 +162,38 @@ This test is the contract the rest of Sprint 4 is measured against.
 | **S4.2** | Route `custom.py`, `replay.py`, `execution_sim.py`, `backtest.py` cost math → `tradecore.costs` | 3a, R5 | Low (pure fn) |
 | **S4.3** | Unify R reporting → `tradecore.rmath` across engines | 3d→R2 | Med |
 | **S4.4** | ✅ **Done.** `build_replay` adopts `TradeManager` (inline TP1/BE/TP2 state machine deleted). Mapped exactly: `scale_at_r=be_at_r=TP1_R`, `scale_frac=PARTIAL_FRAC`, `target=tp2`, no trail/time-stop — the blended-R formula is algebraically the one replay computed inline. **Verified byte-identical across 24 fixtures / 88 closed trades.** One intentional semantic change is pinned by a test: on a single bar spanning both the 1R partial and the final target, the runner now closes that bar instead of staying open (the old behaviour was a latent bug). | 3b, R4 | **Med-High** — replay UI parity |
-| **S4.5** | `Backtester` adopts `TradeManager` for SL/TP (drop `backtester.py:314-412`) | 3b, R4 | **High** — drives live bot runner |
+| **S4.5** | 🟡 **Partially done — packaging unblocked (S4.5a), gate built, swap NOT taken.** See the finding below: the remaining swap is **not** behaviour-preserving and needs an explicit product decision. | 3b, R4 | **High** — drives live bot runner |
+
+### S4.5 finding — the Backtester swap is NOT a like-for-like refactor
+
+Unlike replay (a pure state machine, swapped cleanly in S4.4), the event-driven
+engine is **broker-routed**, and the two designs disagree structurally:
+
+| | `Backtester._manage_open_trade` | `TradeManager.on_bar` |
+|---|---|---|
+| who fills SL/TP | **`PaperBroker.on_bar`** (`sl_first`, next-bar-open, bps fees) | returns an exit **price** itself |
+| trigger mark | **`bar.close`** (`r_now`) | **`high`/`low`** (intrabar) |
+| partial | a **real broker order** (`partial_close`) with its own fee share + trade row | a partial **price**, no order/fees |
+| R | dollars (`net_pnl / risk_dollars`) | price-based multiples |
+
+Swapping would move the partial/BE **trigger timing** (close → intrabar) and
+lose the broker's fee-accurate partial fills — i.e. it changes numbers on the
+path that drives `bots/live_runner.LiveBotRunner`. Forcing it would be a
+behaviour change disguised as a refactor, so it is deliberately **not** taken
+here. `tests/test_backtester_characterization.py` now pins the engine so that
+whenever this is done, the impact is visible.
+
+### 🐛 Pre-existing bug found by the S4.5 gate (pinned, NOT fixed)
+
+After T3b moves the stop to break-even, `planned_sl == entry_price`, so
+`risk_dollars = |entry - sl| * qty == 0` and `bot/backtester.py`'s
+`net_pnl / risk_dollars if risk_dollars > 0 else 0.0` reports **0.0R for a
+profitable remainder** (+$49.02 in the pinned fixture). P&L is correct; only the
+R attribution is wrong — it divides by the POST-break-even risk instead of the
+trade's ORIGINAL risk. Pinned rather than fixed because this engine drives live
+trading: correcting R changes reported live numbers and must be an explicit,
+reviewed decision. **Suggested fix when approved:** keep the original
+`risk_per_unit` on the trade at entry and divide by that.
 | **S4.6** | Make live paper default fee-consistent with backtest (or make both configurable + documented) | R1 | **High** — changes live P&L numbers |
 | **S4.7** | Tighten equivalence gate to exact-match; make it a required CI gate | proves the sprint | — |
 
