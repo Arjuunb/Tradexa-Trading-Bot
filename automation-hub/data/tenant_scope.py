@@ -29,3 +29,18 @@ def ensure_tenant_column(conn: sqlite3.Connection, table: str, owner: str = OWNE
     conn.execute(f"UPDATE {table} SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''", (owner,))
     conn.commit()
     return True
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str,
+                  decl: str = "TEXT NOT NULL DEFAULT ''") -> bool:
+    """Add ``column`` to ``table`` if missing. Idempotent, safe on every boot.
+
+    The generic sibling of ``ensure_tenant_column`` — the same expand-migrate
+    step, for columns that are not about tenancy. Existing rows take the DEFAULT,
+    which is what makes the addition invisible to anything already running."""
+    cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if not cols or column in cols:
+        return False
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    conn.commit()
+    return True

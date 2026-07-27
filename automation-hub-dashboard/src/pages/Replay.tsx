@@ -63,6 +63,11 @@ export default function ReplayPage() {
       const r = await apiGet<ReplayData>(q);
       if (r.meta.bars === 0) { app.toast(r.meta.data_warning || "No data in that range.", "info"); }
       else if (r.meta.data_warning) { app.toast(r.meta.data_warning, "info"); }
+      // A substituted timeframe means the replayed strategy is not the strategy
+      // that was backtested — that must not pass unremarked.
+      if (r.meta.timeframe_substituted && r.meta.timeframe_note) {
+        app.toast(r.meta.timeframe_note, "info");
+      }
       setData(r); setIdx(0);
     } catch { app.toast("Replay failed — backend reachable?", "error"); }
     finally { setLoading(false); }
@@ -178,6 +183,12 @@ export default function ReplayPage() {
             </button>
           )}
         </div>
+        {data?.meta.timeframe_substituted && (
+          <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>
+            <Icon name="warning" size={11} /> {data.meta.timeframe_note}
+          </div>
+        )}
+
         {data && !data.meta.data_is_real && src === "binance" && (
           <div className="card" style={{ marginTop: 8, borderColor: "#f59e0b", background: "#f59e0b14" }}>
             <Icon name="warning" size={14} className="amber" /> Not real Binance data yet — click <b>Sync Binance</b> to download and cache real candles (needs network + webhook secret).

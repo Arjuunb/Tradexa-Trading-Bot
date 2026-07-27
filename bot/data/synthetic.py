@@ -29,7 +29,12 @@ from typing import Optional
 from bot.types import Bar
 
 
-# Step seconds per common timeframe label.
+# Timeframes this GENERATOR supports — a capability list, not a duration
+# table. bot.data.resample.TF_SECONDS answers 'how long is a 4h candle';
+# this answers 'can I synthesize one', and get_bars relies on the
+# ValueError below to fall through to 'unavailable'. Deliberately not
+# merged with the shared map: widening it would silently turn honest
+# unavailability into synthetic data.
 _TF_SECONDS = {
     "1m": 60,
     "3m": 180,

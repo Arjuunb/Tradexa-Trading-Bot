@@ -408,7 +408,9 @@ def _collect_viz(strategy_id: str, is_smc: bool, spec_rules: list):
              "crossovers": crossovers, "supertrend": supertrend, "volume": True}, extra)
 
 
-_TF_SECONDS = {"1m": 60, "3m": 180, "5m": 300, "15m": 900, "4h": 14400, "1d": 86400, "1w": 604800}
+# Candle durations come from bot.data.resample — the one definition. This used
+# to be a local copy, and six copies of the same fact had already drifted apart.
+from bot.data.resample import TF_SECONDS as _TF_SECONDS  # noqa: E402
 
 
 def _parse_date(s):
@@ -446,8 +448,24 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
     from bot.data.synthetic import generate_bars
     avoid_set = set(avoid_regimes or [])   # DNA memory filter — regimes to skip
     fill_cost_pct = max(0.0, float(fill_cost_pct))
-    if exec_tf not in TF_FACTORS:
+    # Replay's higher-timeframe context is built from fixed multiples of the
+    # execution timeframe, so only the four below can be replayed today. A 1h or
+    # 4h strategy therefore runs at 15m — a DIFFERENT strategy from the one that
+    # was backtested. Substituting silently would break the rule that every mode
+    # runs the same strategy, so the swap is recorded and reported in meta.
+    requested_tf = exec_tf
+    tf_substituted = exec_tf not in TF_FACTORS
+    if tf_substituted:
         exec_tf = "15m"
+    tf_meta = {
+        "requested_timeframe": requested_tf,
+        "timeframe_substituted": tf_substituted,
+        "timeframe_note": (
+            f"Replay supports {', '.join(sorted(TF_FACTORS))} execution timeframes, "
+            f"so {requested_tf} was replayed at {exec_tf}. These results describe "
+            f"the strategy at {exec_tf}, not at {requested_tf}."
+            if tf_substituted else None),
+    }
     n = max(300, min(int(limit or 800), 1500))
     start_dt, end_dt = _parse_date(start), _parse_date(end)
 
@@ -490,6 +508,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
         note = ("Historical data missing. Download data first." if needs_dl
                 else "No data in the selected date range.")
         return {"meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
+                         **tf_meta,
                          "data_source_label": sl["label"], "data_is_real": sl["is_real"],
                          "data_warning": sl["warning"] or note, "needs_download": needs_dl,
                          "strategy": strategy, "bars": 0, "start": None, "end": None,
@@ -803,6 +822,7 @@ def build_replay(symbol: str, exec_tf: str = "15m", limit: int = 800,
     from datetime import datetime, timezone
     return {
         "meta": {"symbol": symbol, "timeframe": exec_tf, "data_source": source,
+                 **tf_meta,
                  "data_source_label": sl["label"], "data_is_real": sl["is_real"],
                  "data_warning": sl["warning"], "strategy": strategy,
                  "bars": len(view), "start": view[0].timestamp.isoformat() if view else None,

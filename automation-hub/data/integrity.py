@@ -8,10 +8,9 @@ the whole store.
 """
 from __future__ import annotations
 
-_TF_S = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-         "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400, "1w": 604800}
-
-
+# Candle durations come from bot.data.resample — the one definition. This used
+# to be a local copy, and six copies of the same fact had already drifted apart.
+from bot.data.resample import TF_SECONDS as _TF_S  # noqa: E402
 def verify(bars: list, timeframe: str, *, max_gap_report: int = 20) -> dict:
     """Check one chronological bar series. Returns counts, the worst gaps, and
     a verdict: ok / warning (minor gaps) / bad (duplicates, corrupt candles,
