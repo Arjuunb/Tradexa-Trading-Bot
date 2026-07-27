@@ -868,6 +868,43 @@ def strategy_ai_review(body: dict):
     return ai_review(spec, results)
 
 
+@router.post("/strategy/evidence-review")
+def strategy_evidence_review(body: dict):
+    """Evidence-based review of a strategy, computed from a REAL backtest.
+
+    Every conclusion carries the statistic that produced it. Dimensions the
+    trade record cannot support (market regime, cross-asset ranking) are
+    returned in ``not_derivable`` rather than guessed.
+
+    Body: {spec, bars?} or {spec, range?} where range is 3M|6M|1Y|3Y|5Y."""
+    from services.strategy_review import bars_for_range, evidence_review
+    from strategies.custom import simulate
+    from strategies.brain import TradeBrain
+    from data.market_data import get_bars
+    spec = body.get("spec") or {}
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    timeframe = spec.get("timeframe", "4h")
+    bars = int(body.get("bars") or 0) or bars_for_range(timeframe, body.get("range") or "")
+    results = None
+    try:
+        rows, _src = get_bars(spec.get("symbol", "BTCUSDT"), n=bars, timeframe=timeframe)
+        if rows:
+            use_brain = spec.get("quality_filter", True)
+            results = simulate(spec, rows, brain=TradeBrain() if use_brain else None,
+                               min_score=int(spec.get("min_score", 60)) if use_brain else 0)
+    except Exception:  # noqa: BLE001 — an honest "no review" beats a fabricated one
+        results = None
+    out = evidence_review(spec, results)
+    out["bars_requested"] = bars
+    if results:
+        out["headline"] = {k: results.get(k) for k in
+                           ("total_trades", "win_rate", "profit_factor", "net_r",
+                            "net_pct", "max_drawdown_r", "expectancy_r", "sharpe",
+                            "avg_rr", "end_balance")}
+    return out
+
+
 @router.get("/strategy/agent/status")
 def strategy_agent_status():
     """Is the AI Strategy Agent usable, and what vocabulary can it speak?
