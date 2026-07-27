@@ -83,8 +83,48 @@ class RealisticFill:
                         "charged each side; orders may partial-fill or reject."}
 
 
+def unified_fees():
+    """A fill model whose per-side cost EQUALS the research backtest's.
+
+    TradeCore audit R1: live paper fills perfectly (zero cost) by default while
+    every backtest charges fee + slippage, so a strategy always looks rosier
+    live than in the test that validated it. This closes that gap by charging
+    exactly what the backtest charges, sourced from bot.tradecore.costs so the
+    two can never drift apart:
+
+        per side = DEFAULT_FEE_PCT (commission) + DEFAULT_SLIPPAGE_PCT (price)
+
+    The commission is booked by the paper engine via ``fee_pct``; the slippage
+    moves the fill price via ``cost_pct``. Spread and latency are left at zero
+    because the backtest models neither — matching it means matching it, not
+    being conservative in a different direction.
+    """
+    from bot.tradecore.costs import DEFAULT_FEE_PCT, DEFAULT_SLIPPAGE_PCT
+    return RealisticFill(
+        spread_pct=0.0,
+        slippage_pct=DEFAULT_SLIPPAGE_PCT,
+        latency_pct=0.0,
+        partial_fill_prob=0.0,
+        reject_prob=0.0,
+        taker_fee_pct=DEFAULT_FEE_PCT,
+        maker_fee_pct=DEFAULT_FEE_PCT / 2,
+    )
+
+
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def from_env():
-    """Build a fill model from env (HUB_FILL_MODEL=realistic enables friction)."""
+    """Build a fill model from env.
+
+    ``HUB_FILL_MODEL=realistic`` — full friction (spread/slippage/latency, and
+    optionally partial fills + rejections). An explicit choice, so it wins.
+
+    ``HUB_UNIFIED_FEES=1`` — charge exactly what the research backtest charges,
+    so live paper and backtest agree (TradeCore R1). Default OFF: enabling it
+    CHANGES live paper P&L, so it is an opt-in decision, never a silent one.
+    """
     if os.environ.get("HUB_FILL_MODEL", "").lower() in ("realistic", "real", "1", "true"):
         return RealisticFill(
             spread_pct=float(os.environ.get("HUB_FILL_SPREAD_PCT", 0.0004)),
@@ -93,4 +133,13 @@ def from_env():
             reject_prob=float(os.environ.get("HUB_FILL_REJECT_PROB", 0.0)),
             taker_fee_pct=float(os.environ.get("HUB_FILL_TAKER_FEE_PCT", 0.0004)),
             maker_fee_pct=float(os.environ.get("HUB_FILL_MAKER_FEE_PCT", 0.0002)))
+    if _flag("HUB_UNIFIED_FEES"):
+        return unified_fees()
     return PerfectFill()
+
+
+def backtest_cost_pct_per_side() -> float:
+    """What the research backtest charges per side — the number live paper must
+    match for the two to be comparable."""
+    from bot.tradecore.costs import DEFAULT_FEE_PCT, DEFAULT_SLIPPAGE_PCT
+    return DEFAULT_FEE_PCT + DEFAULT_SLIPPAGE_PCT
