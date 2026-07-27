@@ -507,7 +507,34 @@ export interface StrategyPerformance {
   equity_curve: EquityCurvePoint[];
   recent: PaperTradeRow[];
 }
-export interface CustomRule { type: string; negate?: boolean; [k: string]: unknown; }
+// ── AI Strategy Agent: plain English → the engine's executable spec ──
+// The agent is an INTERPRETER: it only emits rule types the engine implements,
+// every rule is grounded in the user's own words, and anything ambiguous or
+// unsupported is reported rather than assumed.
+export interface AgentStatus {
+  available: boolean; note: string | null;
+  rule_types: string[]; rule_count: number; categories: string[];
+}
+export interface AgentQuestion { id: string; question: string; options: string[]; }
+export interface AgentUnsupported { phrase: string; capability: string; why: string; }
+export interface AgentCompleteness {
+  score: number; present: string[]; missing: string[]; rule_count: number;
+}
+export interface AgentCompileResult {
+  available: boolean;
+  spec: CustomSpec | null;
+  compiled?: boolean;
+  errors: string[];
+  warnings: string[];
+  questions: AgentQuestion[];
+  unsupported: AgentUnsupported[];
+  completeness: AgentCompleteness | null;
+  notes?: string[];
+  description?: string | null;
+  note?: string;
+}
+
+export interface CustomRule { type: string; negate?: boolean; source?: string; [k: string]: unknown; }
 // ── no-code strategy builder ──
 export interface BlockParam { name: string; type: "number" | "select"; default: unknown; label: string; options?: string[]; }
 export interface BlockDef { type: string; label: string; desc: string; params: BlockParam[]; }

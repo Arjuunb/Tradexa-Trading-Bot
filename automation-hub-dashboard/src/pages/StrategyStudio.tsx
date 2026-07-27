@@ -27,6 +27,8 @@ function diffDefs(from: Record<string, unknown>, to: Record<string, unknown>) {
   return out;
 }
 
+import AIStrategyAgent from "../components/strategy/AIStrategyAgent";
+
 const StrategyCanvas = lazy(() => import("../components/strategy/StrategyCanvas"));
 const TFS = ["15m", "1h", "4h", "1d"];
 const CONF_TONE: Record<string, string> = { "Very High": "green", High: "green", Medium: "amber", Low: "red", "Very Low": "red" };
@@ -197,6 +199,15 @@ export default function StrategyStudioPage() {
         <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
         <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
       </div>
+
+      {/* AI Strategy Agent — plain-English entry point. Compiles into the SAME
+          spec the builder edits, so Backtest / AI Review / Save / Deploy below
+          are unchanged: one strategy format, one engine. */}
+      <AIStrategyAgent onUseSpec={(s) => {
+        setSpec({ ...EMPTY, ...s });
+        setSim(null); setReview(null);
+        toast(`Loaded "${s.name}" into the builder — review, then backtest.`, "success");
+      }} />
 
       {/* templates */}
       <Card title="Templates" subtitle="Start from a proven pattern, then tweak">
