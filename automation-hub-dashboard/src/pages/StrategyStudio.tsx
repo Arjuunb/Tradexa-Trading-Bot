@@ -7,7 +7,7 @@ import { useApp } from "../app-context";
 import {
   apiPostJson, apiGet, apiDelete, useLive,
   type BlockCatalog, type BlockDef, type CustomRule, type CustomSpec,
-  type SimResult, type AIStrategyReview, type StrategyVersion, type EvidenceReview,
+  type SimResult, type AIStrategyReview, type StrategyVersion, type EvidenceReview, type StrategyFullReview,
 } from "../lib/api";
 
 // Compact field-level diff between two strategy definitions (version vs current).
@@ -28,6 +28,7 @@ function diffDefs(from: Record<string, unknown>, to: Record<string, unknown>) {
 }
 
 import AIStrategyAgent from "../components/strategy/AIStrategyAgent";
+import StrategyReviewDashboard from "../components/strategy/StrategyReviewDashboard";
 
 const StrategyCanvas = lazy(() => import("../components/strategy/StrategyCanvas"));
 const TFS = ["15m", "1h", "4h", "1d"];
@@ -52,6 +53,8 @@ export default function StrategyStudioPage() {
   // (the server converts it to candles using the spec's own timeframe).
   const [range, setRange] = useState<string>("1Y");
   const [evidence, setEvidence] = useState<EvidenceReview | null>(null);
+  // Full AI review — unlocked only once a backtest has produced real trades.
+  const [fullReview, setFullReview] = useState<StrategyFullReview | null>(null);
   const [review, setReview] = useState<AIStrategyReview | null>(null);
   const [busy, setBusy] = useState<string>("");
   const [mode, setMode] = useState<"form" | "canvas">("form");
@@ -84,6 +87,14 @@ export default function StrategyStudioPage() {
   const addExitBlock = (b: BlockDef) => { const rule: CustomRule = { type: b.type }; b.params.forEach((p) => { rule[p.name] = p.default; }); patchExit({ op: spec.exit?.op ?? "OR", rules: [...exitRules, rule] }); };
   const setExitRule = (i: number, r: CustomRule) => patchExit({ rules: exitRules.map((x, j) => (j === i ? r : x)) });
   const delExitRule = (i: number) => patchExit({ rules: exitRules.filter((_, j) => j !== i) });
+
+  const runFullReview = async () => {
+    setBusy("full");
+    try {
+      setFullReview(await apiPostJson<StrategyFullReview>(
+        "/strategy/ai-strategy-review", { spec, range }));
+    } catch { toast("Strategy review failed", "error"); } finally { setBusy(""); }
+  };
 
   const runEvidence = async () => {
     setBusy("evidence");
@@ -212,12 +223,17 @@ export default function StrategyStudioPage() {
         <span className="chips" style={{ gap: 4 }} title="Backtest window">
           {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
             <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
-              onClick={() => { setRange(k); setSim(null); setEvidence(null); }}>{k}</button>
+              onClick={() => { setRange(k); setSim(null); setEvidence(null); setFullReview(null); }}>{k}</button>
           ))}
         </span>
         <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
         <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
         <button className="btn btn-soft" onClick={runEvidence} disabled={busy === "evidence"}><Icon name="ai" size={13} /> {busy === "evidence" ? "Analysing…" : "Evidence Review"}</button>
+        {/* unlocked by a completed backtest, per the review flow */}
+        <button className="btn btn-primary" onClick={runFullReview}
+                disabled={busy === "full" || !sim}
+                title={sim ? "Full scorecard + optimisation suggestions" : "Run a backtest first"}>
+          <Icon name="bot" size={13} /> {busy === "full" ? "Reviewing…" : "AI Strategy Review"}</button>
         <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
         <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
       </div>
@@ -413,6 +429,13 @@ export default function StrategyStudioPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {/* AI Strategy Review — unlocked by a completed backtest */}
+      {fullReview && (
+        <StrategyReviewDashboard review={fullReview} spec={spec} range={range}
+          onUseOptimised={(s2) => { setSpec(s2); setSim(null); setFullReview(null); setEvidence(null); }}
+          toast={toast} />
       )}
 
       {/* AI review + backtest */}

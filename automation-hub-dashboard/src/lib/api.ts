@@ -534,6 +534,45 @@ export interface AgentCompileResult {
   note?: string;
 }
 
+/** AI Strategy Review — scorecard + optimisation. Scores are `null` (not a
+ *  number) wherever the sample can't support one; `score_basis` explains each
+ *  formula so a rating is never presented on faith. */
+export interface Scorecard {
+  available: boolean; note?: string;
+  rating: string | null; strategy_score: number | null;
+  scores: {
+    profitability: number | null; risk: number | null; consistency: number | null;
+    stability: number | null; confidence: number;
+  };
+  score_basis: Record<string, string>;
+  summary: string;
+  performance: Record<string, number | null>;
+  monthly: { month: string; trades: number; net_r: number; avg_r: number; win_rate: number }[];
+  day_of_week: { day: string; trades: number; net_r: number; avg_r: number; win_rate: number }[];
+  recovery: { max_drawdown_abs: number; trough_index: number;
+              trades_to_recover: number | null; recovered: boolean } | null;
+  equity_curve: { t: string | null; equity: number }[];
+}
+export interface OptimisationSuggestion {
+  id: string; title: string; reason: string;
+  evidence: { stat: string; value: unknown }[];
+  expected_benefit: string; tradeoffs: string;
+  confidence: "high" | "medium" | "low";
+  patch: Record<string, unknown> | null;
+}
+export interface StrategyFullReview {
+  available: boolean; note?: string; bars_requested?: number;
+  scorecard?: Scorecard;
+  evidence?: EvidenceReview;
+  suggestions?: OptimisationSuggestion[];
+}
+export interface SuggestionApplyResult {
+  available: boolean; note?: string;
+  spec?: CustomSpec;
+  comparison?: { rows: { metric: string; before: number | null; after: number | null; delta: number | null }[] };
+  before?: { scorecard: Scorecard }; after?: { scorecard: Scorecard };
+}
+
 /** Evidence-based review — every finding carries the statistic behind it, and
  *  dimensions the trade data cannot support are declared in `not_derivable`. */
 export interface EvidenceFinding { claim: string; stat: string; value: unknown; }
