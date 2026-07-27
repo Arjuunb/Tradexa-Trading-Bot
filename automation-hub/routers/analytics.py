@@ -914,6 +914,28 @@ def strategy_full_review(body: dict):
             "suggestions": suggestions(spec, results)}
 
 
+@router.post("/strategy/sweep")
+def strategy_sweep(body: dict):
+    """Run the SAME spec across symbols x timeframes to answer "best asset" and
+    "best timeframe" — questions a single backtest genuinely cannot answer.
+
+    Every cell is a real backtest through the existing simulate path. Skipped
+    cells are returned with their reason, so a partial sweep is never presented
+    as a complete one. Body: {spec, symbols[], timeframes[], range?}."""
+    from services.strategy_review import bars_for_range
+    from services.strategy_sweep import make_runner, sweep
+    spec = body.get("spec") or {}
+    if not spec.get("entry"):
+        raise HTTPException(400, "A strategy spec with entry rules is required.")
+    symbols = body.get("symbols") or [spec.get("symbol", "BTCUSDT")]
+    timeframes = body.get("timeframes") or [spec.get("timeframe", "4h")]
+    rng = body.get("range") or "1Y"
+    runner = make_runner(bars_for_range, rng)
+    out = sweep(spec, symbols, timeframes, runner)
+    out["range"] = rng
+    return out
+
+
 @router.post("/strategy/apply-suggestion")
 def strategy_apply_suggestion(body: dict):
     """Apply ONE suggestion's patch to a COPY of the spec, re-run the backtest on
