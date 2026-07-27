@@ -568,6 +568,22 @@ export interface OptimisationSuggestion {
               bars_held: number | null; regime: string | null }[];
   };
 }
+/** Parameter tuning — each suggestion is a variant that was actually RUN and
+ *  measurably beat the current settings. `measured` carries both backtests. */
+export interface TuneSuggestion extends OptimisationSuggestion {
+  measured: {
+    before: { trades: number; net_r: number; profit_factor: number; win_rate: number;
+              max_drawdown_r: number; expectancy_r: number };
+    after: { trades: number; net_r: number; profit_factor: number; win_rate: number;
+             max_drawdown_r: number; expectancy_r: number };
+  };
+}
+export interface TuneResult {
+  available: boolean; note?: string | null; tested: number; range?: string;
+  baseline?: { trades: number; net_r: number; profit_factor: number };
+  suggestions: TuneSuggestion[];
+}
+
 export interface StrategyFullReview {
   available: boolean; note?: string; bars_requested?: number;
   scorecard?: Scorecard;
