@@ -3,6 +3,7 @@ import Card from "../common/Card";
 import Icon from "../common/Icon";
 import { Badge } from "../common/ui";
 import StrategySweep from "./StrategySweep";
+import ReviewEquityChart from "./ReviewEquityChart";
 import {
   apiPostJson,
   type CustomSpec, type OptimisationSuggestion, type Scorecard,
@@ -84,6 +85,7 @@ export default function StrategyReviewDashboard({
   }
   const sc: Scorecard = review.scorecard;
   const p = sc.performance;
+  const rk = review.evidence?.risk as Record<string, unknown> | undefined;
 
   const accept = async (s: OptimisationSuggestion) => {
     if (!s.patch) return;
@@ -176,6 +178,37 @@ export default function StrategyReviewDashboard({
         </Card>
       </div>
 
+      {/* ── equity curve + risk analysis ── */}
+      <div className="grid-2-eq">
+        <Card title="Equity Curve" subtitle="Real backtest equity, trade by trade">
+          <ReviewEquityChart before={sc.equity_curve} />
+        </Card>
+        <Card title="Risk Analysis" subtitle="How the strategy behaved under pressure">
+          <div className="stat-row"><span className="dim">Risk per trade</span>
+            <b>{rk?.risk_per_trade_pct != null
+              ? `${(Number(rk.risk_per_trade_pct) * 100).toFixed(2)}%` : "—"}</b></div>
+          <div className="stat-row"><span className="dim">Max drawdown</span>
+            <b className="neg">{num(p.max_drawdown_r)}R ({num(p.max_drawdown_pct, 1)}%)</b></div>
+          <div className="stat-row"><span className="dim">Worst losing streak</span>
+            <b>{rk?.max_consecutive_losses != null
+              ? `${rk.max_consecutive_losses} in a row` : "—"}</b></div>
+          <div className="stat-row"><span className="dim">Worst single trade</span>
+            <b className="neg">{num(rk?.worst_trade_r ?? null)}R</b></div>
+          <div className="stat-row"><span className="dim">Recovery from worst drawdown</span>
+            <b>{sc.recovery
+              ? (sc.recovery.recovered
+                  ? `${sc.recovery.trades_to_recover} trades`
+                  : <span className="neg">never recovered in this window</span>)
+              : "—"}</b></div>
+          <div className="stat-row"><span className="dim">Risk consistency</span>
+            <b>fixed % per trade</b></div>
+          <div className="dim" style={{ fontSize: 11, marginTop: 8 }}>
+            Position size is a fixed fraction of equity per trade, so risk is constant by
+            construction. Leverage is not modelled by this engine, so it is not assessed.
+          </div>
+        </Card>
+      </div>
+
       {/* sweep — answers best asset / timeframe, which one backtest cannot */}
       <StrategySweep spec={spec} range={range} toast={toast} />
 
@@ -242,6 +275,35 @@ export default function StrategyReviewDashboard({
                       change: {JSON.stringify(s.patch)}
                     </div>
                   )}
+                  {/* the actual trades this would have changed */}
+                  {!!s.affected?.count && (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="dim" style={{ textTransform: "uppercase", letterSpacing: .6, fontSize: 10 }}>
+                        Affected trades — {s.affected.count} totalling{" "}
+                        <b className={s.affected.net_r >= 0 ? "pos" : "neg"}>
+                          {s.affected.net_r > 0 ? "+" : ""}{s.affected.net_r}R</b>
+                      </div>
+                      <table className="data-table" style={{ marginTop: 4 }}>
+                        <thead><tr><th>Side</th><th>Entry</th><th>Exit</th><th>R</th><th>Why it closed</th></tr></thead>
+                        <tbody>
+                          {s.affected.sample.map((t2, i) => (
+                            <tr key={i}>
+                              <td>{t2.side}</td>
+                              <td className="mono dim">{num(t2.entry)}</td>
+                              <td className="mono dim">{num(t2.exit)}</td>
+                              <td className={`mono ${t2.r >= 0 ? "pos" : "neg"}`}>{num(t2.r)}</td>
+                              <td className="dim">{t2.exit_reason ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {s.affected.count > s.affected.sample.length && (
+                        <div className="dim" style={{ fontSize: 10.5, marginTop: 3 }}>
+                          Showing {s.affected.sample.length} of {s.affected.count}.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -264,6 +326,14 @@ export default function StrategyReviewDashboard({
                       </tr>
                     ))}</tbody>
                   </table>
+                  {/* two REAL runs over the same window, overlaid */}
+                  {res.before?.scorecard?.equity_curve?.length ? (
+                    <div style={{ marginTop: 8 }}>
+                      <ReviewEquityChart before={res.before.scorecard.equity_curve}
+                                         after={res.after?.scorecard.equity_curve}
+                                         height={180} />
+                    </div>
+                  ) : null}
                   <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }}
                           onClick={() => { if (res.spec) { onUseOptimised(res.spec); toast("Optimised strategy loaded — re-run the backtest to confirm", "success"); } }}>
                     <Icon name="check" size={12} /> Keep this version

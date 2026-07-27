@@ -183,3 +183,39 @@ def test_compare_reports_deltas():
                     {"net_r": 15.0, "win_rate": 45.0})
     by = {r["metric"]: r for r in c["rows"]}
     assert by["net_r"]["delta"] == 5.0 and by["win_rate"]["delta"] == 5.0
+
+
+# --------------------------------- interactive insights: the affected trades
+
+def test_suggestions_carry_the_real_trades_they_affect():
+    """'Affected trades' must be the actual rows, not a count or a description —
+    so a user can inspect what a change would really have removed."""
+    trades = ([_t(2.0) for _ in range(10)]
+              + [_t(-1.0, side="short") for _ in range(10)])
+    s = opt.suggestions({}, _results(trades, long_net_r=20.0, short_net_r=-10.0,
+                                     long_trades=10, short_trades=10))
+    pick = next(x for x in s if x["id"] == "restrict_side")
+    aff = pick["affected"]
+    assert aff["count"] == 10                    # the ten short trades
+    assert aff["net_r"] == -10.0                 # and their real net R
+    assert aff["sample"], "expected example rows"
+    for row in aff["sample"]:
+        assert row["side"] == "short"
+        assert "r" in row and "entry_time" in row
+
+
+def test_every_suggestion_has_an_affected_block():
+    trades = [_t(-1.0) for _ in range(20)]
+    for x in opt.suggestions({"risk_per_trade_pct": 0.02},
+                             _results(trades, net_r=-5.0, max_drawdown_r=-9.0,
+                                      max_consecutive_losses=8)):
+        assert "affected" in x and "count" in x["affected"]
+
+
+def test_affected_sample_is_capped():
+    trades = [_t(-1.0, side="short") for _ in range(60)] + [_t(2.0) for _ in range(10)]
+    s = opt.suggestions({}, _results(trades, long_net_r=20.0, short_net_r=-60.0,
+                                     long_trades=10, short_trades=60))
+    pick = next(x for x in s if x["id"] == "restrict_side")
+    assert pick["affected"]["count"] == 60          # full count reported
+    assert len(pick["affected"]["sample"]) <= 12    # but the payload stays small
