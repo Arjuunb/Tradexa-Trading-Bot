@@ -16,6 +16,7 @@ ccxt>=4.3.0
 # Fear & Greed feed, and the Evolution market-context widgets. Required for the
 # real-data features to work on deploy (the engine fails closed without it).
 requests>=2.31
+anthropic>=0.69
 
 # The trading engine itself is the parent package (pure stdlib):
 #   pip install -e ..            # installs the `bot` package

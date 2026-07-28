@@ -243,8 +243,7 @@ def clarifying_questions(spec: dict, validation: dict) -> list[dict]:
 # ------------------------------------------------------------------- LLM seam
 
 _KEY_ENVS = ("HUB_LLM_API_KEY", "ANTHROPIC_API_KEY")
-_MODEL = os.environ.get("HUB_LLM_MODEL", "claude-sonnet-4-5")
-_API_URL = "https://api.anthropic.com/v1/messages"
+_MODEL = os.environ.get("HUB_LLM_MODEL", "claude-opus-5")
 
 
 def llm_available() -> bool:
@@ -293,30 +292,66 @@ def _system_prompt() -> str:
     )
 
 
-def _call_llm(text: str, answers: Optional[dict] = None, timeout: float = 60.0) -> dict:
-    """POST to the Anthropic Messages API using stdlib-adjacent ``requests``
-    (already a dependency) — no new SDK is added to the deploy."""
-    import requests
+def _call_llm(text: str, answers: Optional[dict] = None, timeout: float = 120.0) -> dict:
+    """Interpret the description via the Anthropic Messages API.
+
+    Uses the official SDK rather than hand-rolled HTTP: it carries the typed
+    error classes this module needs to tell a bad key from an exhausted balance,
+    and it retries transient failures on its own."""
+    import anthropic
 
     user = text if not answers else (
         text + "\n\nClarifications the user provided:\n"
         + "\n".join(f"- {k}: {v}" for k, v in answers.items()))
-    resp = requests.post(
-        _API_URL,
-        headers={"x-api-key": _api_key(), "anthropic-version": "2023-06-01",
-                 "content-type": "application/json"},
-        json={"model": _MODEL, "max_tokens": 4000,
-              "system": _system_prompt(),
-              "messages": [{"role": "user", "content": user}]},
-        timeout=timeout,
+
+    client = anthropic.Anthropic(api_key=_api_key(), timeout=timeout)
+    resp = client.messages.create(
+        model=_MODEL,
+        max_tokens=4000,
+        system=_system_prompt(),
+        messages=[{"role": "user", "content": user}],
     )
-    resp.raise_for_status()
-    body = resp.json()
-    parts = [b.get("text", "") for b in body.get("content", []) if b.get("type") == "text"]
-    raw = "".join(parts).strip()
+    raw = "".join(b.text for b in resp.content if b.type == "text").strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", raw).strip()
     return json.loads(raw)
+
+
+def describe_llm_error(exc: BaseException) -> str:
+    """A sentence a user can act on, instead of an exception class name.
+
+    The previous handler rendered every failure as its class — "HTTPError" —
+    which reads identically for an invalid key, an exhausted balance, and a rate
+    limit. Those need three different actions, so the status and the API's own
+    message have to survive."""
+    try:
+        import anthropic
+    except ImportError:  # pragma: no cover - the SDK is a hard dependency
+        return f"{type(exc).__name__}: {exc}"
+
+    detail = getattr(exc, "message", None) or str(exc)
+    if isinstance(exc, anthropic.AuthenticationError):
+        return ("The API key was rejected (401). Check HUB_LLM_API_KEY is the "
+                f"full key and has not been revoked. API said: {detail}")
+    if isinstance(exc, anthropic.PermissionDeniedError):
+        return f"The API key lacks access to {_MODEL} (403). API said: {detail}"
+    if isinstance(exc, anthropic.NotFoundError):
+        return (f"Model '{_MODEL}' was not found (404). Set HUB_LLM_MODEL to a "
+                f"current model id. API said: {detail}")
+    if isinstance(exc, anthropic.RateLimitError):
+        return f"Rate limited (429) — retry shortly. API said: {detail}"
+    if isinstance(exc, anthropic.BadRequestError):
+        # The most common one in practice: a valid key on an account with no
+        # credit. The API returns 400, so without the message it is invisible.
+        return f"The request was rejected (400). API said: {detail}"
+    if isinstance(exc, anthropic.APIStatusError):
+        return f"API error {exc.status_code}. API said: {detail}"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return ("Could not reach the Anthropic API — check the host's outbound "
+                f"network. Detail: {detail}")
+    if isinstance(exc, json.JSONDecodeError):
+        return "The model's reply was not valid JSON, so nothing was compiled."
+    return f"{type(exc).__name__}: {detail}"
 
 
 # -------------------------------------------------------------------- compile
@@ -348,8 +383,8 @@ def compile_strategy(text: str, answers: Optional[dict] = None) -> dict:
     except Exception as e:  # noqa: BLE001 — an interpreter failure must never fabricate
         return {"available": True, "spec": None, "questions": [], "errors": [],
                 "warnings": [], "unsupported": unsupported, "completeness": None,
-                "note": f"Could not interpret the strategy ({type(e).__name__}). "
-                        "Nothing was compiled — please retry or rephrase."}
+                "note": f"Could not interpret the strategy. {describe_llm_error(e)} "
+                        "Nothing was compiled."}
 
     spec = out.get("spec") or None
     questions = list(out.get("questions") or [])
