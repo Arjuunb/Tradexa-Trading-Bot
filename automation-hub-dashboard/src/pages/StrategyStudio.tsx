@@ -58,6 +58,17 @@ export default function StrategyStudioPage() {
   // Full AI review — unlocked only once a backtest has produced real trades.
   const [fullReview, setFullReview] = useState<StrategyFullReview | null>(null);
   const [review, setReview] = useState<AIStrategyReview | null>(null);
+  /**
+   * Which stage of the workflow is on screen.
+   *
+   * Everything below used to be one page: the AI agent, the block builder, the
+   * results and the library, fourteen cards deep. That put the plain-English
+   * entry point and a version-history table in the same scroll, so neither read
+   * as a distinct step. Tabs make the workflow legible — one job at a time —
+   * while the toolbar above stays shared, because the strategy's identity and
+   * the Save action belong to all four.
+   */
+  const [tab, setTab] = useState<"agent" | "build" | "analyse" | "library">("agent");
   const [busy, setBusy] = useState<string>("");
   const [mode, setMode] = useState<"form" | "canvas">("form");
   // version history / compare
@@ -96,6 +107,7 @@ export default function StrategyStudioPage() {
     await apiPostJson<EvidenceReview>("/strategy/evidence-review", { spec, range }));
 
   const backtest = async () => {
+    setTab("analyse");          // same reason as analyse() above
     setBusy("sim");
     // `range` is resolved to candles SERVER-side (one implementation, using the
     // spec's own timeframe) so the client never duplicates that maths.
@@ -123,6 +135,10 @@ export default function StrategyStudioPage() {
    */
   const analyse = async () => {
     if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
+    // Results render on the Analyse tab, so go there now — otherwise the work
+    // completes on a tab the user isn't looking at and reads as nothing having
+    // happened.
+    setTab("analyse");
     let sim_ = sim;
     if (!sim_) {
       setBusy("sim");
@@ -279,15 +295,34 @@ export default function StrategyStudioPage() {
         </span>
       </div>
 
-      {/* AI Strategy Agent — plain-English entry point. Compiles into the SAME
-          spec the builder edits, so Backtest / AI Review / Save / Deploy below
-          are unchanged: one strategy format, one engine. */}
+      {/* One tab per stage of the workflow. The strategy itself is shared state,
+          so switching tabs never loses work. */}
+      <div className="chips" style={{ gap: 6, marginTop: 4 }}>
+        {([
+          ["agent", "AI Agent", "Describe it in plain English"],
+          ["build", "Build", "Conditions, exits and risk"],
+          ["analyse", "Analyse", "Backtest, score and explain"],
+          ["library", "Library", "Saved strategies, history and sharing"],
+        ] as const).map(([k, label, hint]) => (
+          <button key={k} className={`chip-btn ${tab === k ? "active" : ""}`}
+                  title={hint} onClick={() => setTab(k)}>
+            {label}{k === "analyse" && (sim || review || evidence || fullReview) ? " ·" : ""}
+          </button>
+        ))}
+      </div>
+
+      {tab === "agent" && (<>
+      {/* Plain-English entry point. Compiles into the SAME spec the Build tab
+          edits — one strategy format, one engine. */}
       <AIStrategyAgent onUseSpec={(s) => {
         setSpec({ ...EMPTY, ...s });
         setSim(null); setReview(null);
-        toast(`Loaded "${s.name}" into the builder — review, then backtest.`, "success");
+        setTab("build");
+        toast(`Loaded "${s.name}" into the builder — review the rules, then backtest.`, "success");
       }} />
+      </>)}
 
+      {tab === "build" && (<>
       {/* templates */}
       <Card title="Templates" subtitle="Start from a proven pattern, then tweak">
         <div className="chips" style={{ gap: 8 }}>
@@ -401,6 +436,19 @@ export default function StrategyStudioPage() {
         </select>
       </Card>
 
+      </>)}
+
+      {tab === "analyse" && (<>
+      {!sim && !review && !evidence && !fullReview && (
+        <Card title="Analyse" subtitle="Nothing has been run for this strategy yet">
+          <div className="dim" style={{ padding: 10, fontSize: 12.5 }}>
+            Press <b>Analyse</b> in the toolbar above. It backtests over {range},
+            then scores and explains the result — every figure below comes from
+            those trades.
+          </div>
+        </Card>
+      )}
+
       {/* Evidence review — every claim carries the statistic that produced it,
           and dimensions the trade data can't support are declared, not guessed. */}
       {evidence && (
@@ -510,6 +558,9 @@ export default function StrategyStudioPage() {
         </Card>
       </div>
 
+      </>)}
+
+      {tab === "library" && (<>
       {/* library */}
       <Card title="Strategy Library" subtitle={`${saved.data?.length ?? 0} saved`}>
         {!(saved.data ?? []).length ? <div className="dim" style={{ padding: 10 }}>No saved strategies yet — build one and hit Save.</div> : (
@@ -546,6 +597,7 @@ export default function StrategyStudioPage() {
 
       {/* change log, discussion and sharing for the strategy being edited */}
       {!!spec.id && <StrategyCollab sid={spec.id} toast={toast} />}
+      </>)}
 
       <Modal open={!!histFor} title={`Version history — ${histFor?.name ?? ""}`} onClose={() => setHistFor(null)}>
         {versions == null ? <div className="dim">Loading…</div>
