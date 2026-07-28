@@ -198,3 +198,75 @@ def test_system_prompt_is_built_from_the_real_grammar():
         assert rtype in p
     assert "moon_phase" not in p
     assert "Never invent" in p or "never invent" in p.lower()
+
+
+# ------------------------------------------------- diagnosable LLM failures
+
+def _api_error(cls, status, msg):
+    import httpx
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    resp = httpx.Response(status, request=req, json={"error": {"message": msg}})
+    return cls(msg, response=resp, body={"error": {"message": msg}})
+
+
+def test_each_failure_names_its_own_cause():
+    """Regression: every failure used to render as its exception class name —
+    "HTTPError" — which reads identically for a rejected key, an exhausted
+    balance, and a rate limit. Those need three different actions."""
+    import anthropic
+    from services.strategy_agent import describe_llm_error
+
+    cases = [
+        (anthropic.AuthenticationError, 401, "invalid x-api-key", "401"),
+        (anthropic.BadRequestError, 400, "credit balance is too low", "400"),
+        (anthropic.NotFoundError, 404, "model: bogus", "404"),
+        (anthropic.RateLimitError, 429, "rate limit exceeded", "429"),
+    ]
+    seen = set()
+    for cls, status, msg, marker in cases:
+        out = describe_llm_error(_api_error(cls, status, msg))
+        assert marker in out, out
+        assert msg in out, "the API's own message must survive"
+        seen.add(out)
+    assert len(seen) == len(cases), "each status must read differently"
+
+
+def test_the_low_balance_case_is_legible():
+    """A valid key on an account with no credit returns 400 — the single most
+    confusing failure, because the key itself is fine."""
+    import anthropic
+    from services.strategy_agent import describe_llm_error
+    out = describe_llm_error(_api_error(
+        anthropic.BadRequestError, 400,
+        "Your credit balance is too low to access the Anthropic API"))
+    assert "credit balance is too low" in out
+
+
+def test_a_network_failure_is_not_reported_as_a_key_problem():
+    import anthropic
+    import httpx
+    from services.strategy_agent import describe_llm_error
+    exc = anthropic.APIConnectionError(
+        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    out = describe_llm_error(exc)
+    assert "outbound network" in out and "key" not in out.lower()
+
+
+def test_compile_surfaces_the_reason_rather_than_the_class(monkeypatch):
+    import anthropic
+    from services import strategy_agent as sa
+    monkeypatch.setattr(sa, "llm_available", lambda: True)
+
+    def boom(*a, **k):
+        raise _api_error(anthropic.AuthenticationError, 401, "invalid x-api-key")
+    monkeypatch.setattr(sa, "_call_llm", boom)
+
+    note = sa.compile_strategy("Buy when RSI is above 55.")["note"]
+    assert "401" in note and "invalid x-api-key" in note
+    assert "AuthenticationError" not in note, "the class name is not a diagnosis"
+
+
+def test_the_default_model_is_a_current_one():
+    from services import strategy_agent as sa
+    assert sa._MODEL.startswith("claude-"), sa._MODEL
+    assert "-4-5" not in sa._MODEL, "claude-sonnet-4-5 is a legacy model"
