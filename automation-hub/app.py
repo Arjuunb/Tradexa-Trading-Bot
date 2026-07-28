@@ -658,9 +658,28 @@ def _pw_field(name: str, label: str, fid: str, toggle: str, autocomplete: str, h
             f'<button type="button" class="eye" onclick="{toggle}(this)" aria-label="Show password">{_IC_EYE}</button></div></label>')
 
 
+def _storage_notice() -> str:
+    """Warn on the sign-in page itself when accounts do not survive a redeploy.
+
+    This is where someone whose account was erased actually lands, and without
+    it the only evidence is a boot log they cannot see. Silence here reads as
+    "you typed it wrong".
+    """
+    try:
+        if webhook_api.storage_assessment()["local_durable"]:
+            return ""
+    except Exception:  # noqa: BLE001 — never break the login page over a notice
+        return ""
+    return ('<div class="err">Accounts are stored on ephemeral disk and are '
+            'erased on every redeploy. Set HUB_DATA_DIR to a mounted persistent '
+            'disk to keep them, or sign in with HUB_USERNAME / HUB_PASSWORD, '
+            'which are re-seeded from the environment on each boot.</div>')
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+    err += _storage_notice()
     signup = ('<p class="foot">New here? <a href="/signup">Create your account</a></p>'
               if _signup_open() else "")
     return _auth_page("Sign in", f'''{_BRAND_HEAD}
@@ -675,14 +694,43 @@ def login_form(error: str = "") -> str:
 {err}{signup}''')
 
 
+def _login_failure_message(username: str) -> str:
+    """Why the sign-in failed, said in a way the person can act on.
+
+    "Invalid credentials" is the right answer for a wrong password and the
+    wrong answer for a missing account: it sends someone to re-check a password
+    that was never the problem. This hub already discloses whether an owner
+    exists (the signup link appears exactly when one does not), so naming a
+    missing account leaks nothing new — and on ephemeral storage it is the
+    difference between "retype it" and "your account was wiped by a redeploy".
+    """
+    if store.auth_failure_reason(username) == "bad-password":
+        return "Invalid credentials"
+    msg = "No account with that username or email exists on this hub"
+    try:
+        # webhook_api owns the one storage assessment (it knows the real
+        # Supabase connection state); re-deriving it here would drift.
+        if not webhook_api.storage_assessment()["local_durable"]:
+            msg += (". Storage is ephemeral, so accounts are erased on every "
+                    "redeploy — set HUB_DATA_DIR to a persistent disk to keep them")
+    except Exception:  # noqa: BLE001 — a diagnosis must never break sign-in
+        pass
+    return msg
+
+
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
     # verify against hashed credentials; signed cookie survives restarts
-    if store.authenticate(username, password) is not None:
+    user = store.authenticate(username, password)
+    if user is not None:
         resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
+        # Sign the STORED username, not the typed one — otherwise a
+        # case-variant sign-in mints a session under a name whose per-user
+        # settings namespace is empty.
+        resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
         return resp
-    return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
+    err = _login_failure_message(username).replace(" ", "+")
+    return RedirectResponse(f"/login?error={err}", status_code=303)
 
 
 @app.get("/signup", response_class=HTMLResponse)
@@ -755,12 +803,13 @@ def auth_login(username: str = Form(...), password: str = Form(...)):
     session cookie, so callers can use `Authorization: Bearer` while browsers
     keep the cookie. Same credential check as the form /login."""
     from fastapi.responses import JSONResponse
-    if store.authenticate(username, password) is None:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = issue_access(username)
-    resp = JSONResponse({"ok": True, "user": username, "token": token,
+    user = store.authenticate(username, password)
+    if user is None:
+        raise HTTPException(status_code=401, detail=_login_failure_message(username))
+    token = issue_access(user.username)
+    resp = JSONResponse({"ok": True, "user": user.username, "token": token,
                          "token_type": "bearer", "expires_in": SESSION_DAYS * 86400})
-    resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
+    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
     return resp
 
 

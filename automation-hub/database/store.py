@@ -10,6 +10,7 @@ threads don't survive a restart.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import sqlite3
 from dataclasses import asdict
@@ -23,6 +24,16 @@ from database.models import (
 
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 _ACTIVE = {BotState.RUNNING, BotState.PAPER, BotState.PAUSED}
+
+
+def _norm_username(username: str) -> str:
+    """The identity as stored: what was typed, minus surrounding whitespace.
+
+    Signup already stripped; login did not, so a single trailing space — the
+    kind a password manager or a mobile keyboard adds after an email — made a
+    correct password look wrong. Both paths go through here now.
+    """
+    return (username or "").strip()
 
 
 class SqliteStore:
@@ -96,7 +107,8 @@ class SqliteStore:
     # ------------------------------------------------------------- users (P7)
     def create_user(self, username: str, password: str, role: str = "operator") -> User:
         salt, pw_hash = auth.hash_password(password)
-        user = User(username=username, password_hash=pw_hash, salt=salt, role=role)
+        user = User(username=_norm_username(username), password_hash=pw_hash,
+                    salt=salt, role=role)
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO users"
@@ -107,19 +119,31 @@ class SqliteStore:
             self._conn.commit()
         return user
 
-    def get_user(self, username: str) -> User | None:
-        r = self._conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        if r is None:
-            return None
+    @staticmethod
+    def _row_to_user(r) -> User:
         return User(username=r["username"], password_hash=r["password_hash"],
                     salt=r["salt"], role=r["role"],
                     created_at=datetime.fromisoformat(r["created_at"]))
 
+    def get_user(self, username: str) -> User | None:
+        username = _norm_username(username)
+        if not username:
+            return None
+        # Exact match first, so a hub that already holds both "Bob" and "bob"
+        # keeps resolving each to itself. Only when that misses do we retry
+        # case-insensitively: nobody remembers whether they capitalised their
+        # email at signup, and "Arjun@Gmail.com" is not a different person from
+        # "arjun@gmail.com".
+        r = self._conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if r is None:
+            r = self._conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                (username,)).fetchone()
+        return self._row_to_user(r) if r is not None else None
+
     def list_users(self) -> list[User]:
-        return [User(username=r["username"], password_hash=r["password_hash"],
-                     salt=r["salt"], role=r["role"],
-                     created_at=datetime.fromisoformat(r["created_at"]))
+        return [self._row_to_user(r)
                 for r in self._conn.execute("SELECT * FROM users ORDER BY created_at")]
 
     def count_users(self) -> int:
@@ -127,9 +151,26 @@ class SqliteStore:
 
     def authenticate(self, username: str, password: str) -> User | None:
         user = self.get_user(username)
-        if user and auth.verify_password(password, user.salt, user.password_hash):
-            return user
-        return None
+        matched = bool(user and auth.verify_password(
+            password, user.salt, user.password_hash))
+        if os.environ.get("HUB_AUTH_DEBUG") == "1":
+            # Diagnostic trail for "my password is right but sign-in fails".
+            # Prints the identity looked up and the two booleans that decide the
+            # outcome — deliberately NEVER the password and never the stored
+            # hash or salt, which would turn a log file into a credential dump.
+            print(f"[auth] lookup={_norm_username(username)!r} "
+                  f"user_found={user is not None} password_match={matched}",
+                  flush=True)
+        return user if matched else None
+
+    def auth_failure_reason(self, username: str) -> str:
+        """Why a sign-in failed, in terms someone can act on. Only meaningful
+        after ``authenticate`` returned None.
+
+            "no-such-user"  — nothing in the users table matches that identity
+            "bad-password"  — the account exists, the password did not match
+        """
+        return "no-such-user" if self.get_user(username) is None else "bad-password"
 
     def seed_admin(self, username: str, password: str) -> None:
         """Create the first admin from config if there are no users yet."""
@@ -137,10 +178,16 @@ class SqliteStore:
             self.create_user(username, password, role="admin")
 
     def set_password(self, username: str, new_password: str) -> None:
+        # Resolve through get_user so a case- or whitespace-variant of the
+        # stored username updates the real row instead of matching nothing and
+        # silently leaving the old password in place.
+        existing = self.get_user(username)
+        if existing is None:
+            return
         salt, pw_hash = auth.hash_password(new_password)
         with self._lock:
             self._conn.execute("UPDATE users SET password_hash=?, salt=? WHERE username=?",
-                               (pw_hash, salt, username))
+                               (pw_hash, salt, existing.username))
             self._conn.commit()
 
     # -------------------------------------------------- per-user settings
