@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Optional, Sequence
 
 
 # ----------------------- helpers -----------------------
@@ -74,10 +74,15 @@ text-anchor="end" fill="#888">{end_lbl}</text>
 
 # ----------------------- public API -----------------------
 
-def render_report_html(result, title: str = "Backtest Report") -> str:
+def render_report_html(result, title: str = "Backtest Report",
+                       generated_at: Optional[datetime] = None) -> str:
     """Render a BacktestResult / MultiBacktestResult to a self-contained HTML
     string (no file I/O). Used by the file writer below and by the web
     function, which streams the document straight into an HTTP response.
+
+    ``generated_at`` fixes the "generated" stamp. It defaults to now, so normal
+    callers are unaffected; passing it makes the output a pure function of its
+    inputs, which is the only way two renders can be compared byte-for-byte.
     """
     metrics = getattr(result, "metrics", {}) or {}
     curve = getattr(result, "equity_curve", []) or []
@@ -164,7 +169,7 @@ th { background: #fafafa; }
 .neg { color: #c53030; }
 """
 
-    generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    generated = (generated_at or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     html_doc = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -206,11 +211,12 @@ def render_report(
     result,
     title: str = "Backtest Report",
     output_path: str = "report.html",
+    generated_at: Optional[datetime] = None,
 ) -> str:
     """Render a BacktestResult / MultiBacktestResult to a single self-contained
     HTML file. Returns the absolute path to the written file.
     """
-    html_doc = render_report_html(result, title=title)
+    html_doc = render_report_html(result, title=title, generated_at=generated_at)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html_doc, encoding="utf-8")

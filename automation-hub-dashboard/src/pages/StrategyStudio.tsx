@@ -58,6 +58,17 @@ export default function StrategyStudioPage() {
   // Full AI review — unlocked only once a backtest has produced real trades.
   const [fullReview, setFullReview] = useState<StrategyFullReview | null>(null);
   const [review, setReview] = useState<AIStrategyReview | null>(null);
+  /**
+   * Which stage of the workflow is on screen.
+   *
+   * Everything below used to be one page: the AI agent, the block builder, the
+   * results and the library, fourteen cards deep. That put the plain-English
+   * entry point and a version-history table in the same scroll, so neither read
+   * as a distinct step. Tabs make the workflow legible — one job at a time —
+   * while the toolbar above stays shared, because the strategy's identity and
+   * the Save action belong to all four.
+   */
+  const [tab, setTab] = useState<"agent" | "build" | "analyse" | "library">("agent");
   const [busy, setBusy] = useState<string>("");
   const [mode, setMode] = useState<"form" | "canvas">("form");
   // version history / compare
@@ -90,33 +101,58 @@ export default function StrategyStudioPage() {
   const setExitRule = (i: number, r: CustomRule) => patchExit({ rules: exitRules.map((x, j) => (j === i ? r : x)) });
   const delExitRule = (i: number) => patchExit({ rules: exitRules.filter((_, j) => j !== i) });
 
-  const runFullReview = async () => {
-    setBusy("full");
-    try {
-      setFullReview(await apiPostJson<StrategyFullReview>(
-        "/strategy/ai-strategy-review", { spec, range }));
-    } catch { toast("Strategy review failed", "error"); } finally { setBusy(""); }
-  };
-
-  const runEvidence = async () => {
-    setBusy("evidence");
-    try {
-      setEvidence(await apiPostJson<EvidenceReview>(
-        "/strategy/evidence-review", { spec, range }));
-    } catch { toast("Evidence review failed", "error"); } finally { setBusy(""); }
-  };
+  // The three analysis stages. Each is a plain fetcher — `analyse` below owns
+  // the ordering and the busy state, so the stages stay single-purpose.
+  const fetchEvidence = async () => setEvidence(
+    await apiPostJson<EvidenceReview>("/strategy/evidence-review", { spec, range }));
 
   const backtest = async () => {
+    setTab("analyse");          // same reason as analyse() above
     setBusy("sim");
     // `range` is resolved to candles SERVER-side (one implementation, using the
     // spec's own timeframe) so the client never duplicates that maths.
     try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range })); }
     catch { toast("Backtest failed", "error"); } finally { setBusy(""); }
   };
-  const aiReview = async () => {
-    setBusy("review");
-    try { setReview(await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 })); }
-    catch { toast("AI review failed", "error"); } finally { setBusy(""); }
+  const fetchAiReview = async () => setReview(
+    await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 }));
+  const fetchScorecard = async () => setFullReview(
+    await apiPostJson<StrategyFullReview>("/strategy/ai-strategy-review", { spec, range }));
+
+  /**
+   * One analysis action.
+   *
+   * This used to be three buttons — "AI Review", "Evidence Review" and "AI
+   * Strategy Review" — sitting side by side. Three near-identical names for
+   * three stages of the same job is a choice no user can make correctly, and
+   * the stages are not alternatives: the full review needs a backtest, and the
+   * evidence review reads the same trades.
+   *
+   * So it is one button that runs the chain in dependency order and fills the
+   * result cards below, each of which already carries its own heading. A stage
+   * that fails does not abort the rest — a missing evidence review should not
+   * cost you the scorecard.
+   */
+  const analyse = async () => {
+    if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
+    // Results render on the Analyse tab, so go there now — otherwise the work
+    // completes on a tab the user isn't looking at and reads as nothing having
+    // happened.
+    setTab("analyse");
+    let sim_ = sim;
+    if (!sim_) {
+      setBusy("sim");
+      try { sim_ = await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range }); setSim(sim_); }
+      catch { toast("Backtest failed — nothing to analyse", "error"); setBusy(""); return; }
+    }
+    for (const [phase, run] of [
+      ["review", fetchAiReview], ["evidence", fetchEvidence], ["full", fetchScorecard],
+    ] as const) {
+      setBusy(phase);
+      try { await run(); }
+      catch { /* one stage failing must not cost the others */ }
+    }
+    setBusy("");
   };
   const save = async () => {
     if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
@@ -212,43 +248,81 @@ export default function StrategyStudioPage() {
           <button className="btn btn-soft btn-sm" onClick={() => go("Strategy Proof")}>Strategy Proof</button>
         </>} />
 
-      {/* toolbar */}
-      <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
-        <input className="rule-num" style={{ width: 180 }} value={spec.name}
-          onChange={(e) => patch({ name: e.target.value })} title="Strategy name" />
-        <input className="rule-num" style={{ width: 110 }} value={spec.symbol}
-          onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
-        <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
-        <div className="chips">{(["long", "short"] as const).map((s) => <button key={s} className={`chip-btn ${spec.side === s ? "active" : ""}`} onClick={() => patch({ side: s })}>{s}</button>)}</div>
-        <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
-        {/* backtest window — the same SPAN on every timeframe (resolved server-side) */}
-        <span className="chips" style={{ gap: 4 }} title="Backtest window">
-          {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
-            <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
-              onClick={() => { setRange(k); setSim(null); setEvidence(null); setFullReview(null); }}>{k}</button>
-          ))}
+      {/* Toolbar, grouped by what each control CHANGES. Previously ~20 visually
+          identical chips sat in one row doing four unrelated jobs, so nothing
+          signalled that switching 4h alters the strategy itself while switching
+          1Y only alters the window you test it over. */}
+      <div className="toolbar" style={{ gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span className="tb-group" title="What this strategy is">
+          <span className="tb-label">Strategy</span>
+          <input className="rule-num" style={{ width: 160 }} value={spec.name}
+            onChange={(e) => patch({ name: e.target.value })} title="Strategy name" />
+          <input className="rule-num" style={{ width: 100 }} value={spec.symbol}
+            onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
+          <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
+          <div className="chips">{(["long", "short"] as const).map((sd) => <button key={sd} className={`chip-btn ${spec.side === sd ? "active" : ""}`} onClick={() => patch({ side: sd })}>{sd}</button>)}</div>
         </span>
-        <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
-        <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
-        <button className="btn btn-soft" onClick={runEvidence} disabled={busy === "evidence"}><Icon name="ai" size={13} /> {busy === "evidence" ? "Analysing…" : "Evidence Review"}</button>
-        {/* unlocked by a completed backtest, per the review flow */}
-        <button className="btn btn-primary" onClick={runFullReview}
-                disabled={busy === "full" || !sim}
-                title={sim ? "Full scorecard + optimisation suggestions" : "Run a backtest first"}>
-          <Icon name="bot" size={13} /> {busy === "full" ? "Reviewing…" : "AI Strategy Review"}</button>
-        <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
-        <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
+
+        <span className="tb-group" title="How you edit the conditions">
+          <span className="tb-label">Editor</span>
+          <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
+        </span>
+
+        <span className="tb-group" title="The window you test over — this does not change the strategy">
+          <span className="tb-label">Test over</span>
+          <span className="chips" style={{ gap: 4 }}>
+            {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
+              <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
+                onClick={() => { setRange(k); setSim(null); setEvidence(null); setFullReview(null); }}>{k}</button>
+            ))}
+          </span>
+          <button className="btn btn-soft" onClick={backtest} disabled={!!busy}>
+            <Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}
+          </button>
+          <button className="btn btn-primary" onClick={analyse} disabled={!!busy}
+                  title="Backtest if needed, then score, explain and review the result">
+            <Icon name="bot" size={13} /> {
+              busy === "sim" ? "Backtesting…" :
+              busy === "review" ? "Reviewing…" :
+              busy === "evidence" ? "Reading trades…" :
+              busy === "full" ? "Scoring…" : "Analyse"}
+          </button>
+        </span>
+
+        <span className="tb-group">
+          <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
+          <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
+        </span>
       </div>
 
-      {/* AI Strategy Agent — plain-English entry point. Compiles into the SAME
-          spec the builder edits, so Backtest / AI Review / Save / Deploy below
-          are unchanged: one strategy format, one engine. */}
+      {/* One tab per stage of the workflow. The strategy itself is shared state,
+          so switching tabs never loses work. */}
+      <div className="chips" style={{ gap: 6, marginTop: 4 }}>
+        {([
+          ["agent", "AI Agent", "Describe it in plain English"],
+          ["build", "Build", "Conditions, exits and risk"],
+          ["analyse", "Analyse", "Backtest, score and explain"],
+          ["library", "Library", "Saved strategies, history and sharing"],
+        ] as const).map(([k, label, hint]) => (
+          <button key={k} className={`chip-btn ${tab === k ? "active" : ""}`}
+                  title={hint} onClick={() => setTab(k)}>
+            {label}{k === "analyse" && (sim || review || evidence || fullReview) ? " ·" : ""}
+          </button>
+        ))}
+      </div>
+
+      {tab === "agent" && (<>
+      {/* Plain-English entry point. Compiles into the SAME spec the Build tab
+          edits — one strategy format, one engine. */}
       <AIStrategyAgent onUseSpec={(s) => {
         setSpec({ ...EMPTY, ...s });
         setSim(null); setReview(null);
-        toast(`Loaded "${s.name}" into the builder — review, then backtest.`, "success");
+        setTab("build");
+        toast(`Loaded "${s.name}" into the builder — review the rules, then backtest.`, "success");
       }} />
+      </>)}
 
+      {tab === "build" && (<>
       {/* templates */}
       <Card title="Templates" subtitle="Start from a proven pattern, then tweak">
         <div className="chips" style={{ gap: 8 }}>
@@ -362,6 +436,19 @@ export default function StrategyStudioPage() {
         </select>
       </Card>
 
+      </>)}
+
+      {tab === "analyse" && (<>
+      {!sim && !review && !evidence && !fullReview && (
+        <Card title="Analyse" subtitle="Nothing has been run for this strategy yet">
+          <div className="dim" style={{ padding: 10, fontSize: 12.5 }}>
+            Press <b>Analyse</b> in the toolbar above. It backtests over {range},
+            then scores and explains the result — every figure below comes from
+            those trades.
+          </div>
+        </Card>
+      )}
+
       {/* Evidence review — every claim carries the statistic that produced it,
           and dimensions the trade data can't support are declared, not guessed. */}
       {evidence && (
@@ -471,6 +558,9 @@ export default function StrategyStudioPage() {
         </Card>
       </div>
 
+      </>)}
+
+      {tab === "library" && (<>
       {/* library */}
       <Card title="Strategy Library" subtitle={`${saved.data?.length ?? 0} saved`}>
         {!(saved.data ?? []).length ? <div className="dim" style={{ padding: 10 }}>No saved strategies yet — build one and hit Save.</div> : (
@@ -507,6 +597,7 @@ export default function StrategyStudioPage() {
 
       {/* change log, discussion and sharing for the strategy being edited */}
       {!!spec.id && <StrategyCollab sid={spec.id} toast={toast} />}
+      </>)}
 
       <Modal open={!!histFor} title={`Version history — ${histFor?.name ?? ""}`} onClose={() => setHistFor(null)}>
         {versions == null ? <div className="dim">Loading…</div>

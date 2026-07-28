@@ -467,6 +467,19 @@ a.brand:hover { opacity: 0.85; }
 .chip-btn:hover { color: var(--text); }
 .chip-btn.active { background: rgba(139,92,246,0.16); border-color: rgba(139,92,246,0.4); color: var(--purple-2); }
 
+/* Toolbar groups — a row of visually identical chips gives the user no way to
+   tell a control that changes the STRATEGY from one that only changes the test
+   window. The hairline and the label do that work. */
+.tb-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 12px 6px 10px; border: 1px solid var(--card-border-soft);
+  border-radius: 12px; background: rgba(255,255,255,0.015); }
+.tb-label { font-size: 10px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--dim-2); user-select: none;
+  padding-right: 2px; }
+@media (max-width: 900px) {
+  .tb-group { width: 100%; }
+}
+
 /* ----------------------------------------------------------- symbol explorer */
 .sym-search { position: relative; display: flex; align-items: center; gap: 10px; padding: 2px 4px; }
 .sym-search-input { flex: 1; background: #121214; border: 1px solid var(--card-border); color: var(--text);
