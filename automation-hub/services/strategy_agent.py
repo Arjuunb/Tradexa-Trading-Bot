@@ -117,6 +117,13 @@ def _walk_rules(node: Any):
             yield r
 
 
+# Risk is a FRACTION of equity (0.01 = 1%). At or above this it is almost
+# certainly a percentage written as a whole number, since risking a quarter of
+# the account on one trade is not something people mention in passing.
+RISK_UNIT_AMBIGUOUS = 0.25
+RISK_AGGRESSIVE = 0.05
+
+
 def validate_spec(spec: dict) -> dict:
     """Strict structural validation of a compiled spec.
 
@@ -169,7 +176,22 @@ def validate_spec(spec: dict) -> dict:
     if isinstance(risk, (int, float)):
         if risk <= 0:
             errors.append("risk_per_trade_pct must be greater than 0.")
-        elif risk > 0.05:
+        elif risk > 1:
+            errors.append(
+                f"risk_per_trade_pct is {risk} — it is a FRACTION of equity, so it "
+                "cannot exceed 1 (100%). Write 1% as 0.01.")
+        elif risk >= RISK_UNIT_AMBIGUOUS:
+            # "Risk 1% per trade" arriving as 1 instead of 0.01 reads as risking
+            # the ENTIRE account. Nobody writing a strategy in prose means that,
+            # but the two are indistinguishable from the number alone — so this
+            # blocks rather than guessing, and it is never silently rescaled.
+            # Quietly dividing by 100 would be the interpreter rewriting the
+            # user's risk, which is exactly what it must not do.
+            errors.append(
+                f"risk_per_trade_pct is {risk}, which the engine reads as "
+                f"{risk * 100:.0f}% of equity per trade. If you meant "
+                f"{risk:.0f}%, it should be {risk / 100:g}. Confirm which you want.")
+        elif risk > RISK_AGGRESSIVE:
             warnings.append(f"Risking {risk * 100:.1f}% per trade is aggressive.")
 
     sess = spec.get("session")
@@ -208,28 +230,48 @@ def completeness(spec: dict) -> dict:
 
 # ---------------------------------------------------------------- clarification
 
-def clarifying_questions(spec: dict, validation: dict) -> list[dict]:
+def clarifying_questions(spec: dict, validation: dict,
+                         existing: Optional[list[dict]] = None) -> list[dict]:
     """Turn gaps and errors into concrete questions with choosable options.
 
-    Never guesses a default — compilation is expected to PAUSE on these."""
+    Never guesses a default — compilation is expected to PAUSE on these. When
+    the LLM has already raised a question about a topic (it does this for an
+    unsupported request like "below the previous swing low"), the matching
+    deterministic question is suppressed: two stop questions side by side, one
+    of them offering the very option the other calls unsupported, is worse than
+    silence."""
+    # Topics the model already asked about — matched on id or on the question
+    # text, since the model's ids are not under our control.
+    covered = set()
+    for q in existing or []:
+        blob = f"{q.get('id', '')} {q.get('question', '')}".lower()
+        for topic in ("stop", "target", "take profit", "risk", "side",
+                      "long", "short", "timeframe", "symbol", "asset"):
+            if topic in blob:
+                covered.add("target" if topic == "take profit" else
+                            "side" if topic in ("long", "short") else
+                            "symbol" if topic == "asset" else topic)
+
     qs: list[dict] = []
-    if not spec.get("stop"):
+    if not spec.get("stop") and "stop" not in covered:
+        # NOTE: only atr and pct are choosable — "below the previous swing low"
+        # is deliberately absent because the engine cannot express it, and
+        # offering an option that fails validation on selection is a trap.
         qs.append({"id": "stop", "question": "How should the stop loss be placed?",
-                   "options": ["ATR-based (1.5x ATR-14)", "Fixed percentage",
-                               "Below the previous swing low"]})
-    if not spec.get("target"):
+                   "options": ["ATR-based (1.5x ATR-14)", "Fixed percentage (e.g. 2%)"]})
+    if not spec.get("target") and "target" not in covered:
         qs.append({"id": "target", "question": "How should the take profit be set?",
                    "options": ["Risk/reward multiple (e.g. 1:3)", "Fixed percentage"]})
-    if not spec.get("risk_per_trade_pct"):
+    if not spec.get("risk_per_trade_pct") and "risk" not in covered:
         qs.append({"id": "risk", "question": "How much of the account should each trade risk?",
                    "options": ["0.5%", "1%", "2%"]})
-    if spec.get("side") not in ("long", "short"):
+    if spec.get("side") not in ("long", "short") and "side" not in covered:
         qs.append({"id": "side", "question": "Should this strategy trade long, short, or both?",
                    "options": ["Long only", "Short only"]})
-    if not spec.get("timeframe"):
+    if not spec.get("timeframe") and "timeframe" not in covered:
         qs.append({"id": "timeframe", "question": "Which timeframe should it execute on?",
                    "options": ["5m", "15m", "1h", "4h", "1d"]})
-    if not spec.get("symbol"):
+    if not spec.get("symbol") and "symbol" not in covered:
         qs.append({"id": "symbol", "question": "Which asset should it trade?",
                    "options": ["BTCUSDT", "ETHUSDT", "SOLUSDT"]})
     for err in validation.get("errors", []):
@@ -238,6 +280,28 @@ def clarifying_questions(spec: dict, validation: dict) -> list[dict]:
                        f"A rule could not be traced to your description ({err.split(':')[0]}). "
                        "Please restate that condition.", "options": []})
     return qs
+
+
+def risk_unit_questions(spec: dict, validation: dict) -> list[dict]:
+    """Ask which risk figure was meant when the units are ambiguous.
+
+    Split out from ``clarifying_questions`` because it fires on a value that IS
+    present rather than one that is missing. Without it the blocking error has
+    no answerable question attached, and the user is told compilation is paused
+    with no control that resumes it.
+    """
+    risk = spec.get("risk_per_trade_pct")
+    if not isinstance(risk, (int, float)) or not (0 < risk <= 1):
+        return []
+    if risk < RISK_UNIT_AMBIGUOUS:
+        return []
+    return [{
+        "id": "risk_units",
+        "question": (f"Risk was read as {risk}, which is {risk * 100:.0f}% of the "
+                     f"account per trade. Did you mean {risk:.0f}%?"),
+        "options": [f"{risk:.0f}% per trade (use {risk / 100:g})",
+                    f"Yes — really risk {risk * 100:.0f}% per trade"],
+    }]
 
 
 # ------------------------------------------------------------------- LLM seam
@@ -283,7 +347,14 @@ def _system_prompt() -> str:
         f"RULE TYPES:\n" + "\n".join(lines) + "\n\n"
         f"SESSIONS (single window only): {sessions}\n"
         "stop: {type:'atr',mult,period} or {type:'pct',pct}\n"
-        "target: {type:'rr',rr} or {type:'pct',pct}\n\n"
+        "target: {type:'rr',rr} or {type:'pct',pct}\n"
+        # Spelled out because the field NAME ends in _pct while the VALUE is a
+        # fraction. Emitting 1 for "risk 1%" reads downstream as risking the
+        # whole account, and the number alone cannot be told apart from someone
+        # genuinely meaning 100%.
+        "risk_per_trade_pct: a FRACTION of equity, NOT a percentage number. "
+        "\"risk 1%\" -> 0.01. \"risk 0.5% per trade\" -> 0.005. \"2 percent\" -> 0.02. "
+        "Never emit 1 for 1% — 1 means 100% of the account on a single trade.\n\n"
         "OUTPUT SHAPE:\n"
         '{"spec": {"name","symbol","timeframe","side","entry":{"op":"AND|OR",'
         '"rules":[{"type",...,"source"}]},"stop":{},"target":{},'
@@ -395,7 +466,8 @@ def compile_strategy(text: str, answers: Optional[dict] = None) -> dict:
                 "note": "The description did not contain enough to compile a strategy."}
 
     validation = validate_spec(spec)
-    questions += clarifying_questions(spec, validation)
+    questions += clarifying_questions(spec, validation, existing=questions)
+    questions += risk_unit_questions(spec, validation)
     # de-dup questions by id, preserving order
     seen, uniq = set(), []
     for q in questions:
