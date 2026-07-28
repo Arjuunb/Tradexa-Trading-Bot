@@ -195,6 +195,7 @@ def system_status():
     """Real bot/system health — no fabricated values. Paper-only until a live
     broker is wired (live execution is a future phase)."""
     st = _wa.engine.status()
+    verdict = _inactivity_verdict(st)
     return {
         "mode": "paper",                     # the engine paper-executes; no live broker
         "broker_connected": False,           # honest: no live venue connected
@@ -205,6 +206,13 @@ def system_status():
         "symbols": _wa.engine.symbols,
         "timeframe": _wa.engine.timeframe,
         "bars_processed": st.get("bars", 0),
+        # A bare "0" reads the same whether the engine is healthily waiting for
+        # the next candle to close or the feed died hours ago. These carry the
+        # distinction the diagnostics page already makes, so the status bar can
+        # say which — same verdict, so the two can never disagree.
+        "bars_status": verdict["status"],
+        "bars_note": verdict["headline"],
+        "bars_severity": verdict["severity"],
         "signals": st.get("signals", 0),
         "trades": st.get("trades", 0),
         "started_at": st.get("started_at"),
@@ -214,29 +222,45 @@ def system_status():
         "halt_reason": _wa.pipeline.halt_reason,
     }
 
+def _last_activity_age_s(st: dict):
+    """Seconds since the engine last processed a bar, or None if never/unparseable."""
+    from datetime import datetime, timezone
+    if not st.get("last_activity"):
+        return None
+    try:
+        la = datetime.fromisoformat(str(st["last_activity"]).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - la).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
+def _inactivity_verdict(st: dict) -> dict:
+    """The one place engine state becomes a plain-English verdict.
+
+    Both /engine/diagnostics and /system/status need this. Assembling the
+    arguments twice is how the status bar and the diagnostics page end up
+    disagreeing about whether the bot is healthy.
+    """
+    from services.auto_engine import explain_inactivity
+    return explain_inactivity(
+        running=st.get("running", False), trading_state=_wa.controls.state,
+        mode=st.get("mode", "replay"), timeframe=st.get("timeframe", "4h"),
+        bars=st.get("bars", 0), signals=st.get("signals", 0),
+        trades=st.get("trades", 0), rejections=st.get("rejections", 0),
+        data_source=st.get("data_source"),
+        last_activity_age_s=_last_activity_age_s(st),
+        feed_error=st.get("feed_error"),
+    )
+
+
 @router.get("/engine/diagnostics")
 def engine_diagnostics():
     """Plain-English answer to 'why isn't the bot trading?' — built from real
     engine activity (running state, data feed, bars/signals/rejections, and how
     long since the last new candle)."""
-    from datetime import datetime, timezone
-    from services.auto_engine import explain_inactivity
     st = _wa.engine.status()
-    age = None
-    if st.get("last_activity"):
-        try:
-            la = datetime.fromisoformat(str(st["last_activity"]).replace("Z", "+00:00"))
-            age = (datetime.now(timezone.utc) - la).total_seconds()
-        except (ValueError, TypeError):
-            age = None
-    verdict = explain_inactivity(
-        running=st.get("running", False), trading_state=_wa.controls.state,
-        mode=st.get("mode", "replay"), timeframe=st.get("timeframe", "4h"),
-        bars=st.get("bars", 0), signals=st.get("signals", 0),
-        trades=st.get("trades", 0), rejections=st.get("rejections", 0),
-        data_source=st.get("data_source"), last_activity_age_s=age,
-        feed_error=st.get("feed_error"),
-    )
+    age = _last_activity_age_s(st)
+    verdict = _inactivity_verdict(st)
     return {
         **verdict,
         "running": st.get("running", False),

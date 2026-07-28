@@ -1,5 +1,20 @@
 """Engine inactivity diagnosis — the 'why isn't the bot trading?' logic."""
+import pytest
+
 from services.auto_engine import explain_inactivity
+
+
+@pytest.fixture()
+def client():
+    """Mounts the real router, so the endpoint wiring is exercised rather than
+    the pure function a second time."""
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import webhook_api
+    app = FastAPI()
+    app.include_router(webhook_api.router)
+    return TestClient(app)
 
 
 def _kw(**over):
@@ -132,3 +147,50 @@ def test_engine_status_reports_feed_state():
     assert eng.status()["feed_status"] == "waiting-for-candle"   # bars still 0
     eng.stats["bars"] = 3
     assert eng.status()["feed_status"] == "connected"
+
+
+# ═══════════════════════════════ a zero bar count must explain itself
+# "Bars 0" on a 4h timeframe looks identical whether the engine started two
+# minutes ago or the feed died overnight. /system/status now carries the same
+# verdict /engine/diagnostics does, so the status bar can say which.
+
+def _status_payload(client):
+    return client.get("/system/status").json()
+
+
+def test_system_status_carries_a_bars_verdict(client):
+    j = _status_payload(client)
+    assert "bars_status" in j and "bars_note" in j and "bars_severity" in j
+
+
+def test_a_healthy_wait_and_a_dead_feed_do_not_read_the_same():
+    """The whole point of the annotation — these two must differ."""
+    from services.auto_engine import explain_inactivity
+    common = dict(running=True, trading_state="active", timeframe="4h", bars=0,
+                  signals=0, trades=0, rejections=0, last_activity_age_s=None)
+    waiting = explain_inactivity(mode="live", data_source="live (ccxt)", **common)
+    stalled = explain_inactivity(mode="live", data_source="synthetic", **common)
+
+    assert waiting["status"] == "waiting_first_candle"
+    assert stalled["status"] == "stale_feed"
+    assert waiting["headline"] != stalled["headline"]
+    assert waiting["severity"] == "info" and stalled["severity"] == "critical"
+
+
+def test_the_waiting_verdict_names_the_timeframe_it_is_waiting_on():
+    from services.auto_engine import explain_inactivity
+    v = explain_inactivity(running=True, trading_state="active", mode="live",
+                           timeframe="4h", bars=0, signals=0, trades=0,
+                           rejections=0, data_source="live (ccxt)",
+                           last_activity_age_s=None)
+    assert "4h" in v["detail"] and "hours" in v["detail"]
+
+
+def test_the_status_bar_and_the_diagnostics_page_agree(client):
+    """Two endpoints deriving the same verdict from separately assembled
+    arguments is how a status bar ends up contradicting the page it links to."""
+    st = _status_payload(client)
+    dg = client.get("/engine/diagnostics").json()
+    assert st["bars_status"] == dg["status"]
+    assert st["bars_note"] == dg["headline"]
+    assert st["bars_severity"] == dg["severity"]
