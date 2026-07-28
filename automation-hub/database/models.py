@@ -43,12 +43,30 @@ class User:
     salt: str = ""
     role: str = "operator"          # "owner" | "admin" | "operator" | "viewer"
     created_at: datetime = field(default_factory=_now)
+    # Contact address, distinct from the login identity: most accounts here sign
+    # up with an email AS the username, but an OAuth or admin-created account
+    # need not, and password reset has to reach someone either way.
+    email: Optional[str] = None
+    email_verified: bool = False
+    totp_secret: Optional[str] = None
+    totp_enabled: bool = False
+    # Last TOTP step accepted. A code stays valid for its whole 30s window, so
+    # without this an observed code is replayable until the window closes.
+    totp_last_step: Optional[int] = None
 
     @property
     def is_admin(self) -> bool:
         # owner is the top role (created at signup) and is admin-capable — it
         # must not be locked out of admin-only actions like user management.
         return self.role in ("admin", "owner")
+
+    @property
+    def contact_email(self) -> Optional[str]:
+        """Where to write. Falls back to the username when that is itself an
+        email, which is how every account created through signup looks."""
+        if self.email:
+            return self.email
+        return self.username if "@" in (self.username or "") else None
 
 
 @dataclass

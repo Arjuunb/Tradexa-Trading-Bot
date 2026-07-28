@@ -10,11 +10,13 @@ threads don't survive a restart.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import sqlite3
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import auth
 from database.models import (
@@ -23,6 +25,16 @@ from database.models import (
 
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 _ACTIVE = {BotState.RUNNING, BotState.PAPER, BotState.PAUSED}
+
+
+def _norm_username(username: str) -> str:
+    """The identity as stored: what was typed, minus surrounding whitespace.
+
+    Signup already stripped; login did not, so a single trailing space — the
+    kind a password manager or a mobile keyboard adds after an email — made a
+    correct password look wrong. Both paths go through here now.
+    """
+    return (username or "").strip()
 
 
 class SqliteStore:
@@ -96,7 +108,8 @@ class SqliteStore:
     # ------------------------------------------------------------- users (P7)
     def create_user(self, username: str, password: str, role: str = "operator") -> User:
         salt, pw_hash = auth.hash_password(password)
-        user = User(username=username, password_hash=pw_hash, salt=salt, role=role)
+        user = User(username=_norm_username(username), password_hash=pw_hash,
+                    salt=salt, role=role)
         with self._lock:
             self._conn.execute(
                 "INSERT OR REPLACE INTO users"
@@ -107,19 +120,43 @@ class SqliteStore:
             self._conn.commit()
         return user
 
+    @staticmethod
+    def _row_to_user(r) -> User:
+        keys = r.keys()
+
+        def col(name, default=None):
+            # Tolerates a row read before 0004 applied (or a SELECT of older
+            # columns) instead of raising IndexError deep inside a login.
+            return r[name] if name in keys else default
+
+        return User(username=r["username"], password_hash=r["password_hash"],
+                    salt=r["salt"], role=r["role"],
+                    created_at=datetime.fromisoformat(r["created_at"]),
+                    email=col("email"),
+                    email_verified=bool(col("email_verified", 0)),
+                    totp_secret=col("totp_secret"),
+                    totp_enabled=bool(col("totp_enabled", 0)),
+                    totp_last_step=col("totp_last_step"))
+
     def get_user(self, username: str) -> User | None:
+        username = _norm_username(username)
+        if not username:
+            return None
+        # Exact match first, so a hub that already holds both "Bob" and "bob"
+        # keeps resolving each to itself. Only when that misses do we retry
+        # case-insensitively: nobody remembers whether they capitalised their
+        # email at signup, and "Arjun@Gmail.com" is not a different person from
+        # "arjun@gmail.com".
         r = self._conn.execute(
             "SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if r is None:
-            return None
-        return User(username=r["username"], password_hash=r["password_hash"],
-                    salt=r["salt"], role=r["role"],
-                    created_at=datetime.fromisoformat(r["created_at"]))
+            r = self._conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+                (username,)).fetchone()
+        return self._row_to_user(r) if r is not None else None
 
     def list_users(self) -> list[User]:
-        return [User(username=r["username"], password_hash=r["password_hash"],
-                     salt=r["salt"], role=r["role"],
-                     created_at=datetime.fromisoformat(r["created_at"]))
+        return [self._row_to_user(r)
                 for r in self._conn.execute("SELECT * FROM users ORDER BY created_at")]
 
     def count_users(self) -> int:
@@ -127,20 +164,256 @@ class SqliteStore:
 
     def authenticate(self, username: str, password: str) -> User | None:
         user = self.get_user(username)
-        if user and auth.verify_password(password, user.salt, user.password_hash):
-            return user
-        return None
+        matched = bool(user and auth.verify_password(
+            password, user.salt, user.password_hash))
+        if os.environ.get("HUB_AUTH_DEBUG") == "1":
+            # Diagnostic trail for "my password is right but sign-in fails".
+            # Prints the identity looked up and the two booleans that decide the
+            # outcome — deliberately NEVER the password and never the stored
+            # hash or salt, which would turn a log file into a credential dump.
+            print(f"[auth] lookup={_norm_username(username)!r} "
+                  f"user_found={user is not None} password_match={matched}",
+                  flush=True)
+        return user if matched else None
+
+    def auth_failure_reason(self, username: str) -> str:
+        """Why a sign-in failed, in terms someone can act on. Only meaningful
+        after ``authenticate`` returned None.
+
+            "no-such-user"  — nothing in the users table matches that identity
+            "bad-password"  — the account exists, the password did not match
+        """
+        return "no-such-user" if self.get_user(username) is None else "bad-password"
 
     def seed_admin(self, username: str, password: str) -> None:
         """Create the first admin from config if there are no users yet."""
         if self.count_users() == 0:
             self.create_user(username, password, role="admin")
 
+    # ------------------------------------------------------- email identity
+    def find_by_email(self, email: str) -> User | None:
+        """Resolve a contact address to an account.
+
+        Two places to look, because most accounts here signed up with their
+        email AS the username and so have never set the email column. Matching
+        only one of them would make password reset fail for exactly the
+        accounts most likely to need it.
+        """
+        email = _norm_username(email)
+        if not email:
+            return None
+        r = self._conn.execute(
+            "SELECT * FROM users WHERE email = ? COLLATE NOCASE", (email,)).fetchone()
+        if r is not None:
+            return self._row_to_user(r)
+        return self.get_user(email)
+
+    def set_email(self, username: str, email: str, *, verified: bool = False) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE users SET email=?, email_verified=? WHERE username=?",
+                (_norm_username(email), 1 if verified else 0, user.username))
+            self._conn.commit()
+
+    def mark_email_verified(self, username: str) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            # Backfill the column for accounts whose username IS their email —
+            # otherwise the flag lands on a row with nothing to point at.
+            self._conn.execute(
+                "UPDATE users SET email_verified=1, email=COALESCE(email, ?) "
+                "WHERE username=?", (user.contact_email, user.username))
+            self._conn.commit()
+
+    # --------------------------------------------------- single-use tokens
+    def put_auth_token(self, username: str, token_hash: str, purpose: str,
+                       expires_at: str) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            # One live token per purpose: issuing a second reset link must
+            # retire the first, or an old email stays a working key.
+            self._conn.execute(
+                "DELETE FROM auth_tokens WHERE username=? AND purpose=?",
+                (user.username, purpose))
+            self._conn.execute(
+                "INSERT INTO auth_tokens(token_hash, username, purpose, expires_at,"
+                " used_at, created_at) VALUES (?,?,?,?,NULL,?)",
+                (token_hash, user.username, purpose, expires_at,
+                 datetime.now(timezone.utc).isoformat()))
+            self._conn.commit()
+
+    def redeem_auth_token(self, token_hash: str, purpose: str) -> Optional[str]:
+        """Consume a token, returning the username it belongs to, or None.
+
+        Expiry and single-use are enforced here rather than at issue time, and
+        the row is marked used inside the same lock as the check — otherwise
+        two requests arriving together could both redeem the same token.
+        """
+        from services.auth_tokens import is_expired
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT * FROM auth_tokens WHERE token_hash=? AND purpose=?",
+                (token_hash, purpose)).fetchone()
+            if r is None or r["used_at"] is not None or is_expired(r["expires_at"]):
+                return None
+            self._conn.execute("UPDATE auth_tokens SET used_at=? WHERE token_hash=?",
+                               (datetime.now(timezone.utc).isoformat(), token_hash))
+            self._conn.commit()
+            return r["username"]
+
+    def purge_expired_tokens(self) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM auth_tokens WHERE expires_at < ?",
+                (datetime.now(timezone.utc).isoformat(),))
+            self._conn.commit()
+            return cur.rowcount or 0
+
+    # ------------------------------------------------------------- two-factor
+    def set_totp_secret(self, username: str, secret: Optional[str]) -> None:
+        """Stage a secret without enabling 2FA. Enabling before the user has
+        proved they can produce a code would lock them out of their own
+        account with a secret they never successfully scanned."""
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE users SET totp_secret=?, totp_enabled=0, totp_last_step=NULL "
+                "WHERE username=?", (secret, user.username))
+            self._conn.commit()
+
+    def enable_totp(self, username: str, recovery_hashes: list[str]) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute("UPDATE users SET totp_enabled=1 WHERE username=?",
+                               (user.username,))
+            self._conn.execute("DELETE FROM totp_recovery WHERE username=?",
+                               (user.username,))
+            now = datetime.now(timezone.utc).isoformat()
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO totp_recovery(code_hash, username, used_at,"
+                " created_at) VALUES (?,?,NULL,?)",
+                [(h, user.username, now) for h in recovery_hashes])
+            self._conn.commit()
+
+    def disable_totp(self, username: str) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "UPDATE users SET totp_enabled=0, totp_secret=NULL, totp_last_step=NULL "
+                "WHERE username=?", (user.username,))
+            self._conn.execute("DELETE FROM totp_recovery WHERE username=?",
+                               (user.username,))
+            self._conn.commit()
+
+    def record_totp_step(self, username: str, step: int) -> bool:
+        """Burn a TOTP step. False if it was already used — the replay guard.
+
+        The read and the write share one lock, so two requests racing with the
+        same intercepted code cannot both win.
+        """
+        user = self.get_user(username)
+        if user is None:
+            return False
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT totp_last_step FROM users WHERE username=?",
+                (user.username,)).fetchone()
+            last = r["totp_last_step"] if r else None
+            if last is not None and step <= last:
+                return False
+            self._conn.execute("UPDATE users SET totp_last_step=? WHERE username=?",
+                               (step, user.username))
+            self._conn.commit()
+            return True
+
+    def consume_recovery_code(self, username: str, code_hash: str) -> bool:
+        user = self.get_user(username)
+        if user is None:
+            return False
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT * FROM totp_recovery WHERE code_hash=? AND username=?",
+                (code_hash, user.username)).fetchone()
+            if r is None or r["used_at"] is not None:
+                return False
+            self._conn.execute(
+                "UPDATE totp_recovery SET used_at=? WHERE code_hash=?",
+                (datetime.now(timezone.utc).isoformat(), code_hash))
+            self._conn.commit()
+            return True
+
+    def count_unused_recovery_codes(self, username: str) -> int:
+        user = self.get_user(username)
+        if user is None:
+            return 0
+        return self._conn.execute(
+            "SELECT COUNT(*) AS n FROM totp_recovery WHERE username=? AND used_at IS NULL",
+            (user.username,)).fetchone()["n"]
+
+    # ------------------------------------------------------------------ OAuth
+    def link_oauth(self, provider: str, subject: str, username: str,
+                   email: Optional[str] = None) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO oauth_identities(provider, subject, username,"
+                " email, created_at) VALUES (?,?,?,?,?)",
+                (provider, str(subject), user.username, email,
+                 datetime.now(timezone.utc).isoformat()))
+            self._conn.commit()
+
+    def find_by_oauth(self, provider: str, subject: str) -> User | None:
+        r = self._conn.execute(
+            "SELECT username FROM oauth_identities WHERE provider=? AND subject=?",
+            (provider, str(subject))).fetchone()
+        return self.get_user(r["username"]) if r else None
+
+    def list_oauth_links(self, username: str) -> list[dict]:
+        user = self.get_user(username)
+        if user is None:
+            return []
+        return [{"provider": r["provider"], "email": r["email"],
+                 "linked_at": r["created_at"]}
+                for r in self._conn.execute(
+                    "SELECT * FROM oauth_identities WHERE username=? ORDER BY created_at",
+                    (user.username,))]
+
+    def unlink_oauth(self, provider: str, username: str) -> None:
+        user = self.get_user(username)
+        if user is None:
+            return
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM oauth_identities WHERE provider=? AND username=?",
+                (provider, user.username))
+            self._conn.commit()
+
     def set_password(self, username: str, new_password: str) -> None:
+        # Resolve through get_user so a case- or whitespace-variant of the
+        # stored username updates the real row instead of matching nothing and
+        # silently leaving the old password in place.
+        existing = self.get_user(username)
+        if existing is None:
+            return
         salt, pw_hash = auth.hash_password(new_password)
         with self._lock:
             self._conn.execute("UPDATE users SET password_hash=?, salt=? WHERE username=?",
-                               (pw_hash, salt, username))
+                               (pw_hash, salt, existing.username))
             self._conn.commit()
 
     # -------------------------------------------------- per-user settings

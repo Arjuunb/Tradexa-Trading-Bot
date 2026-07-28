@@ -312,8 +312,12 @@ def _serve_landing(request: Optional[Request] = None) -> HTMLResponse:
 # landing SPA owns "/", "/auth/*" and "/settings/*"; the dashboard lives at "/app"
 # and stays session-gated. BrowserRouter paths need a real HTML response per route.
 if _LANDING_READY:
-    _LANDING_AUTH = ("login", "register", "forgot-password", "reset-password",
-                     "verify-email", "two-factor", "session-expired")
+    # Only the SPA shells that merely forward to the backend. The functional
+    # flows — forgot/reset password, verify-email, two-factor — are served by
+    # this app, because they need the users table and the session cookie. The
+    # landing's versions of those pages were Supabase stubs against a second,
+    # empty identity store; routing to them would authenticate nobody.
+    _LANDING_AUTH = ("login", "register", "session-expired")
 
     def _landing_page(request: Request) -> HTMLResponse:
         return _serve_landing(request)
@@ -658,9 +662,41 @@ def _pw_field(name: str, label: str, fid: str, toggle: str, autocomplete: str, h
             f'<button type="button" class="eye" onclick="{toggle}(this)" aria-label="Show password">{_IC_EYE}</button></div></label>')
 
 
+from services import auth_flows as _af  # noqa: E402
+from services import mailer as _mailer  # noqa: E402
+from services import oauth as _oauth  # noqa: E402
+
+
+def _q(text: str) -> str:
+    """Percent-encode a message for a redirect query string. '+' for spaces is
+    not enough — an apostrophe or an '&' in an error message would otherwise
+    truncate it or split it into a second parameter."""
+    from urllib.parse import quote_plus
+    return quote_plus(text or "")
+
+
+def _storage_notice() -> str:
+    """Warn on the sign-in page itself when accounts do not survive a redeploy.
+
+    This is where someone whose account was erased actually lands, and without
+    it the only evidence is a boot log they cannot see. Silence here reads as
+    "you typed it wrong".
+    """
+    try:
+        if webhook_api.storage_assessment()["local_durable"]:
+            return ""
+    except Exception:  # noqa: BLE001 — never break the login page over a notice
+        return ""
+    return ('<div class="err">Accounts are stored on ephemeral disk and are '
+            'erased on every redeploy. Set HUB_DATA_DIR to a mounted persistent '
+            'disk to keep them, or sign in with HUB_USERNAME / HUB_PASSWORD, '
+            'which are re-seeded from the environment on each boot.</div>')
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_form(error: str = "") -> str:
     err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+    err += _storage_notice()
     signup = ('<p class="foot">New here? <a href="/signup">Create your account</a></p>'
               if _signup_open() else "")
     return _auth_page("Sign in", f'''{_BRAND_HEAD}
@@ -675,14 +711,76 @@ def login_form(error: str = "") -> str:
 {err}{signup}''')
 
 
+def _login_failure_message(username: str) -> str:
+    """Why the sign-in failed, said in a way the person can act on.
+
+    "Invalid credentials" is the right answer for a wrong password and the
+    wrong answer for a missing account: it sends someone to re-check a password
+    that was never the problem. This hub already discloses whether an owner
+    exists (the signup link appears exactly when one does not), so naming a
+    missing account leaks nothing new — and on ephemeral storage it is the
+    difference between "retype it" and "your account was wiped by a redeploy".
+    """
+    if store.auth_failure_reason(username) == "bad-password":
+        return "Invalid credentials"
+    msg = "No account with that username or email exists on this hub"
+    try:
+        # webhook_api owns the one storage assessment (it knows the real
+        # Supabase connection state); re-deriving it here would drift.
+        if not webhook_api.storage_assessment()["local_durable"]:
+            msg += (". Storage is ephemeral, so accounts are erased on every "
+                    "redeploy — set HUB_DATA_DIR to a persistent disk to keep them")
+    except Exception:  # noqa: BLE001 — a diagnosis must never break sign-in
+        pass
+    return msg
+
+
+PENDING_2FA_COOKIE = "hub_2fa"
+PENDING_2FA_TTL_S = 300          # 5 minutes to fetch a code off a phone
+
+
+def _pending_2fa_token(username: str) -> str:
+    """A ticket saying "this password was correct, the second factor is not
+    done yet". Signed under a purpose-scoped key so it can NEVER be presented
+    as a session cookie — otherwise the second factor would be skippable."""
+    from services.session_auth import sign_scoped
+    return sign_scoped(username, settings.secret_key, purpose="2fa-pending",
+                       ttl_s=PENDING_2FA_TTL_S)
+
+
+def _pending_2fa_user(request: Request) -> Optional[str]:
+    from services.session_auth import verify_scoped
+    name = verify_scoped(request.cookies.get(PENDING_2FA_COOKIE, ""),
+                         settings.secret_key, purpose="2fa-pending")
+    return name if name and store.get_user(name) else None
+
+
+def _grant_session(user, destination: str = "/"):
+    resp = RedirectResponse(destination, status_code=303)
+    # Sign the STORED username, not the typed one — otherwise a case-variant
+    # sign-in mints a session under a name whose per-user settings namespace
+    # is empty.
+    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
+    resp.delete_cookie(PENDING_2FA_COOKIE)
+    return resp
+
+
 @app.post("/login")
 def login(username: str = Form(...), password: str = Form(...)):
     # verify against hashed credentials; signed cookie survives restarts
-    if store.authenticate(username, password) is not None:
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
-        return resp
-    return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
+    user = store.authenticate(username, password)
+    if user is not None:
+        if user.totp_enabled:
+            # A correct password is now only half the sign-in. Hand out the
+            # pending ticket, not a session.
+            resp = RedirectResponse("/auth/two-factor", status_code=303)
+            kw = dict(_cookie_kwargs())
+            kw["max_age"] = PENDING_2FA_TTL_S
+            resp.set_cookie(PENDING_2FA_COOKIE, _pending_2fa_token(user.username), **kw)
+            return resp
+        return _grant_session(user)
+    err = _login_failure_message(username).replace(" ", "+")
+    return RedirectResponse(f"/login?error={err}", status_code=303)
 
 
 @app.get("/signup", response_class=HTMLResponse)
@@ -755,12 +853,25 @@ def auth_login(username: str = Form(...), password: str = Form(...)):
     session cookie, so callers can use `Authorization: Bearer` while browsers
     keep the cookie. Same credential check as the form /login."""
     from fastapi.responses import JSONResponse
-    if store.authenticate(username, password) is None:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = issue_access(username)
-    resp = JSONResponse({"ok": True, "user": username, "token": token,
+    user = store.authenticate(username, password)
+    if user is None:
+        raise HTTPException(status_code=401, detail=_login_failure_message(username))
+    if user.totp_enabled:
+        # No token yet — the caller must post the second factor to
+        # /auth/two-factor with this ticket. Issuing the JWT here would make
+        # 2FA cosmetic for every API client.
+        resp = JSONResponse({"ok": False, "mfa_required": True,
+                             "user": user.username,
+                             "message": "Enter the code from your authenticator app."},
+                            status_code=401)
+        kw = dict(_cookie_kwargs())
+        kw["max_age"] = PENDING_2FA_TTL_S
+        resp.set_cookie(PENDING_2FA_COOKIE, _pending_2fa_token(user.username), **kw)
+        return resp
+    token = issue_access(user.username)
+    resp = JSONResponse({"ok": True, "user": user.username, "token": token,
                          "token_type": "bearer", "expires_in": SESSION_DAYS * 86400})
-    resp.set_cookie(COOKIE, _sign_session(username), **_cookie_kwargs())
+    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
     return resp
 
 
@@ -777,7 +888,303 @@ def auth_logout(request: Request):
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(COOKIE)
+    resp.delete_cookie(PENDING_2FA_COOKIE)
     return resp
+
+
+# ══════════════════════════════════════════════════ real auth flows
+# Password reset, email verification, TOTP two-factor and OAuth sign-in, all
+# against the SAME users table every other request is authorised against. The
+# logic lives in services/auth_flows.py and services/oauth.py; these handlers
+# are the HTTP skin over it.
+
+def _msg_block(result: dict) -> str:
+    """Render a flow result. A `delivery` block that is unavailable is an
+    OPERATOR problem (no SMTP host, failed send) and is always shown — the
+    user-facing sentence stays deliberately vague, but nobody should be left
+    waiting for an email the server never attempted."""
+    out = ""
+    if result.get("error"):
+        out += f'<div class="err">{w.esc(result["error"])}</div>'
+    elif result.get("message"):
+        out += f'<div class="ok">{w.esc(result["message"])}</div>'
+    d = result.get("delivery") or {}
+    if d and not d.get("available") and d.get("note"):
+        out += f'<div class="err">{w.esc(d["note"])}</div>'
+    return out
+
+
+# ─────────────────────────────────────────────── forgot / reset password
+@app.get("/auth/forgot-password", response_class=HTMLResponse)
+def forgot_password_form(sent: str = "") -> str:
+    note = ('<div class="ok">' + w.esc(_af.GENERIC_RESET_REPLY) + "</div>") if sent else ""
+    delivery = _mailer.available()
+    warn = ("" if delivery["available"]
+            else f'<div class="err">{w.esc(delivery["note"])}</div>')
+    return _auth_page("Reset password", f'''{_BRAND_HEAD}
+<h1>Forgot your password?</h1>
+<p class="sub">We'll email you a link to set a new one.</p>
+<form method="post" action="/auth/forgot-password" onsubmit="return subm(this)" novalidate>
+<label class="fld"><span class="lbl">Username or email</span>
+<div class="inp"><span class="ico">{_IC_USER}</span><input name="identifier" autocomplete="username" placeholder="you@email.com or a username" autofocus></div></label>
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Send reset link</span></button>
+</form>
+{note}{warn}<p class="foot">Remembered it? <a href="/login">Sign in</a></p>''')
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(identifier: str = Form(...)):
+    result = _af.request_password_reset(store, identifier)
+    # Always the same redirect, hit or miss: a different destination for a real
+    # account would turn this form into a membership check.
+    d = result.get("delivery") or {}
+    if d and not d.get("available"):
+        return RedirectResponse(
+            "/auth/forgot-password?sent=1&error=" + _q(d.get("note", "")),
+            status_code=303)
+    return RedirectResponse("/auth/forgot-password?sent=1", status_code=303)
+
+
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+def reset_password_form(token: str = "", error: str = "") -> str:
+    if not token:
+        return _auth_page("Reset password", f'''{_BRAND_HEAD}
+<h1>Link missing</h1>
+<p class="sub">Open the link from your email, or request a new one.</p>
+<p class="foot"><a href="/auth/forgot-password">Send a new reset link</a></p>''')
+    err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+    return _auth_page("Reset password", f'''{_BRAND_HEAD}
+<h1>Set a new password</h1>
+<p class="sub">This link works once and expires an hour after it was sent.</p>
+<form method="post" action="/auth/reset-password" onsubmit="return subm(this)" novalidate>
+<input type="hidden" name="token" value="{w.esc(token)}">
+{_pw_field("password", "New password", "np", "tnp", "new-password")}
+{_pw_field("confirm", "Confirm password", "nc", "tnc", "new-password")}
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Update password</span></button>
+</form>
+{err}''')
+
+
+@app.post("/auth/reset-password")
+def reset_password(token: str = Form(...), password: str = Form(...),
+                   confirm: str = Form("")):
+    result = _af.perform_password_reset(store, token, password, confirm or None)
+    if not result["ok"]:
+        return RedirectResponse(
+            f"/auth/reset-password?token={_q(token)}&error={_q(result['error'])}",
+            status_code=303)
+    # Deliberately NOT signed in here. Someone who reached this page from a
+    # forwarded email should have to prove they know the new password.
+    return RedirectResponse("/login?error=" + _q(result["message"]), status_code=303)
+
+
+# ────────────────────────────────────────────────────── email verification
+@app.get("/auth/verify-email", response_class=HTMLResponse)
+def verify_email_page(request: Request, token: str = "") -> str:
+    if token:
+        result = _af.confirm_email(store, token)
+        body = _msg_block(result)
+        head = "Email confirmed" if result["ok"] else "That link didn't work"
+        return _auth_page("Verify email", f'''{_BRAND_HEAD}
+<h1>{head}</h1>{body}
+<p class="foot"><a href="/login">Continue to sign in</a></p>''')
+    u = _user(request)
+    if not u:
+        return _auth_page("Verify email", f'''{_BRAND_HEAD}
+<h1>Confirm your email</h1>
+<p class="sub">Open the link we emailed you.</p>
+<p class="foot"><a href="/login">Sign in</a></p>''')
+    return _auth_page("Verify email", f'''{_BRAND_HEAD}
+<h1>Confirm your email</h1>
+<p class="sub">Signed in as {w.esc(u)}. Send yourself a fresh confirmation link.</p>
+<form method="post" action="/auth/resend-verification" onsubmit="return subm(this)">
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Send confirmation link</span></button>
+</form>''')
+
+
+@app.post("/auth/resend-verification")
+def resend_verification(request: Request):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return _af.request_email_verification(store, u)
+
+
+# ────────────────────────────────────────────────────────────── two-factor
+@app.get("/auth/two-factor", response_class=HTMLResponse)
+def two_factor_page(request: Request, error: str = "") -> str:
+    pending = _pending_2fa_user(request)
+    if not pending:
+        return _auth_page("Two-factor", f'''{_BRAND_HEAD}
+<h1>Start again</h1>
+<p class="sub">That sign-in expired. Enter your password again to get a fresh code prompt.</p>
+<p class="foot"><a href="/login">Back to sign in</a></p>''')
+    err = f'<div class="err">{w.esc(error)}</div>' if error else ""
+    return _auth_page("Two-factor", f'''{_BRAND_HEAD}
+<h1>Two-factor</h1>
+<p class="sub">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+<form method="post" action="/auth/two-factor" onsubmit="return subm(this)" novalidate>
+<label class="fld"><span class="lbl">Code</span>
+<div class="inp"><span class="ico">{_IC_LOCK}</span><input name="code" inputmode="text" autocomplete="one-time-code" placeholder="123456" autofocus></div></label>
+<button class="btn-gold" type="submit"><span class="sheen"></span><span class="spin"></span><span class="txt">Verify</span></button>
+</form>
+{err}<p class="foot">Lost your phone? Use one of your recovery codes above.</p>''')
+
+
+@app.post("/auth/two-factor")
+def two_factor_submit(request: Request, code: str = Form(...)):
+    pending = _pending_2fa_user(request)
+    if not pending:
+        return RedirectResponse("/login?error=" + _q("That sign-in expired. Try again."),
+                                status_code=303)
+    result = _af.verify_second_factor(store, pending, code)
+    if not result["ok"]:
+        return RedirectResponse("/auth/two-factor?error=" + _q(result["error"]),
+                                status_code=303)
+    return _grant_session(store.get_user(pending))
+
+
+@app.get("/auth/2fa/status")
+def two_factor_status(request: Request):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return _af.totp_status(store, u)
+
+
+@app.post("/auth/2fa/setup")
+def two_factor_setup(request: Request):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return _af.begin_totp_setup(store, u, issuer=settings.app_name)
+
+
+@app.post("/auth/2fa/enable")
+def two_factor_enable(request: Request, code: str = Form(...)):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return _af.enable_totp(store, u, code)
+
+
+@app.post("/auth/2fa/disable")
+def two_factor_disable(request: Request, password: str = Form(...)):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return _af.disable_totp(store, u, password)
+
+
+# ──────────────────────────────────────────────────────────────── OAuth
+@app.get("/auth/oauth/providers")
+def oauth_providers():
+    """What can actually complete a sign-in. The UI disables the rest WITH the
+    reason, rather than showing a button that dies on click."""
+    return _oauth.available()
+
+
+@app.get("/auth/oauth/{provider}/start")
+def oauth_start(provider: str):
+    p = _oauth.get_provider(provider)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    if not _oauth.is_configured(p) or not _mailer.public_url():
+        raise HTTPException(status_code=503,
+                            detail=_oauth.available()[p.key]["note"])
+    state = _oauth.sign_state(settings.secret_key)
+    return RedirectResponse(_oauth.authorize_url(p, state), status_code=303)
+
+
+@app.get("/auth/oauth/{provider}/callback")
+def oauth_callback(provider: str, code: str = "", state: str = "", error: str = ""):
+    p = _oauth.get_provider(provider)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Unknown provider")
+    if error:
+        return RedirectResponse("/login?error=" + _q(f"{p.label} sign-in was cancelled."),
+                                status_code=303)
+    # The state check comes before anything else touches the code: it is what
+    # stops an attacker from having a victim's browser redeem a code they chose.
+    if not _oauth.verify_state(state, settings.secret_key):
+        return RedirectResponse(
+            "/login?error=" + _q("That sign-in link expired or was tampered with. Try again."),
+            status_code=303)
+    if not code:
+        return RedirectResponse("/login?error=" + _q(f"{p.label} returned no code."),
+                                status_code=303)
+
+    token = _oauth.exchange_code(p, code)
+    profile = _oauth.fetch_profile(p, token) if token else None
+    if profile is None:
+        return RedirectResponse(
+            "/login?error=" + _q(f"Could not read your {p.label} account. Try again."),
+            status_code=303)
+
+    user = store.find_by_oauth(p.key, profile.subject)
+    if user is None:
+        user = _link_or_create_oauth_user(p, profile)
+        if user is None:
+            return RedirectResponse(
+                "/login?error=" + _q(
+                    f"Your {p.label} account isn't linked to a hub account. Sign in "
+                    "with your password first, then link it from Settings."),
+                status_code=303)
+
+    if user.totp_enabled:
+        # OAuth proves the provider account, not the second factor. Skipping it
+        # here would make 2FA bypassable by anyone holding the linked inbox.
+        resp = RedirectResponse("/auth/two-factor", status_code=303)
+        kw = dict(_cookie_kwargs())
+        kw["max_age"] = PENDING_2FA_TTL_S
+        resp.set_cookie(PENDING_2FA_COOKIE, _pending_2fa_token(user.username), **kw)
+        return resp
+    return _grant_session(user)
+
+
+def _link_or_create_oauth_user(p, profile):
+    """Resolve a first-time federated sign-in to a local account.
+
+    Auto-linking by email is only safe when the PROVIDER says the address is
+    verified — an unverified one is just a string the user typed, and honouring
+    it would let anyone who sets that address inherit the account.
+
+    Creating a brand-new account is allowed only when signup is still open, so
+    OAuth cannot become a side door around the single-owner rule.
+    """
+    if profile.email and profile.email_verified:
+        existing = store.find_by_email(profile.email)
+        if existing is not None:
+            store.link_oauth(p.key, profile.subject, existing.username, profile.email)
+            return store.get_user(existing.username)
+
+    if not _signup_open() or not profile.email or not profile.email_verified:
+        return None
+    username = profile.email
+    if store.get_user(username) is None:
+        # No password: this account signs in through the provider. A reset link
+        # is how they would add one later.
+        store.create_user(username, secrets.token_urlsafe(32), role="owner")
+        store.set_email(username, profile.email, verified=True)
+    store.link_oauth(p.key, profile.subject, username, profile.email)
+    return store.get_user(username)
+
+
+@app.get("/auth/oauth/links")
+def oauth_links(request: Request):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    return {"links": store.list_oauth_links(u), "providers": _oauth.available()}
+
+
+@app.post("/auth/oauth/{provider}/unlink")
+def oauth_unlink(request: Request, provider: str):
+    u = _user(request)
+    if not u:
+        raise HTTPException(status_code=401, detail="Sign in first")
+    store.unlink_oauth(provider, u)
+    return {"ok": True, "links": store.list_oauth_links(u)}
 
 
 # ------------------------------------------------- persistent user workspace
