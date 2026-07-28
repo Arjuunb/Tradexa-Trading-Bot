@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { MotionConfig } from "framer-motion";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Background } from "@/components/landing/Background";
 import { ToastProvider } from "@/lib/toast";
@@ -64,6 +65,13 @@ function AppearanceApplier() {
 
 export default function App() {
   return (
+    // reducedMotion="user" makes EVERY framer-motion animation on the site
+    // honour the OS "reduce motion" setting: transforms are dropped, opacity
+    // still crossfades. Seven components handled this individually and
+    // twenty-three did not, which meant someone with the preference set got a
+    // page that was mostly still and occasionally lurched. One switch at the
+    // root is the only way this stays true as components are added.
+    <MotionConfig reducedMotion="user">
     <BrowserRouter>
       <SettingsProvider>
         <ToastProvider>
@@ -117,5 +125,6 @@ export default function App() {
         </ToastProvider>
       </SettingsProvider>
     </BrowserRouter>
+    </MotionConfig>
   );
 }

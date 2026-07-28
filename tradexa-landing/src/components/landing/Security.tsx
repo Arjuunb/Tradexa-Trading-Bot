@@ -1,5 +1,5 @@
 import { Lock, KeyRound, Ban, ServerCog, type LucideIcon } from "lucide-react";
-import { Reveal } from "@/components/Reveal";
+import { Reveal, RevealGroup } from "@/components/Reveal";
 import { Card } from "@/components/ui/Card";
 
 interface Item {
@@ -43,9 +43,11 @@ export function Security() {
             </Reveal>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {ITEMS.map((it, i) => (
-              <Reveal key={it.title} delay={i * 0.08}>
+          {/* Grouped stagger: the parent triggers once, so the cards arrive in
+              order regardless of how fast the section is scrolled past. */}
+          <RevealGroup className="grid gap-4 sm:grid-cols-2" stagger={0.07}>
+            {ITEMS.map((it) => (
+              <div key={it.title} className="h-full">
                 <Card interactive className="h-full p-5">
                   <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line-strong bg-white/[0.04] text-gold">
                     <it.icon className="h-5 w-5" />
@@ -53,9 +55,9 @@ export function Security() {
                   <h3 className="text-[15px] font-semibold text-white">{it.title}</h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-white/55">{it.body}</p>
                 </Card>
-              </Reveal>
+              </div>
             ))}
-          </div>
+          </RevealGroup>
         </div>
       </div>
     </section>

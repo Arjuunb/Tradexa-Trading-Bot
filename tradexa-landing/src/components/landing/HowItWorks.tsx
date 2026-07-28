@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Link2, SlidersHorizontal, Play, LineChart, type LucideIcon } from "lucide-react";
-import { Reveal, SectionHeading } from "@/components/Reveal";
+import { RevealGroup, SectionHeading } from "@/components/Reveal";
 
 interface Step {
   n: string;
@@ -38,9 +38,13 @@ export function HowItWorks() {
             />
           </div>
 
-          <div className="grid gap-8 lg:grid-cols-4">
+          {/* Staggered by the group, not by per-item delay: with delay={i*0.1}
+              each card counted from the moment IT entered view, so on a slow
+              scroll the fourth step sat visible and blank for 400ms. One
+              trigger on the parent keeps the steps arriving in order. */}
+          <RevealGroup className="grid gap-8 lg:grid-cols-4" stagger={0.08}>
             {STEPS.map((s, i) => (
-              <Reveal key={s.n} delay={i * 0.1}>
+              <div key={s.n}>
                 <div className="relative flex flex-col items-center text-center lg:items-start lg:text-left">
                   <div className="relative z-10 flex h-[5.5rem] w-[5.5rem] items-center justify-center">
                     <div className="absolute inset-0 rounded-2xl border border-line bg-ink-700" />
@@ -54,9 +58,9 @@ export function HowItWorks() {
                   <h3 className="mt-1 text-lg font-semibold text-white">{s.title}</h3>
                   <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">{s.body}</p>
                 </div>
-              </Reveal>
+              </div>
             ))}
-          </div>
+          </RevealGroup>
         </div>
       </div>
     </section>

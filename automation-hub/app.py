@@ -267,7 +267,7 @@ if _LANDING_READY and (_LANDING / "assets").exists():
 # rather than under /assets. Serve them from whichever built app has them, plus a
 # repo fallback so the backend-hosted pages (auth, legacy) always find the mark.
 from fastapi.responses import FileResponse  # noqa: E402
-_BRAND_FILES = ("nexus-mark.svg", "favicon-16.png", "favicon-32.png", "favicon-48.png",
+_BRAND_FILES = ("nexus-mark.svg", "nexus-mark-small.svg", "favicon-16.png", "favicon-32.png", "favicon-48.png",
                 "apple-touch-icon.png", "icon-192.png", "icon-512.png", "maskable-512.png",
                 "mstile-150.png", "og-image.png", "logo-mark-512.png", "site.webmanifest")
 _BRAND_FALLBACK = Path(__file__).resolve().parent / "static" / "brand"
@@ -630,7 +630,7 @@ _AUTH_HEAD_LINKS = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
     '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
-    '<link rel="icon" type="image/svg+xml" href="/nexus-mark.svg">'
+    '<link rel="icon" type="image/svg+xml" href="/nexus-mark-small.svg">'
     '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">'
     '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">')
 

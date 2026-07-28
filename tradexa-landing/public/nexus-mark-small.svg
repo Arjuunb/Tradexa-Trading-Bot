@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" role="img" aria-label="TradeLogX Nexus">
+  <!--
+    The SAME mark as nexus-mark.svg, optically corrected for 16-48px.
+
+    The full mark carries a 2.6px ring on a 96 viewBox. At 16px that is a
+    0.43px line: it renders as a grey smear that muddies the monogram instead
+    of framing it, and the arrow tips fall below a pixel and disappear. The
+    result reads as an indistinct blob rather than the brand.
+
+    So at small sizes the ring is dropped, the N is thickened and scaled to
+    fill the canvas, and the arrows are enlarged. What survives is what
+    identifies the brand at a glance: the N silhouette and the silver-to-gold
+    split. Detail that cannot resolve is removed rather than left to blur.
+  -->
+  <defs>
+    <linearGradient id="nx-split-sm" x1="18" y1="0" x2="78" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2F6FA"/>
+      <stop offset=".46" stop-color="#C3CBD6"/>
+      <stop offset=".54" stop-color="#EFD37A"/>
+      <stop offset="1" stop-color="#D8A426"/>
+    </linearGradient>
+  </defs>
+  <!-- N monogram: left post, diagonal, right post — thicker and wider than the
+       full mark so the counters stay open when downscaled -->
+  <path d="M26 78 V30 M26 30 L70 78 M70 78 V22"
+        stroke="url(#nx-split-sm)" stroke-width="15"
+        stroke-linecap="butt" stroke-linejoin="miter"/>
+  <!-- up tip (silver) and down tip (gold): oversized so they read as direction -->
+  <path d="M26 6 L39 28 H13 Z" fill="#F2F6FA"/>
+  <path d="M70 90 L57 68 H83 Z" fill="#D8A426"/>
+</svg>
