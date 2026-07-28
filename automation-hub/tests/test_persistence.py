@@ -54,7 +54,14 @@ def test_migrations_apply_once(tmp_path):
     store = SqliteStore(db)               # second open: must not re-apply
     versions = [r["version"] for r in
                 store._conn.execute("SELECT version FROM _migrations ORDER BY version")]
-    assert versions == ["0001_init", "0002_users", "0003_user_settings"]   # applied once each
+    # Every migration on disk, each recorded exactly once. Asserting a
+    # hardcoded list instead would fail on every new migration — which says
+    # nothing about whether the runner is idempotent, the actual contract.
+    from database.store import _MIGRATIONS
+    on_disk = sorted(p.stem for p in _MIGRATIONS.glob("*.sql"))
+    assert versions == on_disk
+    assert len(versions) == len(set(versions))
+    assert "0001_init" in versions and "0002_users" in versions
 
 
 def test_in_memory_manager_unchanged_without_store():
