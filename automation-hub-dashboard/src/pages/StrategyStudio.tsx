@@ -106,14 +106,23 @@ export default function StrategyStudioPage() {
   const fetchEvidence = async () => setEvidence(
     await apiPostJson<EvidenceReview>("/strategy/evidence-review", { spec, range }));
 
-  const backtest = async () => {
+  /**
+   * Backtest an EXPLICIT spec.
+   *
+   * Takes the spec as an argument rather than reading state, because callers
+   * that have just set it (the agent handing over a freshly compiled strategy)
+   * would otherwise send the previous one — the state update has not landed by
+   * the time the handler runs.
+   */
+  const backtestSpec = async (s: CustomSpec) => {
     setTab("analyse");          // same reason as analyse() above
     setBusy("sim");
     // `range` is resolved to candles SERVER-side (one implementation, using the
     // spec's own timeframe) so the client never duplicates that maths.
-    try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range })); }
+    try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec: s, range })); }
     catch { toast("Backtest failed", "error"); } finally { setBusy(""); }
   };
+  const backtest = () => backtestSpec(spec);
   const fetchAiReview = async () => setReview(
     await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 }));
   const fetchScorecard = async () => setFullReview(
@@ -314,12 +323,21 @@ export default function StrategyStudioPage() {
       {tab === "agent" && (<>
       {/* Plain-English entry point. Compiles into the SAME spec the Build tab
           edits — one strategy format, one engine. */}
-      <AIStrategyAgent onUseSpec={(s) => {
-        setSpec({ ...EMPTY, ...s });
-        setSim(null); setReview(null);
-        setTab("build");
-        toast(`Loaded "${s.name}" into the builder — review the rules, then backtest.`, "success");
-      }} />
+      <AIStrategyAgent
+        onUseSpec={(s) => {
+          setSpec({ ...EMPTY, ...s });
+          setSim(null); setReview(null);
+          setTab("build");
+          toast(`Loaded "${s.name}" into the builder — review the rules, then backtest.`, "success");
+        }}
+        onBacktest={(s) => {
+          // Skip the builder round trip: the compiled spec goes straight to the
+          // same simulate call the Build tab uses — one engine, one path.
+          const next = { ...EMPTY, ...s };
+          setSpec(next); setSim(null); setReview(null);
+          backtestSpec(next);
+        }}
+      />
       </>)}
 
       {tab === "build" && (<>

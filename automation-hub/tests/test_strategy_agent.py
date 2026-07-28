@@ -270,3 +270,107 @@ def test_the_default_model_is_a_current_one():
     from services import strategy_agent as sa
     assert sa._MODEL.startswith("claude-"), sa._MODEL
     assert "-4-5" not in sa._MODEL, "claude-sonnet-4-5 is a legacy model"
+
+
+# ══════════════════════════════════════════ risk units (real report)
+# From a live session: "Risk 1% of my account on each trade" compiled to
+# risk_per_trade_pct = 1, and the engine read it as 100% of equity per trade.
+
+def test_risk_of_one_is_blocked_not_merely_warned():
+    """1 is 100% of the account. Passing that as a warning lets a strategy
+    reach a backtest sized 100x what the user asked for."""
+    v = sa.validate_spec({**_good_spec(), "risk_per_trade_pct": 1})
+    assert v["ok"] is False
+    assert any("100%" in e for e in v["errors"])
+
+
+def test_the_blocking_error_names_the_value_the_user_probably_meant():
+    v = sa.validate_spec({**_good_spec(), "risk_per_trade_pct": 1})
+    assert any("0.01" in e for e in v["errors"])
+
+
+def test_risk_above_one_is_impossible_as_a_fraction():
+    v = sa.validate_spec({**_good_spec(), "risk_per_trade_pct": 2})
+    assert v["ok"] is False
+    assert any("cannot exceed" in e for e in v["errors"])
+
+
+def test_a_normal_risk_fraction_still_passes_clean():
+    v = sa.validate_spec({**_good_spec(), "risk_per_trade_pct": 0.01})
+    assert not [e for e in v["errors"] if "risk" in e.lower()]
+    assert not v["warnings"]
+
+
+def test_an_aggressive_but_plausible_risk_warns_without_blocking():
+    """0.08 is 8% — high, but a real choice someone might make. It must not be
+    confused with a unit error."""
+    v = sa.validate_spec({**_good_spec(), "risk_per_trade_pct": 0.08})
+    assert not [e for e in v["errors"] if "risk" in e.lower()]
+    assert any("aggressive" in w for w in v["warnings"])
+
+
+def test_the_risk_value_is_never_silently_rescaled():
+    """The interpreter must not rewrite the user's risk. It reports and pauses;
+    correcting the number is the user's decision."""
+    spec = {**_good_spec(), "risk_per_trade_pct": 1}
+    sa.validate_spec(spec)
+    assert spec["risk_per_trade_pct"] == 1
+
+
+def test_an_ambiguous_risk_comes_with_an_answerable_question():
+    """A blocking error with no matching question leaves the user stuck: told
+    compilation is paused, with no control that resumes it."""
+    spec = {**_good_spec(), "risk_per_trade_pct": 1}
+    qs = sa.risk_unit_questions(spec, sa.validate_spec(spec))
+    assert len(qs) == 1 and qs[0]["id"] == "risk_units"
+    assert any("0.01" in o for o in qs[0]["options"])
+
+
+def test_a_sane_risk_raises_no_unit_question():
+    spec = {**_good_spec(), "risk_per_trade_pct": 0.01}
+    assert sa.risk_unit_questions(spec, sa.validate_spec(spec)) == []
+
+
+def test_the_prompt_tells_the_model_the_field_is_a_fraction():
+    """The field name ends in _pct while the value is a fraction — the model
+    needs that said out loud, or it emits 1 for 1% again."""
+    p = sa._system_prompt()
+    assert "FRACTION" in p and "0.01" in p
+
+
+# ══════════════════════════════════════ contradictory stop options
+
+def test_the_stop_question_never_offers_an_unsupported_option():
+    """It used to offer "Below the previous swing low" while validate_spec
+    accepts only atr and pct — choosing it produced a spec the engine rejects."""
+    qs = sa.clarifying_questions({**_good_spec(), "stop": None}, {"errors": []})
+    stop_q = next(q for q in qs if q["id"] == "stop")
+    assert not any("swing" in o.lower() for o in stop_q["options"])
+    for opt in stop_q["options"]:
+        assert "atr" in opt.lower() or "percentage" in opt.lower()
+
+
+def test_the_model_question_suppresses_the_duplicate_deterministic_one():
+    """Both fired at once in a live session: the model explained swing-low
+    stops are unsupported, while ours offered swing low as a choice."""
+    existing = [{"id": "stop_type", "question":
+                 "Stops must be an ATR multiple or a fixed percentage — "
+                 "'below the previous swing low' is not supported. Which?",
+                 "options": []}]
+    qs = sa.clarifying_questions({**_good_spec(), "stop": None}, {"errors": []},
+                                 existing=existing)
+    assert not [q for q in qs if q["id"] == "stop"]
+
+
+def test_unrelated_model_questions_do_not_suppress_the_stop_question():
+    existing = [{"id": "symbol", "question": "Which asset?", "options": []}]
+    qs = sa.clarifying_questions({**_good_spec(), "stop": None}, {"errors": []},
+                                 existing=existing)
+    assert [q for q in qs if q["id"] == "stop"]
+
+
+def test_a_model_target_question_suppresses_ours():
+    existing = [{"id": "tp", "question": "How should take profit be set?", "options": []}]
+    qs = sa.clarifying_questions({**_good_spec(), "target": None}, {"errors": []},
+                                 existing=existing)
+    assert not [q for q in qs if q["id"] == "target"]
