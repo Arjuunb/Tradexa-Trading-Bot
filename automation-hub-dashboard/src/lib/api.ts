@@ -374,6 +374,10 @@ export interface SystemStatus {
   mode: string; broker_connected: boolean; data_source: string;
   engine_running: boolean; engine_mode: string; strategy: string;
   symbols: string[]; timeframe: string; bars_processed: number;
+  // Why the bar count is what it is — the same verdict /engine/diagnostics
+  // reports, so a zero can be read as "waiting" or "stalled" rather than a
+  // number with no context.
+  bars_status?: string; bars_note?: string; bars_severity?: string;
   signals: number; trades: number; started_at: string | null;
   uptime_s: number; trading_state: string; auto_halted: boolean; halt_reason: string;
 }
