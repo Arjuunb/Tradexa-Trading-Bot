@@ -90,21 +90,10 @@ export default function StrategyStudioPage() {
   const setExitRule = (i: number, r: CustomRule) => patchExit({ rules: exitRules.map((x, j) => (j === i ? r : x)) });
   const delExitRule = (i: number) => patchExit({ rules: exitRules.filter((_, j) => j !== i) });
 
-  const runFullReview = async () => {
-    setBusy("full");
-    try {
-      setFullReview(await apiPostJson<StrategyFullReview>(
-        "/strategy/ai-strategy-review", { spec, range }));
-    } catch { toast("Strategy review failed", "error"); } finally { setBusy(""); }
-  };
-
-  const runEvidence = async () => {
-    setBusy("evidence");
-    try {
-      setEvidence(await apiPostJson<EvidenceReview>(
-        "/strategy/evidence-review", { spec, range }));
-    } catch { toast("Evidence review failed", "error"); } finally { setBusy(""); }
-  };
+  // The three analysis stages. Each is a plain fetcher — `analyse` below owns
+  // the ordering and the busy state, so the stages stay single-purpose.
+  const fetchEvidence = async () => setEvidence(
+    await apiPostJson<EvidenceReview>("/strategy/evidence-review", { spec, range }));
 
   const backtest = async () => {
     setBusy("sim");
@@ -113,10 +102,41 @@ export default function StrategyStudioPage() {
     try { setSim(await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range })); }
     catch { toast("Backtest failed", "error"); } finally { setBusy(""); }
   };
-  const aiReview = async () => {
-    setBusy("review");
-    try { setReview(await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 })); }
-    catch { toast("AI review failed", "error"); } finally { setBusy(""); }
+  const fetchAiReview = async () => setReview(
+    await apiPostJson<AIStrategyReview>("/strategy/ai-review", { spec, bars: 2000 }));
+  const fetchScorecard = async () => setFullReview(
+    await apiPostJson<StrategyFullReview>("/strategy/ai-strategy-review", { spec, range }));
+
+  /**
+   * One analysis action.
+   *
+   * This used to be three buttons — "AI Review", "Evidence Review" and "AI
+   * Strategy Review" — sitting side by side. Three near-identical names for
+   * three stages of the same job is a choice no user can make correctly, and
+   * the stages are not alternatives: the full review needs a backtest, and the
+   * evidence review reads the same trades.
+   *
+   * So it is one button that runs the chain in dependency order and fills the
+   * result cards below, each of which already carries its own heading. A stage
+   * that fails does not abort the rest — a missing evidence review should not
+   * cost you the scorecard.
+   */
+  const analyse = async () => {
+    if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
+    let sim_ = sim;
+    if (!sim_) {
+      setBusy("sim");
+      try { sim_ = await apiPostJson<SimResult>("/strategy/custom/simulate", { spec, range }); setSim(sim_); }
+      catch { toast("Backtest failed — nothing to analyse", "error"); setBusy(""); return; }
+    }
+    for (const [phase, run] of [
+      ["review", fetchAiReview], ["evidence", fetchEvidence], ["full", fetchScorecard],
+    ] as const) {
+      setBusy(phase);
+      try { await run(); }
+      catch { /* one stage failing must not cost the others */ }
+    }
+    setBusy("");
   };
   const save = async () => {
     if (!spec.entry.rules.length) { toast("Add at least one condition first", "error"); return; }
@@ -212,32 +232,51 @@ export default function StrategyStudioPage() {
           <button className="btn btn-soft btn-sm" onClick={() => go("Strategy Proof")}>Strategy Proof</button>
         </>} />
 
-      {/* toolbar */}
-      <div className="toolbar" style={{ gap: 8, flexWrap: "wrap" }}>
-        <input className="rule-num" style={{ width: 180 }} value={spec.name}
-          onChange={(e) => patch({ name: e.target.value })} title="Strategy name" />
-        <input className="rule-num" style={{ width: 110 }} value={spec.symbol}
-          onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
-        <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
-        <div className="chips">{(["long", "short"] as const).map((s) => <button key={s} className={`chip-btn ${spec.side === s ? "active" : ""}`} onClick={() => patch({ side: s })}>{s}</button>)}</div>
-        <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
-        {/* backtest window — the same SPAN on every timeframe (resolved server-side) */}
-        <span className="chips" style={{ gap: 4 }} title="Backtest window">
-          {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
-            <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
-              onClick={() => { setRange(k); setSim(null); setEvidence(null); setFullReview(null); }}>{k}</button>
-          ))}
+      {/* Toolbar, grouped by what each control CHANGES. Previously ~20 visually
+          identical chips sat in one row doing four unrelated jobs, so nothing
+          signalled that switching 4h alters the strategy itself while switching
+          1Y only alters the window you test it over. */}
+      <div className="toolbar" style={{ gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <span className="tb-group" title="What this strategy is">
+          <span className="tb-label">Strategy</span>
+          <input className="rule-num" style={{ width: 160 }} value={spec.name}
+            onChange={(e) => patch({ name: e.target.value })} title="Strategy name" />
+          <input className="rule-num" style={{ width: 100 }} value={spec.symbol}
+            onChange={(e) => patch({ symbol: e.target.value.toUpperCase() })} title="Symbol" />
+          <div className="chips">{TFS.map((t) => <button key={t} className={`chip-btn ${spec.timeframe === t ? "active" : ""}`} onClick={() => patch({ timeframe: t })}>{t}</button>)}</div>
+          <div className="chips">{(["long", "short"] as const).map((sd) => <button key={sd} className={`chip-btn ${spec.side === sd ? "active" : ""}`} onClick={() => patch({ side: sd })}>{sd}</button>)}</div>
         </span>
-        <button className="btn btn-soft" onClick={backtest} disabled={busy === "sim"}><Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}</button>
-        <button className="btn btn-soft" onClick={aiReview} disabled={busy === "review"}><Icon name="bot" size={13} /> {busy === "review" ? "Reviewing…" : "AI Review"}</button>
-        <button className="btn btn-soft" onClick={runEvidence} disabled={busy === "evidence"}><Icon name="ai" size={13} /> {busy === "evidence" ? "Analysing…" : "Evidence Review"}</button>
-        {/* unlocked by a completed backtest, per the review flow */}
-        <button className="btn btn-primary" onClick={runFullReview}
-                disabled={busy === "full" || !sim}
-                title={sim ? "Full scorecard + optimisation suggestions" : "Run a backtest first"}>
-          <Icon name="bot" size={13} /> {busy === "full" ? "Reviewing…" : "AI Strategy Review"}</button>
-        <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
-        <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
+
+        <span className="tb-group" title="How you edit the conditions">
+          <span className="tb-label">Editor</span>
+          <div className="chips">{(["form", "canvas"] as const).map((m) => <button key={m} className={`chip-btn ${mode === m ? "active" : ""}`} onClick={() => setMode(m)}>{m === "form" ? "Form" : "Canvas"}</button>)}</div>
+        </span>
+
+        <span className="tb-group" title="The window you test over — this does not change the strategy">
+          <span className="tb-label">Test over</span>
+          <span className="chips" style={{ gap: 4 }}>
+            {["3M", "6M", "1Y", "3Y", "5Y"].map((k) => (
+              <button key={k} className={`chip-btn ${range === k ? "active" : ""}`}
+                onClick={() => { setRange(k); setSim(null); setEvidence(null); setFullReview(null); }}>{k}</button>
+            ))}
+          </span>
+          <button className="btn btn-soft" onClick={backtest} disabled={!!busy}>
+            <Icon name="history" size={13} /> {busy === "sim" ? "Testing…" : "Backtest"}
+          </button>
+          <button className="btn btn-primary" onClick={analyse} disabled={!!busy}
+                  title="Backtest if needed, then score, explain and review the result">
+            <Icon name="bot" size={13} /> {
+              busy === "sim" ? "Backtesting…" :
+              busy === "review" ? "Reviewing…" :
+              busy === "evidence" ? "Reading trades…" :
+              busy === "full" ? "Scoring…" : "Analyse"}
+          </button>
+        </span>
+
+        <span className="tb-group">
+          <button className="btn btn-primary" onClick={save}><Icon name="check" size={13} /> Save</button>
+          <button className="btn btn-soft" onClick={exportSpec} title="Export JSON"><Icon name="external" size={13} /></button>
+        </span>
       </div>
 
       {/* AI Strategy Agent — plain-English entry point. Compiles into the SAME
