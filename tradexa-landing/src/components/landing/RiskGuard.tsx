@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Gauge, Layers, OctagonX, Percent } from "lucide-react";
 import { Reveal, SectionHeading } from "@/components/Reveal";
 import { cn } from "@/lib/utils";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 
 /**
  * "Risk Guard" — the fifth landing animation. A live gauge of the day's risk
@@ -22,19 +23,29 @@ export function RiskGuard() {
   const [p, setP] = useState(0);            // 0..1 cycle progress
   const raf = useRef<number | null>(null);
   const start = useRef<number | null>(null);
+  const held = useRef(0);                   // cycle position kept across pauses
+  const root = useRef<HTMLElement | null>(null);
+  const active = useVisibleActive(root);
   const DURATION = 9000;
 
   useEffect(() => {
+    // Without the visibility gate this ran a setState every frame for the life
+    // of the page — a 60fps React re-render of a gauge scrolled far out of
+    // view, competing with the scroll that took you away from it.
+    if (!active) return;
+    // Re-baseline on resume so the gauge continues from where it paused
+    // instead of jumping to wherever the wall clock had reached.
+    start.current = null;
     const tick = (ts: number) => {
-      if (!document.hidden) {
-        if (start.current === null) start.current = ts;
-        setP(((ts - start.current) % DURATION) / DURATION);
-      }
+      if (start.current === null) start.current = ts - held.current;
+      const elapsed = ts - start.current;
+      held.current = elapsed % DURATION;
+      setP(held.current / DURATION);
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => { if (raf.current) cancelAnimationFrame(raf.current); };
-  }, []);
+  }, [active]);
 
   // risk used climbs to the cap by ~78% of the cycle, then holds (halted), then resets
   const used = Math.min(CAP, (p / 0.78) * CAP);
@@ -57,7 +68,7 @@ export function RiskGuard() {
   };
 
   return (
-    <section id="risk-guard" className="section">
+    <section id="risk-guard" className="section" ref={root}>
       <div className="container-x">
         <SectionHeading
           link="#risk-guard"

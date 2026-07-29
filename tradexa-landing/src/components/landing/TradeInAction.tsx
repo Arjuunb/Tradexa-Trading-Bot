@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Radio, ScanSearch, BrainCircuit, ShieldCheck, Zap, Target } from "lucide-react";
 import { Reveal, SectionHeading } from "@/components/Reveal";
 import { cn } from "@/lib/utils";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 
 /**
  * "Watch Nexus take a trade" — the third landing animation. A looping,
@@ -53,27 +54,35 @@ export function TradeInAction() {
   const [p, setP] = useState(0);
   const raf = useRef<number | null>(null);
   const start = useRef<number | null>(null);
+  const held = useRef(0);                  // cycle position kept across pauses
+  const root = useRef<HTMLElement | null>(null);
+  const active = useVisibleActive(root);
   const DURATION = 7600;   // ms per full cycle
   const HOLD = 0.14;       // fraction of the cycle held at the end before looping
 
   useEffect(() => {
+    // The old loop kept scheduling frames while the tab was hidden and ran
+    // regardless of scroll position; the document.hidden branch also reset the
+    // baseline every frame, so returning to the tab restarted the cycle. Gating
+    // on visibility stops the work outright and resumes where it left off.
+    if (!active) return;
+    start.current = null;
     const tick = (ts: number) => {
-      if (document.hidden) { start.current = ts - 0; raf.current = requestAnimationFrame(tick); return; }
-      if (start.current === null) start.current = ts;
-      const cycle = ((ts - start.current) % DURATION) / DURATION;      // 0..1
-      setP(Math.min(1, cycle / (1 - HOLD)));                            // reach 1, then hold
+      if (start.current === null) start.current = ts - held.current;
+      held.current = (ts - start.current) % DURATION;
+      setP(Math.min(1, (held.current / DURATION) / (1 - HOLD)));       // reach 1, then hold
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => { if (raf.current) cancelAnimationFrame(raf.current); };
-  }, []);
+  }, [active]);
 
   const entered = p >= STEPS[3].at;
   const [dx, dy] = dotAt(p);
   const done = p >= 0.99;
 
   return (
-    <section id="trade-in-action" className="section">
+    <section id="trade-in-action" className="section" ref={root}>
       <div className="container-x">
         <SectionHeading
           link="#trade-in-action"
