@@ -45,14 +45,29 @@ const Privacy = lazy(() => import("@/pages/settings/Privacy"));
 const Advanced = lazy(() => import("@/pages/settings/Advanced"));
 const Danger = lazy(() => import("@/pages/settings/Danger"));
 
+/**
+ * Route-level loading state.
+ *
+ * This used to be a small centred stack of skeleton bars — which, on an
+ * otherwise empty screen, read as a floating card rather than a page loading,
+ * and was the first thing a visitor saw. It now sketches the shape of what is
+ * arriving: a header bar, a headline block, and a wide panel. Same purpose,
+ * but it reads as "this page is filling in" instead of "this is the page".
+ */
 function Fallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-4">
-        <Skeleton className="h-10 w-32" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
-        <Skeleton className="h-11 w-full" />
+    <div className="min-h-screen" aria-busy="true" aria-label="Loading">
+      <div className="mx-auto w-full max-w-6xl px-6 pt-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+        <div className="mt-24 space-y-4">
+          <Skeleton className="h-12 w-3/4 max-w-2xl" />
+          <Skeleton className="h-12 w-1/2 max-w-xl" />
+          <Skeleton className="h-5 w-2/3 max-w-lg" />
+        </div>
+        <Skeleton className="mt-12 h-64 w-full rounded-2xl" />
       </div>
     </div>
   );
