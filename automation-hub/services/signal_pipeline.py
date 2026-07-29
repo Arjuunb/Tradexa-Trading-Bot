@@ -19,6 +19,68 @@ from database.models import RiskRules
 from data.ledger import Ledger
 from execution.paper_engine import PaperExecutionEngine, _dir
 from risk.position_sizing import size_position
+
+# Position-sizing arithmetic (architecture phase 3). Gathering the factors is
+# still this object's job — they come from stateful collaborators that live
+# here — but composing them into an effective risk is now a pure function with
+# its own differential test. Guarded so a deployment shipping only
+# automation-hub still starts; the fallback is the identical expression this
+# replaced, kept byte-for-byte so the two cannot diverge.
+try:
+    from tradexa.risk.sizing import (
+        RiskFactors as _RiskFactors,
+        clamp_context as _clamp_context,
+        describe_factors as _describe_factors,
+        effective_risk as _effective_risk,
+    )
+except Exception:  # noqa: BLE001 - pragma: no cover
+    from dataclasses import dataclass as _dc
+
+    @_dc(frozen=True)
+    class _RiskFactors:  # type: ignore[no-redef]
+        confidence: float = 1.0
+        kelly: float = 1.0
+        equity_curve: float = 1.0
+        learned: float = 1.0
+        allocator: float = 1.0
+        event: float = 1.0
+        boost: float = 1.0
+        context: float = 1.0
+        side: float = 1.0
+        streak: float = 1.0
+
+        @property
+        def throttling(self):
+            return min(self.kelly, self.equity_curve, self.learned, self.event)
+
+    def _clamp_context(v):  # type: ignore[misc]
+        try:
+            return max(0.5, min(1.0, float(v if v is not None else 1.0)))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def _effective_risk(base, f):  # type: ignore[misc]
+        r = base * (0.5 + 0.5 * f.confidence)
+        r *= (f.kelly * f.equity_curve * f.learned * f.allocator * f.event
+              * f.boost * f.context * f.side * f.streak)
+        return r
+
+    def _describe_factors(f):  # type: ignore[misc]
+        parts = [f"conf {f.confidence:.2f}"]
+        for attr, label, ok in (("kelly", "kelly", lambda v: v < 1.0),
+                                ("equity_curve", "curve", lambda v: v < 1.0),
+                                ("learned", "learned", lambda v: v < 1.0),
+                                ("allocator", "alloc", lambda v: v != 1.0),
+                                ("event", "event", lambda v: v < 1.0),
+                                ("boost", "edge", lambda v: v > 1.0),
+                                ("context", "context", lambda v: v < 1.0),
+                                ("side", "side", lambda v: v < 1.0),
+                                ("streak", "streak", lambda v: v < 1.0)):
+            v = getattr(f, attr)
+            if ok(v):
+                parts.append(f"× {label} {v:.2f}")
+        return " ".join(parts)
+
 from services.controls import TradingControl
 from services.dedup import DuplicateGuard
 from services.market_quality import MarketQualityGate
@@ -400,38 +462,37 @@ class SignalPipeline:
         #    then by the Kelly guard (risk less while the recent record is weak).
         if stop is None or stop == entry:
             return reject("risk", "Invalid stop (missing or equal to entry)")
-        eff_risk = self.risk_per_trade_pct * (0.5 + 0.5 * confidence)
+        # Each collaborator's opinion on how large to be. Gathering them stays
+        # here (they are stateful and live in this object); the arithmetic that
+        # combines them moved to tradexa.risk.sizing, where it is a pure
+        # function with its own tests. A differential test asserts the extracted
+        # composition is bit-identical to the expression this replaced.
         kf = self._kelly_factor() if self.adaptive_risk else 1.0
         ef = self._equity_curve_factor() if self.equity_throttle else 1.0
         lf = self.learning.risk_multiplier(symbol) if self.learning is not None else 1.0
         af = float(self.allocator(symbol)) if self.allocator is not None else 1.0
-        # context sizing (funding/sentiment modifiers) — bounded [0.5, 1.0]
-        xf = max(0.5, min(1.0, float(payload.get("context_size_factor", 1.0) or 1.0)))
+        xf = _clamp_context(payload.get("context_size_factor", 1.0))
         sfm = (self.learning.side_multiplier(_dir(side))
                if self.learning is not None else 1.0)
         # edge boost: size up ONLY a proven winning pattern, and never while any
         # other factor is throttling down — defense always outranks offense.
+        # `throttling` is min(kelly, curve, learned, event), the same four the
+        # inline guard used.
+        defensive = _RiskFactors(kelly=kf, equity_curve=ef, learned=lf, event=econ_risk)
         bf = 1.0
-        if self.learning is not None and min(kf, ef, lf, econ_risk) >= 1.0:
+        if self.learning is not None and defensive.throttling >= 1.0:
             bf = self.learning.boost_multiplier(regime=payload.get("regime", ""),
                                                 confidence=confidence)
-        stf = self._streak_factor()
-        eff_risk *= kf * ef * lf * af * econ_risk * bf * xf * sfm * stf
+        factors = _RiskFactors(
+            confidence=confidence, kelly=kf, equity_curve=ef, learned=lf,
+            allocator=af, event=econ_risk, boost=bf, context=xf, side=sfm,
+            streak=self._streak_factor())
+        eff_risk = _effective_risk(self.risk_per_trade_pct, factors)
         size = size_position(self.equity, entry, stop, RiskRules(risk_per_trade_pct=eff_risk))
         if size <= 0:
             return reject("sizing", "Computed position size is zero")
-        kelly_note = f" × kelly {kf:.2f}" if kf < 1.0 else ""
-        curve_note = f" × curve {ef:.2f}" if ef < 1.0 else ""
-        learned_note = f" × learned {lf:.2f}" if lf < 1.0 else ""
-        alloc_note = f" × alloc {af:.2f}" if af != 1.0 else ""
-        event_note = f" × event {econ_risk:.2f}" if econ_risk < 1.0 else ""
-        edge_note = f" × edge {bf:.2f}" if bf > 1.0 else ""
-        ctx_note = f" × context {xf:.2f}" if xf < 1.0 else ""
-        side_note = f" × side {sfm:.2f}" if sfm < 1.0 else ""
-        streak_note = f" × streak {stf:.2f}" if stf < 1.0 else ""
         steps.append(Step("risk", True,
-                          f"conf {confidence:.2f}{kelly_note}{curve_note}{learned_note}"
-                          f"{alloc_note}{event_note}{edge_note}{ctx_note}{side_note}{streak_note}"
+                          f"{_describe_factors(factors)}"
                           f" → risk {eff_risk*100:.2f}% sized {size:.6f}"))
 
         # 5. exposure limit (cap notional to the per-trade limit)

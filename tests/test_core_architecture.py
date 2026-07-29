@@ -332,6 +332,11 @@ DELIBERATE_TRADEXA_CONSUMERS = {
     # the engine never subscribes and never reads a result back, so no trading
     # control flow depends on it.
     "automation-hub/services/auto_engine.py",
+    # Phase 3b: composes position-sizing factors via tradexa.risk.sizing. This
+    # one IS load-bearing — it decides trade size — which is why it ships with
+    # a differential test asserting bit-identical output against the expression
+    # it replaced, and why the import carries a byte-identical fallback.
+    "automation-hub/services/signal_pipeline.py",
 }
 
 
