@@ -266,6 +266,17 @@ class SignalPipeline:
         see ``tradexa.risk.STRICT``.
         """
         if _RiskEngine is None:
+            # Loudly. The guarded import exists so a partial deployment still
+            # trades, and for one release it did something worse: `tradexa` was
+            # missing from pyproject's package list, so the veto was absent in
+            # production and NOTHING said so. Degrading quietly is the failure
+            # mode, not the resilience. tests/test_packaging.py now stops the
+            # packaging half; this is the half that would have been noticed.
+            print("[risk] tradexa.risk is not importable — the Risk Engine veto "
+                  "is NOT being applied. Every trade is running on the pipeline's "
+                  "own gates only. Check that 'tradexa*' is in pyproject.toml "
+                  "packages.find include and that `pip install -e .` ran.",
+                  flush=True)
             return None
         limits = _PIPELINE_PARITY.with_(
             risk_per_trade_pct=self.risk_per_trade_pct,
