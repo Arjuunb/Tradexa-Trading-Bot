@@ -50,7 +50,38 @@
     />
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      Boot shell.
+
+      The bundle is ~400KB of React, framer-motion and router before the first
+      component can render, and this document otherwise ships zero characters of
+      content — so the browser had nothing to paint but a blank page, then the
+      route fallback, and only then the site. This markup lives INSIDE #root, so
+      React's first render replaces it automatically; no cleanup code, and no way
+      for it to linger if the app fails to mount... except the noscript case
+      below, which is the point.
+
+      Inline styles only: a stylesheet is another round trip, and the whole
+      purpose is to paint before anything else has arrived.
+    -->
+    <div id="root">
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#0a0a0c;color:#E9EEF3;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
+        <img src="/nexus-mark-small.svg" alt="" width="56" height="56" style="opacity:.9" />
+        <div style="font-size:15px;letter-spacing:.02em;opacity:.75">TradeLogX Nexus</div>
+        <div style="width:180px;height:2px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden">
+          <div style="width:40%;height:100%;background:linear-gradient(90deg,#8A929C,#E7C766);animation:nx-boot 1.1s ease-in-out infinite"></div>
+        </div>
+      </div>
+    </div>
+    <style>
+      @keyframes nx-boot { 0% { transform: translateX(-100%) } 100% { transform: translateX(350%) } }
+      @media (prefers-reduced-motion: reduce) { [style*="nx-boot"] { animation: none !important } }
+    </style>
+    <noscript>
+      <div style="padding:24px;text-align:center;color:#E9EEF3;font-family:system-ui,sans-serif">
+        TradeLogX Nexus needs JavaScript enabled to run.
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
