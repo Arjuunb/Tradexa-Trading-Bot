@@ -53,8 +53,8 @@ seam at a time, each with tests proving behaviour is unchanged.
 | # | Phase | Risk | Status |
 | --- | --- | --- | --- |
 | 1 | Foundation — models, exceptions, ports, event vocabulary | none (additive) | **done** |
-| 2 | Event bus + structured logging | low (opt-in) | next |
-| 3 | Risk engine behind `RiskManager` | medium | planned |
+| 2 | Event bus + structured logging | low (publish-only) | **done** |
+| 3 | Risk engine behind `RiskManager` | medium | next |
 | 4 | Portfolio engine behind `PortfolioManager` | medium | planned |
 | 5 | Execution engine consolidation | medium | planned |
 | 6 | Strategy plugin registry | low | planned |
@@ -157,19 +157,111 @@ than removing it.
 
 ---
 
-## Phase 2 — Event bus + structured logging (next)
+---
 
-Planned scope:
+## Phase 2 — Event bus + structured logging (complete)
 
-- `tradexa/infrastructure/events/bus.py` — synchronous in-process bus
-  implementing the `EventBus` port. A failing subscriber must not abort the
-  publisher; handler errors are isolated and reported out of band.
-- `tradexa/infrastructure/logging/` — a `Logger` implementation emitting
-  timestamp, module, event, severity, duration and context as structured
-  records.
-- Wire both into **one** seam end to end (the signal pipeline is the
-  candidate) so the machinery is proven in production use rather than only in
-  tests, before anything else adopts it.
+**What changed.** Added `tradexa/infrastructure/` with two implementations, and
+wired **one** production seam end to end.
 
-Explicitly out of scope for Phase 2: converting existing direct calls to events
-wholesale. Each conversion is a behaviour risk and gets its own change.
+- `infrastructure/events/` — `InMemoryEventBus` (the `EventBus` port),
+  `NullEventBus`, and a process-wide `default_bus()`.
+- `infrastructure/logging/` — `StructuredLogger` (the `Logger` port),
+  `NullLogger`, `get_logger()`.
+- `services/auto_engine.py` publishes `MarketDataReceived` from `_process_bar`.
+
+**Why these decisions.**
+
+*The bus is synchronous.* An async or cross-process bus introduces ordering,
+backpressure and delivery-guarantee problems worse than the coupling it
+removes. A synchronous bus is a decoupled function call: the publisher does not
+know who listens, but still knows the work is done when `publish` returns.
+
+*A failing subscriber cannot reach the publisher.* The single most important
+property here. If a notifier raises while handling `OrderFilled`, the fill must
+still be recorded. A bus that propagates handler failures is strictly worse
+than a direct call, because it fails a publisher on behalf of code the
+publisher never chose to depend on. Isolated is not ignored — errors go to an
+error sink and are counted.
+
+*Publish depth is bounded.* A handler that publishes an event leading back to
+itself is reported as a cycle rather than arriving as a `RecursionError`
+thousands of frames from the cause.
+
+*Logging is event-name-plus-fields, never a formatted sentence.*
+`f"{sym}: fetch failed ({e})"` cannot answer "how many fetch failures on
+BTCUSDT this hour?" without a regex that breaks on the next wording change.
+
+*`event` is positional-only.* A test caught that `**context` could never carry
+a key named `event` — Python raises `TypeError` before the collision handling
+runs, so any caller splatting a context dict containing that key would crash
+rather than log. The `/` fixes it at the signature.
+
+*The engine seam is publish-only.* `_process_bar` publishes and never
+subscribes or reads a result, so no trading control flow depends on whether
+anyone is listening. The call is additionally wrapped: the bus isolates
+subscriber errors, and the guard covers constructing the event itself failing.
+Telemetry must never be able to stop a bar being traded.
+
+**Files added.**
+
+```
+tradexa/infrastructure/__init__.py
+tradexa/infrastructure/events/__init__.py
+tradexa/infrastructure/logging/__init__.py
+tests/test_event_bus.py
+automation-hub/tests/test_engine_events.py
+```
+
+**Files modified.**
+
+```
+automation-hub/services/auto_engine.py   publish MarketDataReceived (+ guarded import)
+automation-hub/conftest.py               repo root APPENDED to sys.path
+tradexa/core/interfaces/__init__.py      Logger port: event is positional-only
+tests/test_core_architecture.py          allowlist replaces the blanket ban
+```
+
+**Risks introduced.**
+
+1. *A production file now imports `tradexa`.* Mitigated by a guarded import —
+   a deployment shipping only `automation-hub` still starts, with events going
+   nowhere rather than the engine failing to import.
+2. *Per-bar overhead.* One dict lookup and a counter when nothing subscribes.
+   Bars arrive minutes apart.
+3. *`conftest.py` path change.* The repo root is **appended**, never inserted:
+   the root also contains a `data/` package, and giving it priority would
+   shadow the app's `data.ledger` with different code of the same name — an
+   import that succeeds and resolves wrongly is the worst kind of path bug.
+
+**Verification.**
+
+| Suite | Phase 1 | Phase 2 |
+| --- | --- | --- |
+| Root (`tests/`) | 164 passed | **200 passed** (+36) |
+| Backend (`automation-hub/tests/`) | 1376 passed | **1381 passed** (+5) |
+
+The five new backend tests run against the **real** engine — real ledger, real
+pipeline, real strategy — not a mock, including one asserting that a subscriber
+raising mid-delivery does not stop the bar being recorded.
+
+### The Phase 1 guard did its job
+
+`test_nothing_in_the_existing_system_imports_tradexa_yet` failed the moment
+Phase 2 wired the engine. That is the test working. It is now an **allowlist**:
+each deliberate consumer is listed with its rationale, an unlisted import fails
+the build, and a companion test rejects stale entries so a reverted migration
+cannot leave a permanent exemption behind.
+
+---
+
+## Phase 3 — Risk engine behind `RiskManager` (next)
+
+Risk logic currently lives across `services/signal_pipeline.py`,
+`services/controls.py` and the engine itself. Phase 3 gives it one owner
+implementing the `RiskManager` port, returning `RiskAssessment` — approval and
+size as one decision.
+
+Behaviour must not change: the existing rules, thresholds and rejection
+reasons are the specification, and characterization tests come first so any
+drift is caught by a test written before the move.

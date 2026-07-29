@@ -322,10 +322,27 @@ def test_core_subpackages_are_importable_standalone():
         __import__(name)
 
 
-def test_nothing_in_the_existing_system_imports_tradexa_yet():
-    """Phase 1 is purely additive. Until a later phase migrates callers
-    deliberately, no production module may depend on this package — that is
-    what makes this phase impossible to regress on."""
+#: Production modules that deliberately depend on `tradexa`, and why. Every
+#: migration adds a line here as part of the change that makes it. The point is
+#: not to forbid coupling — it is to make each instance a decision someone
+#: recorded, so an accidental import is visible against a short, explained list
+#: rather than lost in a growing one.
+DELIBERATE_TRADEXA_CONSUMERS = {
+    # Phase 2: publishes MarketDataReceived from _process_bar. Publish-only —
+    # the engine never subscribes and never reads a result back, so no trading
+    # control flow depends on it.
+    "automation-hub/services/auto_engine.py",
+}
+
+
+def test_only_deliberately_migrated_modules_import_tradexa():
+    """Guards against coupling nobody chose.
+
+    Phase 1 was purely additive and this test forbade every import. Phase 2
+    wires one seam on purpose, so the check became an allowlist — which is
+    stricter in the way that matters: an unlisted import now fails the build,
+    and a listed one carries its rationale next to it.
+    """
     root = CORE.parents[1]
     offenders = []
     for area in ("bot", "trading_bot", "automation-hub"):
@@ -333,8 +350,25 @@ def test_nothing_in_the_existing_system_imports_tradexa_yet():
         if not base.exists():
             continue
         for p in base.rglob("*.py"):
-            if "__pycache__" in p.parts:
+            # Tests are exempt: the rule is about PRODUCTION modules acquiring
+            # a dependency. A test importing tradexa to verify a seam is the
+            # intended use, and listing each one would bury the signal.
+            if "__pycache__" in p.parts or "tests" in p.parts or p.name == "conftest.py":
                 continue
-            if "tradexa" in _imports(p):
-                offenders.append(str(p.relative_to(root)))
-    assert not offenders, f"unexpected early dependency on tradexa: {offenders}"
+            rel = p.relative_to(root).as_posix()
+            if "tradexa" in _imports(p) and rel not in DELIBERATE_TRADEXA_CONSUMERS:
+                offenders.append(rel)
+    assert not offenders, (
+        f"undeclared dependency on tradexa: {offenders}. If the import is "
+        "intended, add it to DELIBERATE_TRADEXA_CONSUMERS with the reason.")
+
+
+def test_the_allowlist_has_no_stale_entries():
+    """A migration that gets reverted must not leave a permanent exemption
+    behind — the next accidental import would then pass unnoticed."""
+    root = CORE.parents[1]
+    for rel in DELIBERATE_TRADEXA_CONSUMERS:
+        path = root / rel
+        assert path.exists(), f"allowlisted file no longer exists: {rel}"
+        assert "tradexa" in _imports(path), (
+            f"{rel} is allowlisted but no longer imports tradexa — remove the entry")

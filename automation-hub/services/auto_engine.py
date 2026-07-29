@@ -150,6 +150,11 @@ class AutoStrategyEngine:
         self.last_activity: Optional[str] = None    # wall-clock of the last processed bar
         self.last_source: Optional[str] = None       # data source ("live (ccxt)" / "bundled sample" / …)
         self._warned_fallback: set = set()           # symbols already warned (no per-poll spam)
+        # Event bus (architecture phase 2). The engine PUBLISHES; it never
+        # subscribes and never reads a result back, so no control flow depends
+        # on whether anyone is listening. Publication is additive telemetry
+        # today — the trading path is byte-for-byte what it was.
+        self._bus = _event_bus()
 
     # ----------------------------------------------------------- lifecycle
     def start(self) -> bool:
@@ -371,6 +376,17 @@ class AutoStrategyEngine:
         except Exception:  # noqa: BLE001
             self.last_bar_ts = str(getattr(bar, "timestamp", ""))
         self.last_activity = datetime.now(timezone.utc).isoformat()
+        # Announce the closed bar. Only CLOSED bars reach this method, which is
+        # the contract MarketDataReceived states. The bus isolates subscriber
+        # errors, and this guard covers the remaining case — constructing the
+        # event itself failing on an unexpected bar shape. Telemetry must never
+        # be able to stop a bar being traded.
+        try:
+            self._bus.publish(_events.MarketDataReceived(
+                symbol=sym, timeframe=self.timeframe, bar=bar,
+                source=self.last_source or ""))
+        except Exception:  # noqa: BLE001 — publication is never load-bearing
+            pass
         # 0. shadow candidate sees the same bar (virtual, zero capital).
         if self.shadow is not None:
             try:
@@ -830,6 +846,22 @@ class AutoStrategyEngine:
 # Candle durations come from bot.data.resample — the one definition. This used
 # to be a local copy, and six copies of the same fact had already drifted apart.
 from bot.data.resample import TF_SECONDS as _TF_SECONDS  # noqa: E402
+
+# Architecture phase 2: the event bus and the event vocabulary. Imported at
+# module scope with a guard because `tradexa` sits at the repository root — a
+# deployment that ships only `automation-hub` must still start, with events
+# simply going nowhere rather than the engine failing to import.
+try:
+    from tradexa.core import events as _events
+    from tradexa.infrastructure.events import default_bus as _event_bus
+except Exception:  # noqa: BLE001 - telemetry is optional, the engine is not
+    class _events:                      # type: ignore[no-redef]
+        class MarketDataReceived:       # noqa: D106
+            def __init__(self, **kw): pass
+    def _event_bus():                   # type: ignore[misc]
+        from types import SimpleNamespace
+        return SimpleNamespace(publish=lambda e: None)
+
 def explain_inactivity(*, running: bool, trading_state: str, mode: str, timeframe: str,
                        bars: int, signals: int, trades: int, rejections: int,
                        data_source: Optional[str], last_activity_age_s: Optional[float],
