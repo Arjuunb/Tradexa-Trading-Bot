@@ -63,6 +63,7 @@ EXPECTED_GATE_ORDER = [
     "sizing",
     "exposure",
     "portfolio_exposure",
+    "risk_engine",          # the standalone RiskEngine's mandatory veto — ADDED
     "execution",            # rejected at fill
 ]
 

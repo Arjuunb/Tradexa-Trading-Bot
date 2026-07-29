@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from database.models import RiskRules
@@ -81,9 +81,34 @@ except Exception:  # noqa: BLE001 - pragma: no cover
                 parts.append(f"× {label} {v:.2f}")
         return " ".join(parts)
 
+# The standalone Risk Engine, wired in as a MANDATORY VETO — see
+# `_risk_engine_veto`. Guarded the same way as the sizing import: a deployment
+# that ships only automation-hub still starts, with the veto absent rather than
+# the process dead. Absence is recorded in the decision trail, not silent.
+try:
+    from tradexa.risk import (
+        AccountState as _AccountState,
+        Direction as _RiskDirection,
+        MarketConditions as _MarketConditions,
+        OpenPosition as _OpenPosition,
+        PIPELINE_PARITY as _PIPELINE_PARITY,
+        RiskContext as _RiskContext,
+        RiskEngine as _RiskEngine,
+        TradeProposal as _TradeProposal,
+    )
+except Exception:  # noqa: BLE001 - pragma: no cover
+    _RiskEngine = None  # type: ignore[assignment]
+
 from services.controls import TradingControl
 from services.dedup import DuplicateGuard
 from services.market_quality import MarketQualityGate
+
+# 2024-01-01 is a Monday. The session and trading-day rules need a datetime,
+# but the pipeline decides those from the ALERT's timestamp, not the wall
+# clock — so the instant handed to the engine is synthesised from the same
+# weekday and hour the pipeline's own gates used. Handing it `now()` instead
+# would let the two disagree about what day it is on a replayed alert.
+_MONDAY = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
@@ -223,6 +248,89 @@ class SignalPipeline:
         # the current equity so the same loss doesn't immediately re-halt.
         self._dd_base_balance = paper.starting_balance
         self._dd_base_count = 0
+        # Every trade passes through the Risk Engine before execution. Built
+        # from THIS pipeline's own configured limits, so an operator who
+        # tightens a cap tightens both paths at once and they cannot drift.
+        self.risk_engine = self._build_risk_engine()
+
+    # ------------------------------------------------------------ risk engine
+    def _build_risk_engine(self):
+        """The engine that vetoes every entry, or ``None`` if unavailable.
+
+        Limits are derived from the pipeline's own settings on top of
+        ``PIPELINE_PARITY``, which disables the rules this pipeline has never
+        enforced (account risk, leverage, margin, news, volatility ceiling).
+        That is what makes the veto safe to add to a live path: it is a SUBSET
+        of the checks already applied, so it cannot refuse a trade that used to
+        pass. Turning the extra rules on is a separate, deliberate decision —
+        see ``tradexa.risk.STRICT``.
+        """
+        if _RiskEngine is None:
+            return None
+        limits = _PIPELINE_PARITY.with_(
+            risk_per_trade_pct=self.risk_per_trade_pct,
+            max_risk_per_trade_pct=max(self.risk_per_trade_pct,
+                                       _PIPELINE_PARITY.max_risk_per_trade_pct),
+            max_drawdown_pct=self.max_drawdown_pct,
+            max_daily_loss_pct=self.max_daily_loss_pct,
+            max_weekly_loss_pct=self.max_weekly_loss_pct,
+            max_open_positions=self.max_open_positions,
+            max_correlated_positions=self.max_correlated_positions,
+            max_position_exposure_pct=self.exposure_limit_pct,
+            max_total_exposure_pct=self.max_total_exposure_pct,
+            session_start_hour=self.session_start,
+            session_end_hour=self.session_end,
+            trading_days_mask=self.trading_days_mask,
+        )
+        return _RiskEngine(limits)
+
+    def _risk_context(self, *, symbol: str, side: str, entry: float, stop: float,
+                      confidence: float, payload: dict):
+        """Assemble what the engine reads. Every figure comes from the same
+        source the corresponding pipeline gate uses — the daily P&L from
+        ``_today_pnl``, the exposure from ``paper.positions()`` — so the two
+        cannot disagree about the state they are judging.
+        """
+        positions = tuple(
+            _OpenPosition(
+                symbol=p["symbol"],
+                direction=(_RiskDirection.LONG if p["side"] == "long"
+                           else _RiskDirection.SHORT),
+                qty=float(p.get("size") or 0.0),
+                entry=float(p.get("entry") or 0.0),
+                stop=(float(p["stop"]) if p.get("stop") is not None else None),
+                cluster=_cluster(p["symbol"]),
+            )
+            for p in self.paper.positions())
+        wd = self._entry_weekday(payload.get("timestamp"))
+        hour = self._entry_hour(payload.get("timestamp"))
+        return _RiskContext(
+            proposal=_TradeProposal(
+                symbol=symbol,
+                direction=(_RiskDirection.LONG if _dir(side) == "long"
+                           else _RiskDirection.SHORT),
+                entry=entry, stop=stop, target=payload.get("target"),
+                confidence=confidence,
+                strategy_id=str(payload.get("strategy", "") or "")),
+            account=_AccountState(
+                equity=self.equity,
+                # The loss windows are measured against the SAME base the
+                # pipeline's own gates use (paper.starting_balance), not
+                # against current equity — otherwise the same P&L would clear
+                # one gate and trip the other.
+                starting_equity=self.paper.starting_balance,
+                peak_equity=max(self._dd_base_balance, self.paper.balance()),
+                cash=self.paper.balance(),
+                realized_pnl_today=self._today_pnl(),
+                realized_pnl_week=self._week_pnl()),
+            positions=positions,
+            market=_MarketConditions(cluster=_cluster(symbol)),
+            now=_MONDAY + timedelta(days=wd, hours=hour),
+            # The pipeline's pause and auto-halt have already rejected by the
+            # time this runs; passing them anyway keeps the context truthful
+            # rather than describing a bot that is running when it is not.
+            kill_switch_engaged=bool(self._halted) or not self.controls.trading_allowed(),
+            kill_switch_reason=self._halt_reason or "trading halted")
 
     def process(self, payload: dict) -> PipelineResult:
         with self._proc_lock:
@@ -534,6 +642,46 @@ class SignalPipeline:
             else:
                 steps.append(Step("portfolio_exposure", True,
                                   f"total within {self.max_total_exposure_pct*100:.0f}%"))
+
+        # 5c. THE RISK ENGINE VETO — the last thing between a signal and a fill.
+        # Every trade passes through it before execution; there is no path to
+        # the open below that does not come through here.
+        #
+        # A veto, not a second sizer. The pipeline keeps sizing because it holds
+        # nine strategy-derived modifiers (Kelly, learning store, allocator,
+        # streak) the standalone engine deliberately cannot see — knowing about
+        # them would make it depend on strategies, which is the one thing it is
+        # not allowed to do. Two sizers would be duplication, and the second one
+        # would silently overrule risk decisions the first had already made.
+        #
+        # It runs under PIPELINE_PARITY limits, so its rule set is a SUBSET of
+        # the gates above and it cannot refuse anything they let through. If it
+        # ever does, that is a genuine divergence between two implementations of
+        # the same rule and the trade is refused: the engine is the authority on
+        # risk, and a disagreement it loses is a bypass.
+        #
+        # Last rather than first, and that placement is load-bearing. Run before
+        # the pipeline's own exposure gates, it reached the same verdicts a beat
+        # earlier and reported them under its own name — turning
+        # "portfolio_exposure" into "risk_engine" in the decision log and
+        # dropping the veto out of the counterfactual tracker's graded stages.
+        # Same decision, worse explanation. Here it can only add refusals, never
+        # rename existing ones.
+        if self.risk_engine is not None:
+            decision = self.risk_engine.evaluate(self._risk_context(
+                symbol=symbol, side=side, entry=entry, stop=stop,
+                confidence=confidence, payload=payload))
+            if not decision.approved:
+                return reject("risk_engine", decision.explain())
+            steps.append(Step("risk_engine", True,
+                              f"approved by {decision.limits_name} "
+                              f"({len(decision.checks)} rules, "
+                              f"{decision.evaluated_ms:.1f}ms)"))
+        else:
+            # Stated rather than skipped in silence: a decision trail that looks
+            # identical whether or not the engine ran cannot be audited.
+            steps.append(Step("risk_engine", True,
+                              "tradexa.risk unavailable in this deployment — veto not applied"))
 
         # 6. paper execution (routed through the fill model)
         fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop,

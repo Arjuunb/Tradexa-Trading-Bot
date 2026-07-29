@@ -105,8 +105,17 @@ CONSERVATIVE = RiskLimits(
     max_total_exposure_pct=0.06, min_free_margin_pct=0.40,
 )
 
-#: Matches what the live SignalPipeline enforces today, so the standalone
-#: engine can be compared against production behaviour directly.
+#: Exactly what the live SignalPipeline enforces today — no more.
+#:
+#: The rules the pipeline has NEVER had are explicitly disabled here: account
+#: risk, leverage, margin, news blackout and volatility. That is what makes
+#: this preset safe to route production through: with it, the engine's veto is
+#: a SUBSET of checks the pipeline already applies, so adding it to the live
+#: path cannot refuse a trade that used to pass.
+#:
+#: Turning those rules on is a separate, deliberate decision — see ``STRICT``.
+#: Leaving them enabled here and calling it "parity" would have made the switch
+#: a silent tightening of live risk, dressed as a refactor.
 PIPELINE_PARITY = RiskLimits(
     name="pipeline_parity",
     risk_per_trade_pct=0.01, max_risk_per_trade_pct=0.02,
@@ -114,6 +123,23 @@ PIPELINE_PARITY = RiskLimits(
     max_correlated_positions=2, max_position_exposure_pct=0.05,
     max_total_exposure_pct=0.10, max_daily_loss_pct=0.03,
     max_weekly_loss_pct=0.06,
+    # not enforced by the pipeline today:
+    max_account_risk_pct=0.0, max_leverage=0.0, min_free_margin_pct=0.0,
+    news_blackout_minutes=0, max_volatility_pct=0.0,
+    volatility_reference_pct=0.0,
 )
 
-__all__ = ["RiskLimits", "CONSERVATIVE", "PIPELINE_PARITY"]
+#: Everything the engine can enforce, on. The upgrade path from parity: an
+#: operator opts in once they want the guards the pipeline never had.
+STRICT = RiskLimits(
+    name="strict",
+    risk_per_trade_pct=0.01, max_risk_per_trade_pct=0.02,
+    max_account_risk_pct=0.06, max_drawdown_pct=0.20,
+    max_daily_loss_pct=0.03, max_weekly_loss_pct=0.06,
+    max_position_exposure_pct=0.05, max_total_exposure_pct=0.10,
+    max_open_positions=3, max_correlated_positions=2,
+    max_leverage=1.0, min_free_margin_pct=0.20,
+    volatility_reference_pct=0.02, news_blackout_minutes=15,
+)
+
+__all__ = ["RiskLimits", "CONSERVATIVE", "PIPELINE_PARITY", "STRICT"]
