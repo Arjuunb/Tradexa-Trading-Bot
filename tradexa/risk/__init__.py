@@ -24,7 +24,7 @@ from tradexa.risk.context import (
     TradeProposal,
 )
 from tradexa.risk.engine import RiskDecision, RiskEngine
-from tradexa.risk.limits import CONSERVATIVE, PIPELINE_PARITY, RiskLimits
+from tradexa.risk.limits import CONSERVATIVE, PIPELINE_PARITY, STRICT, RiskLimits
 from tradexa.risk.rules import BLOCKING_RULES, QUANTITY_RULES, RuleResult
 from tradexa.risk.sizing import RiskFactors, describe_factors, effective_risk
 
@@ -32,7 +32,7 @@ __all__ = [
     "RiskEngine", "RiskDecision",
     "RiskContext", "TradeProposal", "AccountState", "OpenPosition",
     "MarketConditions", "Direction",
-    "RiskLimits", "CONSERVATIVE", "PIPELINE_PARITY",
+    "RiskLimits", "CONSERVATIVE", "PIPELINE_PARITY", "STRICT",
     "RuleResult", "BLOCKING_RULES", "QUANTITY_RULES",
     "RiskFactors", "effective_risk", "describe_factors",
 ]
