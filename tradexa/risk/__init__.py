@@ -1,21 +1,38 @@
-"""Risk — position sizing and trade validation.
+"""Risk — the standalone Risk Engine.
 
-Phase 3 of the architecture consolidation. The extraction is deliberately
-incremental: `automation-hub/services/signal_pipeline.py` runs twenty-two
-ordered gates against ten stateful collaborators (Kelly state, the learning
-store, the allocator, the paper book, the equity curve), and moving all of it
-at once would be a large change to the code that decides position size on a
-live account.
+Completely independent of strategies. It imports no strategy, no exchange, no
+database and no web framework; everything it needs arrives in a ``RiskContext``
+the caller assembles. ``tests/test_risk_engine_standalone.py`` enforces that by
+walking the package's imports, because independence claimed in a docstring is a
+convention and conventions break at the first deadline.
 
-So the PURE part comes out first — the arithmetic that turns a set of factors
-into an effective risk percentage, and the sentence that explains it. That is
-the heart of sizing, it has no dependencies, and until now it could not be
-tested without constructing the whole pipeline.
+    from tradexa.risk import RiskEngine, RiskContext, TradeProposal, RiskLimits
 
-The stateful collaborators stay where they are for now. What changes is that
-the calculation they feed is a function with a name, a signature and its own
-tests, rather than twenty lines in the middle of a 300-line method.
+    engine = RiskEngine(RiskLimits(max_daily_loss_pct=0.03))
+    decision = engine.evaluate(context)
+    if decision.approved:
+        execute(decision.quantity)
+    else:
+        log(decision.explain())        # names EVERY failing rule
+
+``evaluate`` is the only way to obtain an approved size, which is what makes
+"no strategy may bypass risk" structural rather than a rule someone has to
+remember.
 """
+from tradexa.risk.context import (
+    AccountState, Direction, MarketConditions, OpenPosition, RiskContext,
+    TradeProposal,
+)
+from tradexa.risk.engine import RiskDecision, RiskEngine
+from tradexa.risk.limits import CONSERVATIVE, PIPELINE_PARITY, RiskLimits
+from tradexa.risk.rules import BLOCKING_RULES, QUANTITY_RULES, RuleResult
 from tradexa.risk.sizing import RiskFactors, describe_factors, effective_risk
 
-__all__ = ["RiskFactors", "effective_risk", "describe_factors"]
+__all__ = [
+    "RiskEngine", "RiskDecision",
+    "RiskContext", "TradeProposal", "AccountState", "OpenPosition",
+    "MarketConditions", "Direction",
+    "RiskLimits", "CONSERVATIVE", "PIPELINE_PARITY",
+    "RuleResult", "BLOCKING_RULES", "QUANTITY_RULES",
+    "RiskFactors", "effective_risk", "describe_factors",
+]
