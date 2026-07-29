@@ -12,6 +12,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# The repository root, for `tradexa` (architecture phase 1+) and `bot`.
+# APPENDED, never inserted: the root also contains a `data/` package, and
+# giving it priority would shadow this app's `data.ledger` with a different
+# module of the same name — the imports would still succeed and resolve to the
+# wrong code, which is the worst kind of path bug.
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.append(_ROOT)
+
 import pytest
 
 
