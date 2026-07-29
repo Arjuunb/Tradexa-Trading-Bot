@@ -462,6 +462,18 @@ class SignalPipeline:
         #    then by the Kelly guard (risk less while the recent record is weak).
         if stop is None or stop == entry:
             return reject("risk", "Invalid stop (missing or equal to entry)")
+        # The stop must be on the LOSING side of entry. Found by the differential
+        # harness in tests/test_risk_engine_parity.py: this check tested only for
+        # a missing or equal stop, so a long with its stop ABOVE entry was
+        # accepted, sized from abs(entry - stop) like any other trade, and opened
+        # as a position whose stop was already through. A guaranteed immediate
+        # loss, and the decision log recorded it as a normal entry.
+        _long = _dir(side) == "long"
+        if (_long and stop > entry) or (not _long and stop < entry):
+            _side_word = "below" if _long else "above"
+            return reject("risk",
+                          f"Stop {stop} is on the wrong side of entry {entry} — "
+                          f"a {_dir(side)} stop must be {_side_word} entry")
         # Each collaborator's opinion on how large to be. Gathering them stays
         # here (they are stateful and live in this object); the arithmetic that
         # combines them moved to tradexa.risk.sizing, where it is a pure

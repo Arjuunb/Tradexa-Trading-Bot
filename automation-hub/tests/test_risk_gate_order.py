@@ -31,8 +31,15 @@ import pytest
 from services import signal_pipeline as sp
 
 # The gate sequence as it stands today, read top-to-bottom out of
-# SignalPipeline.process(). Regenerate with `_gate_sequence()` below if the
+# SignalPipeline._process(). Regenerate with `_gate_sequence()` below if the
 # order is changed ON PURPOSE — and say why in the commit.
+#
+# Changed once since this list was written: a second "risk" gate was added
+# after the existing stop check, rejecting a stop on the WRONG SIDE of entry.
+# The differential harness against the standalone engine found that a long
+# with its stop above entry was accepted, sized from abs(entry - stop), and
+# opened as a position whose stop was already through. This test failing is
+# what forced that change to be declared rather than slipped in.
 EXPECTED_GATE_ORDER = [
     "controls",             # global pause/stop beats everything
     "market_quality",
@@ -51,7 +58,8 @@ EXPECTED_GATE_ORDER = [
     "risk_guard",           # auto-halt re-check after loss gates
     "cooldown",
     "max_trades",
-    "risk",                 # invalid stop
+    "risk",                 # invalid stop (missing or equal to entry)
+    "risk",                 # stop on the wrong side of entry — ADDED
     "sizing",
     "exposure",
     "portfolio_exposure",
