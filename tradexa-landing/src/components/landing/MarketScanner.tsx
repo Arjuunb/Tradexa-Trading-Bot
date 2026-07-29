@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Reveal, SectionHeading } from "@/components/Reveal";
 import { cn } from "@/lib/utils";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 
 /**
  * "Selectivity" — the fourth landing animation. Nexus scans the whole
@@ -32,18 +33,24 @@ const EQ_AREA = EQ_D + ` L 300,130 L 4,130 Z`;
 export function MarketScanner() {
   const [step, setStep] = useState(-1);
   const timer = useRef<number | null>(null);
+  const root = useRef<HTMLElement | null>(null);
+  // Only step while the section is on screen and the tab is in front. This
+  // used to tick every 850ms for the life of the page, re-rendering a table
+  // nobody was looking at.
+  const active = useVisibleActive(root);
 
   useEffect(() => {
+    if (!active) return;
     const total = ROWS.length + 2;                 // rows + a short pause before looping
     timer.current = window.setInterval(() => setStep((s) => (s + 1) % total), 850);
     return () => { if (timer.current) window.clearInterval(timer.current); };
-  }, []);
+  }, [active]);
 
   const scannedTake = ROWS.filter((r, i) => i <= step && r.take).length;
   const scannedAll = Math.min(step + 1, ROWS.length);
 
   return (
-    <section id="selectivity" className="section">
+    <section id="selectivity" className="section" ref={root}>
       <div className="container-x">
         <SectionHeading
           link="#selectivity"

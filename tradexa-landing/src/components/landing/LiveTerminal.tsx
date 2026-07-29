@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 
 /**
  * Engine log terminal — a monospace, rolling feed of the kind of decisions the
@@ -46,28 +47,36 @@ export function LiveTerminal({ className }: { className?: string }) {
   const [lines, setLines] = useState<{ id: number; line: LogLine; ts: string }[]>([]);
   const idx = useRef(0);
   const uid = useRef(0);
+  const root = useRef<HTMLDivElement | null>(null);
+  const active = useVisibleActive(root);
 
-  useEffect(() => {
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const push = () => {
-      const i = idx.current % POOL.length;
-      setLines((prev) => {
-        const next = [...prev, { id: uid.current++, line: POOL[i], ts: CLOCK[i] }];
-        return next.slice(-7);
-      });
-      idx.current += 1;
-    };
-
-    // seed the first few lines, then roll
-    for (let s = 0; s < (reduce ? 7 : 4); s++) push();
-    if (reduce) return;
-    const iv = window.setInterval(push, 1900);
-    return () => window.clearInterval(iv);
+  const push = useCallback(() => {
+    const i = idx.current % POOL.length;
+    setLines((prev) => {
+      const next = [...prev, { id: uid.current++, line: POOL[i], ts: CLOCK[i] }];
+      return next.slice(-7);
+    });
+    idx.current += 1;
   }, []);
 
+  // Seed on mount, always. The terminal must never render empty — including
+  // for someone who prefers reduced motion, or while it is off screen and the
+  // roll below is paused.
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (let s = 0; s < (reduce ? 7 : 4); s++) push();
+  }, [push]);
+
+  useEffect(() => {
+    if (!active) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;                    // seeded above; a static log is the point
+    const iv = window.setInterval(push, 1900);
+    return () => window.clearInterval(iv);
+  }, [active, push]);
+
   return (
-    <div className={cn("surface overflow-hidden", className)}>
+    <div ref={root} className={cn("surface overflow-hidden", className)}>
       {/* terminal header */}
       <div className="flex items-center justify-between border-b border-line bg-ink-800/60 px-4 py-2.5">
         <div className="flex items-center gap-2">
