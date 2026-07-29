@@ -265,3 +265,87 @@ size as one decision.
 Behaviour must not change: the existing rules, thresholds and rejection
 reasons are the specification, and characterization tests come first so any
 drift is caught by a test written before the move.
+
+---
+
+## Phase 3c — The event backbone
+
+Extends the phase-2 bus into the communication backbone: full envelope, 22
+events, registry, dispatcher, publisher, subscriber, priorities, retry,
+metrics, async delivery and replay.
+
+**The envelope.** Every event now carries `timestamp` (aliasing the original
+`occurred_at`), `event_id`, `source`, `correlation_id`, `metadata` and
+`payload`.
+
+`correlation_id` is the field that earns its keep. One bar arriving produces a
+signal, a risk check, an order and a fill — five events across four modules.
+Without a shared id, reconstructing that chain from a log means matching on
+symbol and timestamp and hoping two symbols did not fire in the same second.
+With one, the chain is a filter.
+
+`payload` is a **derived property**, not a stored dict. Storing it would put
+the same data twice on one frozen object, and the copy would drift the first
+time an event was constructed by hand.
+
+**One collision resolved.** `MarketDataReceived.source` meant the *data*
+provenance ("live (ccxt)", "bundled sample"); the envelope needs `source` for
+the publishing module. The field is now `data_source`. The distinction matters:
+a live-mode engine served bundled data will never see a new candle, and that
+failure is invisible unless the data's provenance travels beside the
+publisher's identity.
+
+**Why the pieces are separate.**
+
+| Piece | Why it is its own thing |
+| --- | --- |
+| `EventRegistry` | Replay reads names from a journal; without a registry those are strings with no way back to a class |
+| `EventDispatcher` | Delivery policy — priority, retry, metrics, isolation — testable without a publisher and swappable without touching either side |
+| `EventBus` | The seam callers hold |
+| `EventPublisher` | Stamps source and correlation once per module rather than at every call, so they cannot drift |
+| `EventSubscriber` | Attach and detach are symmetric by construction; a scattering of manual subscribe calls is not |
+
+**Priorities** are named constants (`CRITICAL` … `BACKGROUND`) because
+registration should read as intent. Equal priorities keep registration order
+via a monotonic tiebreaker — without it, sorting is unstable and two handlers
+that must run in a fixed order would swap between runs.
+
+**Retries default to zero.** Retrying a handler with side effects duplicates
+them, so opting in is a decision the subscriber makes knowing whether its work
+is idempotent.
+
+**Async** handlers are awaited by `publish_async`, one at a time rather than
+gathered — priority is an ordering promise, and gathering would break it the
+moment two async handlers had different priorities. A coroutine handler reached
+by the *sync* `publish` is reported as an error rather than silently dropped: a
+coroutine created and never awaited leaks and warns.
+
+**Handler failures are republished as `ErrorOccurred`**, so an error monitor is
+an ordinary subscriber rather than a special case wired into every publisher.
+Guarded against recursion — a failing `ErrorOccurred` handler must not publish
+another.
+
+**Replay** records at `BACKGROUND` priority so it can never delay or reorder
+real work, and is bounded (an unbounded recorder on a long-running bot is a
+memory leak with a helpful name). Replayed events are marked
+`metadata["replayed"] = True` and keep their **original** id and timestamp —
+keeping the id is what lets a replayed event be matched against the log line
+the live one wrote. Serialisation is best-effort and flags lossy fields: a
+journal that refused anything it could not perfectly round-trip would record
+nothing on the events most worth having.
+
+**Files added.** `tradexa/infrastructure/events/{bus,replay}.py`,
+`tests/test_event_backbone.py` (73 tests).
+
+**Files modified.** `tradexa/core/events/__init__.py` (envelope + 9 new
+events), `tradexa/infrastructure/events/__init__.py` (re-export),
+`automation-hub/services/auto_engine.py` (renamed field at the one call site).
+
+**Risks.** The `data_source` rename touches one production call site, covered
+by the existing engine-event tests. No trading control flow changed: the engine
+still only publishes, never subscribes, and never reads a result back.
+
+**Verification.** Root suite 324 → **397** passed. Backend **1392** passed,
+unchanged. Every phase-2 API — `subscribe`, `publish`, `clear`, `default_bus`,
+`published_count`, `handler_error_count` — still works with identical
+behaviour, asserted by a backwards-compatibility test.

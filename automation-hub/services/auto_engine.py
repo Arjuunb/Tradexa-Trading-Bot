@@ -384,7 +384,10 @@ class AutoStrategyEngine:
         try:
             self._bus.publish(_events.MarketDataReceived(
                 symbol=sym, timeframe=self.timeframe, bar=bar,
-                source=self.last_source or ""))
+                # `data_source` is the provenance of the DATA; the envelope's
+                # `source` is the module that published the event. They were
+                # one field before the envelope existed.
+                data_source=self.last_source or "", source="auto_engine"))
         except Exception:  # noqa: BLE001 — publication is never load-bearing
             pass
         # 0. shadow candidate sees the same bar (virtual, zero capital).
