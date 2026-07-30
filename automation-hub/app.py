@@ -38,7 +38,22 @@ from dashboard.overview import render_overview  # noqa: E402
 from database.models import BotConfig, BotMode, RiskRules  # noqa: E402
 from database.store import SqliteStore  # noqa: E402
 
-app = FastAPI(title=settings.app_name)
+# The API version prefix, declared before the app so the OpenAPI docs can live
+# under it (see below). The router mount further down reuses this constant.
+API_VERSION = "v1"
+
+# Swagger and ReDoc move under /api/v1 rather than sitting at the root.
+#
+# FastAPI serves them at "/docs" and "/redoc" by default, and "/docs" is now a
+# page of the public marketing site — the documentation index. The built-in
+# routes are registered at construction, so they win every match and the public
+# page was simply unreachable in the bundled deployment. Moving them is also
+# what docs/API_SPEC.md already prescribes for the versioned API surface.
+app = FastAPI(
+    title=settings.app_name,
+    docs_url=f"/api/{API_VERSION}/docs",
+    redoc_url=f"/api/{API_VERSION}/redoc",
+)
 # Phase 6/7: one SQLite store backs both bot persistence and user accounts.
 # The first admin is seeded from HUB_USERNAME/HUB_PASSWORD. Tests override
 # `manager` with an in-memory BotManager() but reuse `store` for auth.
@@ -109,7 +124,6 @@ app.include_router(webhook_router)
 # target /api/v1; existing callers keep working unchanged. The auth/user
 # endpoints defined directly on `app` stay at root for now (they move into a
 # router in a later slice), so /api/v1 covers the router-based API surface.
-API_VERSION = "v1"
 app.include_router(webhook_router, prefix="/api/" + API_VERSION)
 
 
@@ -176,9 +190,30 @@ async def _security_headers(request, call_next):
 # TradingView webhook (it authenticates with the secret in its own handler),
 # static assets, and "/" (which redirects anonymous visitors to /login).
 _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
-                "/favicon", "/docs", "/openapi.json", "/redoc", "/health", "/version",
+                "/favicon", "/openapi.json", "/health", "/version",
+                "/api/v1/docs", "/api/v1/redoc",   # Swagger/ReDoc moved off "/docs"; same audience as before
                 "/nexus-mark", "/apple-touch", "/icon-", "/maskable-", "/mstile-",
-                "/og-image", "/logo-mark", "/site.webmanifest")
+                "/og-image", "/logo-mark", "/site.webmanifest", "/robots.txt",
+                "/sitemap.xml")
+
+# The public marketing site's pages.
+#
+# Every one is a real URL in the sitemap, and the SPA uses BrowserRouter, so a
+# hard load, a refresh or a crawler visit has to get HTML back from this app.
+# Before these existed, eighteen of the nineteen returned this API's 404 JSON:
+# client-side navigation worked, so the breakage was invisible to anyone
+# already on the site and total for anyone arriving from a link or a search
+# result — which is the entire audience the routes were split out for.
+#
+# Matched EXACTLY, never as prefixes. `_AUTH_EXEMPT` above is a prefix list,
+# and exempting "/api" that way would have unlocked the whole "/api/v1/*"
+# subtree that must stay session-gated.
+_LANDING_PAGES = (
+    "features", "engine", "live-trade", "selectivity", "how-it-works", "security",
+    "performance", "dashboard", "docs", "api", "sdks", "open-source", "github",
+    "support", "community", "status", "privacy", "terms", "risk-disclosure",
+)
+_LANDING_PAGE_PATHS = frozenset("/" + p for p in _LANDING_PAGES)
 
 
 from services.ratelimit import limiter as _rl  # noqa: E402
@@ -230,6 +265,8 @@ async def _require_auth(request: Request, call_next):
     hdr = request.headers.get("x-webhook-secret")
     if (request.method == "OPTIONS"          # CORS preflight — CORSMiddleware answers it
             or path == "/" or path in ("/api/version", "/api/" + API_VERSION)  # public version handshake (NOT the /api/v1/* API subtree)
+            # public marketing pages, matched exactly — see _LANDING_PAGE_PATHS
+            or (_LANDING_READY and path in _LANDING_PAGE_PATHS)
             or any(path.startswith(p) for p in exempt)
             or _user(request)
             or hdr == settings.admin_key
@@ -269,7 +306,11 @@ if _LANDING_READY and (_LANDING / "assets").exists():
 from fastapi.responses import FileResponse  # noqa: E402
 _BRAND_FILES = ("nexus-mark.svg", "nexus-mark-small.svg", "favicon-16.png", "favicon-32.png", "favicon-48.png",
                 "apple-touch-icon.png", "icon-192.png", "icon-512.png", "maskable-512.png",
-                "mstile-150.png", "og-image.png", "logo-mark-512.png", "site.webmanifest")
+                "mstile-150.png", "og-image.png", "logo-mark-512.png", "site.webmanifest",
+                # Crawler files. They live beside index.html for the same reason
+                # the icons do, and a sitemap that 404s is worse than none —
+                # it advertises twenty URLs and then refuses to confirm any.
+                "robots.txt", "sitemap.xml")
 _BRAND_FALLBACK = Path(__file__).resolve().parent / "static" / "brand"
 
 
@@ -328,6 +369,13 @@ if _LANDING_READY:
     for _p in _LANDING_AUTH:
         app.add_api_route(f"/auth/{_p}", _landing_page, response_class=HTMLResponse, methods=["GET"])
     app.add_api_route("/settings/{path:path}", _landing_sub, response_class=HTMLResponse, methods=["GET"])
+
+    # Every public marketing page. Registered individually rather than behind a
+    # catch-all: a catch-all would answer HTML to a mistyped API path, turning
+    # a clear 404 into a parse error at the client, and would shadow nothing
+    # today but everything added later.
+    for _p in _LANDING_PAGES:
+        app.add_api_route(f"/{_p}", _landing_page, response_class=HTMLResponse, methods=["GET"])
 
     @app.get("/app", response_class=HTMLResponse)
     @app.get("/app/{path:path}", response_class=HTMLResponse)
