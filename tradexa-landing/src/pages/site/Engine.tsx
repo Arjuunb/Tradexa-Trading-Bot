@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Cpu, Layers, Network, Terminal, Zap } from "lucide-react";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 import { Ambient } from "@/components/site/Ambient";
 import {
   PipelineDiagram,
@@ -8,7 +9,7 @@ import {
   STAGES,
 } from "@/components/site/engine/PipelineDiagram";
 import { DecisionCore } from "@/components/site/engine/DecisionCore";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -26,13 +27,15 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 /** Boot-log hero telemetry: numbers that tick, phrased as a system does. */
 function Telemetry() {
   const reduced = useReducedMotion() ?? false;
+  const ref = useRef<HTMLDivElement>(null);
+  const active = useVisibleActive(ref);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !active) return;
     const id = window.setInterval(() => setTick((t) => t + 1), 1400);
     return () => window.clearInterval(id);
-  }, [reduced]);
+  }, [reduced, active]);
 
   // Deterministic wobble around a fixed centre — representative telemetry, not
   // a claim about throughput at this instant.
@@ -49,7 +52,7 @@ function Telemetry() {
   ];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-graphite-500/70 bg-black/50 backdrop-blur-xl">
+    <div ref={ref} className="overflow-hidden rounded-2xl border border-graphite-500/70 bg-black/50 backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b border-graphite-600 bg-graphite-800/60 px-4 py-2.5">
         <Terminal className="h-3.5 w-3.5 text-electric-soft" />
         <span className="font-mono text-[11px] text-white/45">nexus-engine · telemetry</span>
@@ -88,6 +91,11 @@ function Telemetry() {
 /** Continuous data-flow strip — the "it never stops" statement, drawn. */
 function FlowStrip() {
   const reduced = useReducedMotion() ?? false;
+  const ref = useRef<HTMLDivElement>(null);
+  // Fourteen packets on four lanes, each an independent infinite spring. They
+  // are cheap individually and not cheap together, and none of them mean
+  // anything while the strip is off screen.
+  const active = useVisibleActive(ref);
   const lanes = [
     { label: "market data", color: "#2E7BFF", speed: 5.5, count: 5 },
     { label: "feature vectors", color: "#22D3EE", speed: 7, count: 4 },
@@ -96,7 +104,7 @@ function FlowStrip() {
   ];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-graphite-500/60 bg-graphite-800/50">
+    <div ref={ref} className="overflow-hidden rounded-2xl border border-graphite-500/60 bg-graphite-800/50">
       {lanes.map((lane, li) => (
         <div
           key={lane.label}
@@ -109,7 +117,7 @@ function FlowStrip() {
             {lane.label}
           </span>
           <div className="relative h-px flex-1 bg-graphite-500">
-            {!reduced &&
+            {!reduced && active &&
               Array.from({ length: lane.count }).map((_, i) => (
                 <motion.span
                   key={i}
@@ -144,17 +152,21 @@ function FlowStrip() {
 
 export default function EnginePage() {
   const route = routeFor("/engine")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
   const [activeStage, setActiveStage] = useState(STAGES[0].id);
   const [autoAdvance, setAutoAdvance] = useState(true);
   const reduced = useReducedMotion() ?? false;
+  const pipelineRef = useRef<HTMLDivElement>(null);
+  const pipelineActive = useVisibleActive(pipelineRef);
 
   // The pipeline walks itself until the reader takes over. A diagram that only
   // moves when clicked reads as static on first sight, and the flow is the
-  // thing being explained.
+  // thing being explained. It walks only while it is on screen, so a reader
+  // who scrolls to the architecture section and back does not return to find
+  // it four stages further on than they left it.
   useEffect(() => {
-    if (!autoAdvance || reduced) return;
+    if (!autoAdvance || reduced || !pipelineActive) return;
     const id = window.setInterval(() => {
       setActiveStage((cur) => {
         const i = STAGES.findIndex((s) => s.id === cur);
@@ -162,7 +174,7 @@ export default function EnginePage() {
       });
     }, 3800);
     return () => window.clearInterval(id);
-  }, [autoAdvance, reduced]);
+  }, [autoAdvance, reduced, pipelineActive]);
 
   const stage = STAGES.find((s) => s.id === activeStage) ?? STAGES[0];
 
@@ -269,9 +281,10 @@ export default function EnginePage() {
           </button>
         </div>
 
-        <div className="mt-10 rounded-3xl border border-graphite-500/60 bg-graphite-800/40 p-5 backdrop-blur-sm sm:p-8">
+        <div ref={pipelineRef} className="mt-10 rounded-3xl border border-graphite-500/60 bg-graphite-800/40 p-5 backdrop-blur-sm sm:p-8">
           <PipelineDiagram
             activeId={activeStage}
+            flowing={pipelineActive}
             onSelect={(id) => {
               setActiveStage(id);
               setAutoAdvance(false);

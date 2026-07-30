@@ -42,6 +42,32 @@
     />
     <meta name="twitter:image" content="https://www.trade-logx.com/og-image.png" />
 
+    <!--
+      Structured data. Static rather than injected, because a crawler that does
+      not execute the bundle still gets it — and this app renders entirely on
+      the client, so anything added from React is invisible to some of them.
+      Per-page BreadcrumbList is added at runtime on top of this.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "TradeLogX Nexus",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "url": "https://www.trade-logx.com/",
+        "description": "AI-powered trading intelligence platform for market analysis, strategy automation, backtesting, paper trading, and intelligent trade execution.",
+        "featureList": [
+          "AI decision engine with written rationale for every trade",
+          "Mandatory risk engine with veto power over every order",
+          "Backtesting and walk-forward optimisation",
+          "Paper trading against live market data",
+          "Trading memory and performance attribution",
+          "Envelope-encrypted, withdrawal-disabled exchange keys"
+        ]
+      }
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

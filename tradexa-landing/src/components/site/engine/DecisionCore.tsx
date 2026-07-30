@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,14 +67,16 @@ const VERDICT_META = {
 
 export function DecisionCore() {
   const reduced = useReducedMotion() ?? false;
+  const ref = useRef<HTMLDivElement>(null);
+  const active = useVisibleActive(ref);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
-    if (reduced || paused) return;
+    if (reduced || paused || !active) return;
     const id = window.setInterval(() => setIndex((i) => (i + 1) % SCENARIOS.length), 5200);
     return () => window.clearInterval(id);
-  }, [reduced, paused]);
+  }, [reduced, paused, active]);
 
   const s = SCENARIOS[index];
   const conviction = useMemo(
@@ -93,6 +96,7 @@ export function DecisionCore() {
 
   return (
     <div
+      ref={ref}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       className="rounded-2xl border border-graphite-500/70 bg-graphite-800/70 p-5 backdrop-blur-sm sm:p-6"

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
-import { SITE_ROUTES, ACCENT_CLASSES, routeFor } from "@/site/routes";
+import { SITE_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
 import { cn, APP_URL, LOGIN_URL } from "@/lib/utils";
 
 /**
@@ -81,6 +81,12 @@ export function SiteNav() {
               <NavLink
                 key={r.path}
                 to={r.path}
+                // Pointing at a link is a reliable signal a click is coming;
+                // starting the chunk here removes the round trip from the
+                // transition. Focus counts too, or keyboard users pay a cost
+                // pointer users do not.
+                onPointerEnter={() => prefetchRoute(r.path)}
+                onFocus={() => prefetchRoute(r.path)}
                 className={({ isActive }) =>
                   cn(
                     "relative rounded-lg px-3 py-2 text-sm transition-colors",
@@ -142,6 +148,8 @@ export function SiteNav() {
                   <NavLink
                     key={r.path}
                     to={r.path}
+                    onPointerEnter={() => prefetchRoute(r.path)}
+                    onFocus={() => prefetchRoute(r.path)}
                     className={({ isActive }) =>
                       cn(
                         "flex items-center gap-3 rounded-xl px-3 py-3 transition-colors",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, CornerDownLeft, Search, SlidersHorizontal, X } from "lucide-react";
 import { Ambient } from "@/components/site/Ambient";
@@ -11,8 +12,9 @@ import {
   type CategoryId,
   type FeatureEntry,
 } from "@/components/site/features/catalogue";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -46,23 +48,26 @@ function HeroSearch({
   resultCount: number;
 }) {
   const reduced = useReducedMotion() ?? false;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const onScreen = useVisibleActive(wrapRef);
   const [focused, setFocused] = useState(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
 
   // Cycle the placeholder through real searches. It stops the moment the field
   // is touched — a placeholder that keeps changing while you think about what
-  // to type is a distraction, not a hint.
+  // to type is a distraction, not a hint — and while the field is scrolled
+  // out of sight, since nobody is reading a hint they cannot see.
   useEffect(() => {
-    if (reduced || focused || query) return;
+    if (reduced || focused || query || !onScreen) return;
     const id = window.setInterval(
       () => setPlaceholderIndex((i) => (i + 1) % SUGGESTIONS.length),
       2600,
     );
     return () => window.clearInterval(id);
-  }, [reduced, focused, query]);
+  }, [reduced, focused, query, onScreen]);
 
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       <div
         className={cn(
           "relative flex items-center gap-3 rounded-2xl border bg-black/40 px-4 backdrop-blur-xl transition-all duration-300",
@@ -126,11 +131,24 @@ function HeroSearch({
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0 }}
               className="ml-auto font-mono text-xs tabular text-white/40"
+              aria-hidden
             >
               {resultCount} / {FEATURES.length}
             </motion.span>
           )}
         </AnimatePresence>
+      </div>
+
+      {/*
+        Filtering a list in place is silent to a screen reader: the results
+        change and nothing announces it. The visible counter above is marked
+        aria-hidden and the same fact is stated here as a sentence, because
+        "4 / 22" read aloud is not an answer to anything.
+      */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {query
+          ? `${resultCount} of ${FEATURES.length} capabilities match ${query}`
+          : `Showing all ${FEATURES.length} capabilities`}
       </div>
     </div>
   );
@@ -293,10 +311,36 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export default function FeaturesPage() {
   const route = routeFor("/features")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<CategoryId | "all">("all");
+  /**
+   * The explorer's state lives in the URL.
+   *
+   * "Does it do X" is a question people ask on someone else's behalf, and the
+   * answer is worth sending: /features?q=stop+loss is a link, whereas local
+   * state is something you have to describe. It also means Back undoes a
+   * search rather than leaving the page, and a reload keeps your place.
+   *
+   * `replace` on every change so that typing eight characters does not put
+   * eight entries in the history stack.
+   */
+  const [params, setParams] = useSearchParams();
+  const query = params.get("q") ?? "";
+  const rawCategory = params.get("c");
+  const category: CategoryId | "all" =
+    rawCategory && CATEGORIES.some((c) => c.id === rawCategory)
+      ? (rawCategory as CategoryId)
+      : "all";
+
+  const patch = (next: { q?: string; c?: CategoryId | "all" }) => {
+    const p = new URLSearchParams(params);
+    if (next.q !== undefined) next.q ? p.set("q", next.q) : p.delete("q");
+    if (next.c !== undefined) next.c !== "all" ? p.set("c", next.c) : p.delete("c");
+    setParams(p, { replace: true });
+  };
+  const setQuery = (q: string) => patch({ q });
+  const setCategory = (c: CategoryId | "all") => patch({ c });
+
   const [expanded, setExpanded] = useState<string | null>("nexus-engine");
   const inputRef = useRef<HTMLInputElement>(null);
   const counts = useMemo(countsByCategory, []);

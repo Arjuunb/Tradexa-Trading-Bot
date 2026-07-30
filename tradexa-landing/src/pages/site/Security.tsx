@@ -8,7 +8,7 @@ import {
   PermissionMatrix,
   ZeroTrustDiagram,
 } from "@/components/site/security/diagrams";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -101,7 +101,7 @@ function ChapterHead({ chapter }: { chapter: Chapter }) {
 
 export default function SecurityPage() {
   const route = routeFor("/security")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
   const reduced = useReducedMotion() ?? false;
 

@@ -1,10 +1,11 @@
-import { Suspense, useEffect } from "react";
-import { Link, useLocation, useOutlet } from "react-router-dom";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigationType, useOutlet } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
-import { SITE_ROUTES, ACCENT_CLASSES, routeFor } from "@/site/routes";
+import { SITE_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
+import { settleScroll } from "@/site/scroll";
 import { cn } from "@/lib/utils";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -51,6 +52,8 @@ function PagePager() {
         {prev ? (
           <Link
             to={prev.path}
+            onPointerEnter={() => prefetchRoute(prev.path)}
+            onFocus={() => prefetchRoute(prev.path)}
             className={cn(
               "group relative overflow-hidden rounded-2xl border border-line bg-white/[0.02] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/[0.04]",
               ACCENT_CLASSES[prev.accent].hoverBorder,
@@ -76,6 +79,8 @@ function PagePager() {
         {next && (
           <Link
             to={next.path}
+            onPointerEnter={() => prefetchRoute(next.path)}
+            onFocus={() => prefetchRoute(next.path)}
             className={cn(
               "group relative overflow-hidden rounded-2xl border border-line bg-white/[0.02] p-5 text-right transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/[0.04]",
               ACCENT_CLASSES[next.accent].hoverBorder,
@@ -107,34 +112,77 @@ function PagePager() {
  * on to the *previous* element while it exits; `<Outlet/>` re-renders to the
  * new route immediately and the exit animation has nothing left to play.
  *
- * Scroll is reset on `onExitComplete` instead of on pathname change — resetting
- * during the crossfade yanks the outgoing page to the top mid-exit, which reads
- * as a glitch rather than a transition.
+ * Scroll positioning is deferred until the crossfade finishes — see the
+ * settle effect below for why the obvious timing does not work.
  */
 export default function SiteLayout() {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const outlet = useOutlet();
   const reduced = useReducedMotion() ?? false;
+  const mainRef = useRef<HTMLElement>(null);
   const route = routeFor(location.pathname);
   const accent = route ? ACCENT_CLASSES[route.accent] : ACCENT_CLASSES.gold;
 
-  // A hard fallback for the case where the exit callback never fires (reduced
-  // motion collapses the transition, so onExitComplete can be a no-op frame).
+  /**
+   * When the new page is put in position.
+   *
+   * Recording offsets and the restore itself live in `@/site/scroll`, shared
+   * with the routes that have no crossfade. What is specific here is the
+   * *timing*: `onExitComplete` fires while the outgoing page is being removed
+   * and before the incoming one has mounted, so restoring there finds a
+   * document only as tall as the chrome and clamps the offset short. The
+   * callback therefore only bumps a counter, and the work happens in a layout
+   * effect — which by definition runs after the new page has committed.
+   */
+  const [settleKey, setSettleKey] = useState(0);
+  const firstRun = useRef(true);
+
+  // Reduced motion collapses the exit into a frame whose completion callback
+  // can be skipped entirely, so the counter is bumped on route change too.
   useEffect(() => {
-    if (reduced) window.scrollTo(0, 0);
-  }, [location.pathname, reduced]);
+    if (reduced) setSettleKey((k) => k + 1);
+  }, [location.key, reduced]);
+
+  useLayoutEffect(() => {
+    const cancel = settleScroll(location.key, navigationType);
+
+    // Move focus into the new document, but never on the first paint: a page
+    // that grabs focus the moment it loads is a page that has decided where
+    // your cursor goes. On an in-app navigation it is the opposite — without
+    // it a keyboard or screen-reader user stays parked in the navigation and
+    // re-tabs through it on every page.
+    if (!firstRun.current) mainRef.current?.focus({ preventScroll: true });
+    firstRun.current = false;
+
+    return cancel;
+    // Only `settleKey`, and pointedly not `location.key`: keying on the
+    // location fires this the instant the route changes, while the outgoing
+    // page is still the mounted one. `settleKey` changes once the incoming
+    // page has committed, and the closure already holds the new location.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settleKey]);
 
   return (
     <div className="relative min-h-screen">
+      <a
+        href="#site-main"
+        className="sr-only left-4 top-4 z-[60] rounded-lg border border-line-strong bg-ink px-4 py-2 text-sm text-white focus:not-sr-only focus:absolute"
+      >
+        Skip to content
+      </a>
       <SiteNav />
 
-      <AnimatePresence
-        mode="wait"
-        initial={false}
-        onExitComplete={() => window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior })}
-      >
+      <AnimatePresence mode="wait" initial={false} onExitComplete={() => setSettleKey((k) => k + 1)}>
         <motion.main
           key={location.pathname}
+          id="site-main"
+          ref={mainRef}
+          // -1 makes it programmatically focusable without adding a stop in the
+          // tab order; the outline is suppressed because the focus ring belongs
+          // on controls, not on a whole page that was focused on your behalf.
+          tabIndex={-1}
+          className="outline-none"
           initial={reduced ? { opacity: 0 } : { opacity: 0, y: 12, filter: "blur(6px)" }}
           animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
           exit={reduced ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}

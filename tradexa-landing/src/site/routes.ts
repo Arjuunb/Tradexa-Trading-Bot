@@ -9,6 +9,8 @@
  * from — so adding a page cannot leave one of them behind.
  */
 
+import type { ComponentType } from "react";
+
 export type Accent = "gold" | "electric" | "terminal" | "aurum" | "spectrum" | "emerald";
 
 export interface SiteRoute {
@@ -23,6 +25,23 @@ export interface SiteRoute {
   accent: Accent;
   /** One-line summary used by the footer's product column. */
   blurb: string;
+  /**
+   * The page's opaque base colour, mirrored into `<meta name="theme-color">`.
+   *
+   * Mobile Safari and Chrome paint their own chrome with this, so without it
+   * every page kept the landing page's near-black while its own background was
+   * navy or graphite — a visible seam right at the top of the screen.
+   */
+  themeColor: string;
+  /**
+   * The page module.
+   *
+   * Declared once here so `React.lazy` and the hover prefetch cannot disagree
+   * about which chunk a route needs. A dynamic `import()` inside a function
+   * body is not evaluated until called, so listing them here does not pull six
+   * pages into the entry bundle.
+   */
+  load: () => Promise<{ default: ComponentType }>;
 }
 
 export const SITE_ROUTES: SiteRoute[] = [
@@ -34,6 +53,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "Search, filter and expand every TradeLogX Nexus capability: the Nexus Engine, risk enforcement, Strategy Lab backtesting, the intelligence feed, trading memory and exchange connectivity.",
     accent: "gold",
     blurb: "The full capability map, searchable",
+    themeColor: "#07080B",
+    load: () => import("@/pages/site/Features"),
   },
   {
     path: "/engine",
@@ -43,6 +64,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "Inside the Nexus Engine: an eight-stage AI pipeline that ingests market data, extracts structure, scores conviction, arbitrates a decision and enforces risk before a single order leaves the building.",
     accent: "electric",
     blurb: "The AI pipeline, stage by stage",
+    themeColor: "#0B0E12",
+    load: () => import("@/pages/site/Engine"),
   },
   {
     path: "/live-trade",
@@ -52,6 +75,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "A trading terminal view of TradeLogX Nexus: live candles, depth-of-book, open positions, the AI decision panel and a timestamped execution timeline for every fill.",
     accent: "terminal",
     blurb: "Terminal, order book and fills",
+    themeColor: "#06080A",
+    load: () => import("@/pages/site/LiveTrade"),
   },
   {
     path: "/selectivity",
@@ -61,6 +86,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "How TradeLogX Nexus decides not to trade. A confidence gauge, a nine-point qualification checklist and the full reasoning trail behind every accepted and rejected setup.",
     accent: "aurum",
     blurb: "Why most setups are rejected",
+    themeColor: "#040404",
+    load: () => import("@/pages/site/Selectivity"),
   },
   {
     path: "/how-it-works",
@@ -70,6 +97,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "The end-to-end journey of a TradeLogX Nexus trade: exchange, analysis, AI, risk, execution, journal and analytics — told as a scroll-driven, stage-by-stage process.",
     accent: "spectrum",
     blurb: "The seven-stage journey",
+    themeColor: "#05070C",
+    load: () => import("@/pages/site/HowItWorks"),
   },
   {
     path: "/security",
@@ -79,6 +108,8 @@ export const SITE_ROUTES: SiteRoute[] = [
       "TradeLogX Nexus security: envelope-encrypted API keys, withdrawal-disabled scopes, zero-trust service identity, append-only audit logging and an isolated multi-region deployment.",
     accent: "emerald",
     blurb: "Keys, isolation and audit trails",
+    themeColor: "#060B15",
+    load: () => import("@/pages/site/Security"),
   },
 ];
 
@@ -92,6 +123,29 @@ export function isSitePath(pathname: string): boolean {
 export function routeFor(pathname: string): SiteRoute | undefined {
   const clean = pathname.replace(/\/+$/, "") || "/";
   return SITE_ROUTES.find((r) => r.path === clean);
+}
+
+/**
+ * Start fetching a route's chunk before it is asked for.
+ *
+ * Every page is split, so clicking a nav item means a network round trip
+ * before anything can render — on a slow connection that is the transition
+ * playing over a skeleton. Pointing at a link is a reliable signal that a
+ * click is coming and buys a few hundred milliseconds of head start.
+ *
+ * Fired on pointer-enter *and* focus, so keyboard users get the same benefit,
+ * and tracked so repeated hovers over the same link do not queue work.
+ */
+const prefetched = new Set<string>();
+
+export function prefetchRoute(path: string) {
+  if (prefetched.has(path)) return;
+  const route = routeFor(path);
+  if (!route) return;
+  prefetched.add(path);
+  // A failed prefetch is not an error worth surfacing: the click that follows
+  // will request the same chunk again through the normal Suspense path.
+  void route.load().catch(() => prefetched.delete(path));
 }
 
 /**

@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, Minus, X } from "lucide-react";
 import { Ambient } from "@/components/site/Ambient";
 import { ConvictionGauge } from "@/components/site/selectivity/ConvictionGauge";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -279,7 +279,7 @@ function DecisionFlow({ setup }: { setup: Setup }) {
 
 export default function SelectivityPage() {
   const route = routeFor("/selectivity")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
   const [activeId, setActiveId] = useState(SETUPS[0].id);
   const setup = SETUPS.find((s) => s.id === activeId)!;

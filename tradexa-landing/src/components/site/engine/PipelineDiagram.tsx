@@ -103,11 +103,16 @@ export const STAGES: Stage[] = [
 export function PipelineDiagram({
   activeId,
   onSelect,
+  /** False parks the travelling packets — the caller gates this on whether the
+   *  diagram is on screen in a foreground tab. */
+  flowing = true,
 }: {
   activeId: string;
   onSelect: (id: string) => void;
+  flowing?: boolean;
 }) {
   const reduced = useReducedMotion() ?? false;
+  const animate = flowing && !reduced;
   const activeIndex = Math.max(0, STAGES.findIndex((s) => s.id === activeId));
 
   return (
@@ -115,7 +120,7 @@ export function PipelineDiagram({
       {/* the bus line, behind the nodes */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[26px] hidden h-px md:block">
         <div className="h-px w-full bg-gradient-to-r from-transparent via-electric/25 to-transparent" />
-        {!reduced && (
+        {animate && (
           <>
             {[0, 1, 2].map((i) => (
               <motion.span
@@ -160,7 +165,7 @@ export function PipelineDiagram({
                     )}
                   >
                     {String(i + 1).padStart(2, "0")}
-                    {active && !reduced && (
+                    {active && animate && (
                       <span className="absolute inset-0 rounded-lg border border-aqua/60 motion-safe:animate-ping-ring" />
                     )}
                   </span>

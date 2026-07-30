@@ -5,7 +5,8 @@ import { Background } from "@/components/landing/Background";
 import { ToastProvider } from "@/lib/toast";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SettingsProvider, useApplyAppearance } from "@/settings/store";
-import { isSitePath } from "@/site/routes";
+import { SITE_ROUTES, isSitePath } from "@/site/routes";
+import { ScrollManager } from "@/site/ScrollManager";
 
 // Landing renders eagerly (it's the entry point); auth + settings are code-split
 // so the marketing page ships the smallest possible bundle.
@@ -13,14 +14,12 @@ import Landing from "@/pages/Landing";
 
 // The dedicated product pages. Each is a self-contained document with its own
 // palette, illustrations and interactions, so they are split individually —
-// visiting /engine should not download the trading terminal.
+// visiting /engine should not download the trading terminal. The module for
+// each comes from the route table, which is also what the hover prefetch
+// reads, so the two cannot drift apart.
 const SiteLayout = lazy(() => import("@/components/site/SiteLayout"));
-const FeaturesPage = lazy(() => import("@/pages/site/Features"));
-const EnginePage = lazy(() => import("@/pages/site/Engine"));
-const LiveTradePage = lazy(() => import("@/pages/site/LiveTrade"));
-const SelectivityPage = lazy(() => import("@/pages/site/Selectivity"));
-const HowItWorksPage = lazy(() => import("@/pages/site/HowItWorks"));
-const SecurityPage = lazy(() => import("@/pages/site/Security"));
+const NotFound = lazy(() => import("@/pages/site/NotFound"));
+const SITE_ELEMENTS = SITE_ROUTES.map((r) => ({ path: r.path, Component: lazy(r.load) }));
 const Login = lazy(() => import("@/pages/auth/Login"));
 const Register = lazy(() => import("@/pages/auth/Register"));
 const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));
@@ -116,6 +115,7 @@ export default function App() {
       <SettingsProvider>
         <ToastProvider>
           <AppearanceApplier />
+          <ScrollManager />
           <GlobalBackdrop />
           <Suspense fallback={<Fallback />}>
             <Routes>
@@ -124,12 +124,9 @@ export default function App() {
               {/* Dedicated product pages share one layout: navigation, the
                   cross-page pager, the footer and the page transition. */}
               <Route element={<SiteLayout />}>
-                <Route path="/features" element={<FeaturesPage />} />
-                <Route path="/engine" element={<EnginePage />} />
-                <Route path="/live-trade" element={<LiveTradePage />} />
-                <Route path="/selectivity" element={<SelectivityPage />} />
-                <Route path="/how-it-works" element={<HowItWorksPage />} />
-                <Route path="/security" element={<SecurityPage />} />
+                {SITE_ELEMENTS.map(({ path, Component }) => (
+                  <Route key={path} path={path} element={<Component />} />
+                ))}
               </Route>
 
               <Route path="/auth/login" element={<Login />} />
@@ -170,7 +167,12 @@ export default function App() {
                 <Route path="danger" element={<Danger />} />
               </Route>
 
-              <Route path="*" element={<Navigate to="/" replace />} />
+              {/* A mistyped URL used to land silently on the home page, which
+                  reads to a visitor as "the link worked, this is just the
+                  wrong content" and to a crawler as a soft 404 — every dead
+                  URL indexing as a duplicate of "/". It now says what
+                  happened and offers the routes that do exist. */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
         </ToastProvider>

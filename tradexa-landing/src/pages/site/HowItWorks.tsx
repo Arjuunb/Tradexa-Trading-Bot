@@ -3,7 +3,7 @@ import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion
 import { ArrowDown } from "lucide-react";
 import { Ambient } from "@/components/site/Ambient";
 import { STAGES, StageVisual } from "@/components/site/how/stages";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +25,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  */
 export default function HowItWorksPage() {
   const route = routeFor("/how-it-works")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
   const reduced = useReducedMotion() ?? false;
   const [active, setActive] = useState(0);

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { SiteRoute } from "./routes";
 
 /**
  * Per-route document metadata.
@@ -39,14 +40,43 @@ function upsertCanonical(href: string) {
   return previous;
 }
 
+/**
+ * Breadcrumb structured data.
+ *
+ * Six sibling pages under one brand read to a crawler as six unrelated
+ * documents unless the relationship is stated. This is also what produces the
+ * "trade-logx.com › Engine" line in a result instead of a bare URL.
+ */
+function setBreadcrumb(label: string, url: string) {
+  const id = "nx-breadcrumb-ld";
+  document.getElementById(id)?.remove();
+  const el = document.createElement("script");
+  el.id = id;
+  el.type = "application/ld+json";
+  el.textContent = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: BRAND, item: `${ORIGIN}/` },
+      { "@type": "ListItem", position: 2, name: label, item: url },
+    ],
+  });
+  document.head.appendChild(el);
+  return () => el.remove();
+}
+
 export interface PageMeta {
   title: string;
   description: string;
   /** Route path, e.g. "/engine". Used for the canonical + og:url. */
   path: string;
+  /** Short name for the breadcrumb trail, e.g. "Engine". */
+  label?: string;
+  /** The page's base colour, mirrored into the mobile browser chrome. */
+  themeColor?: string;
 }
 
-export function usePageMeta({ title, description, path }: PageMeta) {
+export function usePageMeta({ title, description, path, label, themeColor }: PageMeta) {
   useEffect(() => {
     const url = `${ORIGIN}${path}`;
     const fullTitle = `${title} | ${BRAND}`;
@@ -69,13 +99,34 @@ export function usePageMeta({ title, description, path }: PageMeta) {
     set('meta[property="og:url"]', "property", "og:url", url);
     set('meta[name="twitter:title"]', "name", "twitter:title", fullTitle);
     set('meta[name="twitter:description"]', "name", "twitter:description", description);
+    if (themeColor) set('meta[name="theme-color"]', "name", "theme-color", themeColor);
 
     const prevCanonical = upsertCanonical(url);
+    const clearBreadcrumb = label ? setBreadcrumb(label, url) : undefined;
 
     return () => {
       document.title = prevTitle;
       restore.forEach((fn) => fn());
       if (prevCanonical) upsertCanonical(prevCanonical);
+      clearBreadcrumb?.();
     };
-  }, [title, description, path]);
+  }, [title, description, path, label, themeColor]);
+}
+
+/**
+ * The usual case: take every piece of metadata straight from the route table.
+ *
+ * Pages called `usePageMeta` with three of the five fields spelled out by
+ * hand, which meant `label` and `themeColor` had to be remembered separately
+ * on each of six pages — exactly the kind of thing that is correct on the day
+ * it is written and wrong two pages later.
+ */
+export function useRouteMeta(route: SiteRoute) {
+  usePageMeta({
+    title: route.title,
+    description: route.description,
+    path: route.path,
+    label: route.label,
+    themeColor: route.themeColor,
+  });
 }

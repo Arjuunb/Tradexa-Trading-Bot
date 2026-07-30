@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useReducedMotion } from "framer-motion";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 
 export interface Candle {
   o: number;
@@ -80,8 +81,15 @@ export interface TapeState {
   epoch: number;
 }
 
-export function useTape(): TapeState {
+/**
+ * @param ref The terminal's container. The tape only advances while that
+ *   container is on screen in a foreground tab — a 900ms interval that
+ *   re-renders four panels is not something to leave running in a background
+ *   tab, and `setInterval` (unlike rAF) is not throttled there.
+ */
+export function useTape(ref: RefObject<Element | null>): TapeState {
   const reduced = useReducedMotion() ?? false;
+  const active = useVisibleActive(ref);
   const initial = useMemo(seedCandles, []);
   const [candles, setCandles] = useState<Candle[]>(initial);
   const [epoch, setEpoch] = useState(0);
@@ -89,7 +97,7 @@ export function useTape(): TapeState {
   const ticks = useRef(0);
 
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !active) return;
     const id = window.setInterval(() => {
       ticks.current += 1;
       const closing = ticks.current % 6 === 0;
@@ -116,7 +124,7 @@ export function useTape(): TapeState {
       if (closing) setEpoch((e) => e + 1);
     }, 900);
     return () => window.clearInterval(id);
-  }, [reduced]);
+  }, [reduced, active]);
 
   const price = candles[candles.length - 1].c;
   const first = candles[0].o;

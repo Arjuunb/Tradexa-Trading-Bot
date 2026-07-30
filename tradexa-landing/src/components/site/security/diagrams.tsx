@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Check, Lock, X } from "lucide-react";
+import { useVisibleActive } from "@/lib/useVisibleActive";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,19 +24,21 @@ const ENVELOPE_STEPS = [
 
 export function EnvelopeDiagram() {
   const reduced = useReducedMotion() ?? false;
+  const ref = useRef<HTMLDivElement>(null);
+  const active = useVisibleActive(ref);
   const [step, setStep] = useState(reduced ? ENVELOPE_STEPS.length - 1 : 0);
 
   useEffect(() => {
-    if (reduced) return;
+    if (reduced || !active) return;
     const id = window.setInterval(
       () => setStep((s) => (s + 1) % (ENVELOPE_STEPS.length + 1)),
       1700,
     );
     return () => window.clearInterval(id);
-  }, [reduced]);
+  }, [reduced, active]);
 
   return (
-    <div className="rounded-2xl border border-navy-500/60 bg-navy-800/70 p-5 backdrop-blur-sm sm:p-6">
+    <div ref={ref} className="rounded-2xl border border-navy-500/60 bg-navy-800/70 p-5 backdrop-blur-sm sm:p-6">
       <div className="flex items-center gap-2">
         <Lock className="h-3.5 w-3.5 text-emerald-soft" />
         <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">
@@ -193,8 +196,11 @@ export function ZeroTrustDiagram() {
       <svg viewBox="0 0 280 280" className="mx-auto w-full max-w-[300px]" role="img" aria-label="Concentric zero-trust boundaries from the public edge to the execution enclave">
         {ZONES.map((z) => {
           const on = z.id === active;
+          // Hover only. An `onFocus` here would never fire — a bare <g> is not
+          // focusable — and pretending otherwise hides the fact that the
+          // buttons beside the diagram are what make it keyboard-operable.
           return (
-            <g key={z.id} onMouseEnter={() => setActive(z.id)} onFocus={() => setActive(z.id)}>
+            <g key={z.id} onMouseEnter={() => setActive(z.id)}>
               <circle
                 cx="140"
                 cy="140"

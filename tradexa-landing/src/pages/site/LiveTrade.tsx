@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Activity, Brain, CandlestickChart, Clock, Layers3, Wallet } from "lucide-react";
 import { Ambient } from "@/components/site/Ambient";
@@ -12,7 +12,7 @@ import {
   Positions,
   type Position,
 } from "@/components/site/live/panels";
-import { usePageMeta } from "@/site/seo";
+import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -70,10 +70,14 @@ function Ticker() {
 
 export default function LiveTradePage() {
   const route = routeFor("/live-trade")!;
-  usePageMeta({ title: route.title, description: route.description, path: route.path });
+  useRouteMeta(route);
 
   const reduced = useReducedMotion() ?? false;
-  const { candles, price, changePct, bids, asks, epoch } = useTape();
+  // The tape is driven by whether the workspace is actually on screen, so
+  // scrolling past the terminal stops the simulation rather than leaving four
+  // panels re-rendering at 900ms below the fold.
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const { candles, price, changePct, bids, asks, epoch } = useTape(workspaceRef);
   const [symbol, setSymbol] = useState(SYMBOLS[0].s);
 
   // The open BTC position, placed inside the range the simulated tape covers
@@ -163,6 +167,7 @@ export default function LiveTradePage() {
       {/* ── The workspace ───────────────────────────────────────────────── */}
       <section className="container-x mt-8 pb-24">
         <motion.div
+          ref={workspaceRef}
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.08, ease: EASE }}
