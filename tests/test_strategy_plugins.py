@@ -520,3 +520,141 @@ def test_the_base_class_itself_is_never_registered():
     module = types.ModuleType("m")
     module.BaseStrategy = BaseStrategy
     assert strategies_in(module) == ()
+
+
+# ═══════════════════════════════════════════ every strategy, no exceptions
+
+def test_every_strategy_class_in_the_repo_inherits_basestrategy():
+    """The brief's flat requirement, checked against the source rather than
+    against memory.
+
+    Walks every ``.py`` file for classes that subclass a Strategy base and
+    asserts each one reaches ``BaseStrategy``. Written as an AST + import check
+    because the gap it caught was invisible to every other test: the engine's
+    own ``SupportResistanceRejection`` lived in ``bot/strategies/`` and inherited
+    the old ``Strategy`` directly, so eight strategies were plugins and a ninth,
+    in a different directory, quietly was not.
+    """
+    import ast
+    import importlib
+    import pathlib
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    # The backend tree is not on the path in a root-suite run (only the reverse
+    # is wired, by automation-hub/conftest.py). Added here rather than skipping
+    # that half: a check that silently covers one of the two directories holding
+    # strategies would have missed the exact gap this test exists to catch.
+    hub = str(root / "automation-hub")
+    if hub not in sys.path:
+        sys.path.append(hub)
+    # Directories holding strategy implementations, with their import prefix.
+    areas = {root / "bot" / "strategies": "bot.strategies",
+             root / "automation-hub" / "strategies": "strategies"}
+
+    checked = []
+    for directory, prefix in areas.items():
+        for path in sorted(directory.glob("*.py")):
+            if path.name.startswith("_") or path.name == "base.py":
+                continue
+            tree = ast.parse(path.read_text())
+            names = [n.name for n in ast.walk(tree)
+                     if isinstance(n, ast.ClassDef)
+                     and any(_base_name(b).endswith("Strategy")
+                             or _base_name(b) in ("HubStrategy", "ConfirmationEnsemble")
+                             for b in n.bases)]
+            if not names:
+                continue
+            module = importlib.import_module(f"{prefix}.{path.stem}")
+            for name in names:
+                cls = getattr(module, name, None)
+                if cls is None or not isinstance(cls, type):
+                    continue
+                assert issubclass(cls, BaseStrategy), (
+                    f"{path.name}:{name} does not inherit BaseStrategy — it is a "
+                    "strategy the plugin system cannot describe, validate, "
+                    "optimise or document")
+                checked.append(name)
+
+    assert len(checked) >= 9, f"only checked {checked} — the walk found too few"
+
+
+def _base_name(node) -> str:
+    """The textual name of a class base, for either ``X`` or ``mod.X``."""
+    import ast
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def test_the_engines_own_strategy_is_a_plugin():
+    """Pinned specifically. It is reachable from the CLI, the config loader and
+    api/index.py, none of which go through the hub's registry — so nothing else
+    here would notice it regressing to a plain Strategy."""
+    from bot.strategies import SupportResistanceRejection as S
+    assert issubclass(S, BaseStrategy)
+    assert S.meta.key == "sr_rejection"
+    assert S.meta.version and S.parameters
+    assert S.optimisation_grid(), "no tunable parameters declared"
+
+
+def test_the_lazy_reexport_survives_every_import_order():
+    """``bot/strategies/__init__`` re-exports lazily to break a cycle:
+    tradexa.strategy imports bot.strategies.base, and the strategy imports
+    tradexa.strategy. Whichever side is imported first must work, and the
+    failure mode is an ImportError at startup — which no other test would reach,
+    because by then the modules are already in sys.modules."""
+    import subprocess
+    import sys
+
+    orders = [
+        "import tradexa.strategy; from bot.strategies import SupportResistanceRejection",
+        "from bot.strategies import SupportResistanceRejection; import tradexa.strategy",
+        "import bot.strategies.support_resistance",
+        "import bot.config",
+        "from bot.strategies import Strategy",
+    ]
+    for probe in orders:
+        proc = subprocess.run([sys.executable, "-c", probe], capture_output=True,
+                              text=True, cwd=str(__import__("pathlib").Path(
+                                  __file__).resolve().parents[1]))
+        assert proc.returncode == 0, f"import order failed: {probe}\n{proc.stderr}"
+
+
+def test_a_config_can_name_an_installed_plugin_without_editing_the_loader():
+    """``bot/config.py`` held the second hand-maintained strategy map in the
+    codebase. A YAML config naming a plugin must resolve without that dict being
+    edited — otherwise "install without modifying the trading engine" is true of
+    the hub and false of the CLI."""
+    from bot.config import _resolve_strategy
+    from tradexa.strategy import default_registry
+
+    registry = default_registry()
+    try:
+        registry.register(Sample)
+        assert _resolve_strategy("sample") is Sample
+    finally:
+        registry.unregister("sample")
+
+
+def test_a_historical_config_name_still_wins_over_a_plugin_key():
+    """An installed plugin must not capture a name an existing config already
+    resolves to — that would silently change what a saved configuration runs."""
+    from bot.config import _STRATEGY_ALIASES, _resolve_strategy
+    from tradexa.strategy import default_registry
+
+    class Impostor(BaseStrategy):
+        meta = StrategyMeta(key="support_resistance_rejection", name="Impostor")
+
+        def generate(self, bar):
+            return None
+
+    registry = default_registry()
+    try:
+        registry.register(Impostor, replace=True)
+        assert (_resolve_strategy("support_resistance_rejection")
+                is _STRATEGY_ALIASES["support_resistance_rejection"])
+    finally:
+        registry.unregister("support_resistance_rejection")

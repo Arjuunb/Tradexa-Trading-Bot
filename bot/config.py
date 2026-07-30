@@ -48,9 +48,41 @@ def load_yaml(path: str | Path) -> dict:
 
 
 # --------------------------------------------------------------- factories
-_STRATEGY_REGISTRY = {
+#: Historical config names, kept so existing YAML files keep working. The name
+#: in a config file is not always the strategy's plugin key — this one predates
+#: keys entirely — and silently changing what an existing config resolves to
+#: would be the worst possible way to introduce a registry.
+_STRATEGY_ALIASES = {
     "support_resistance_rejection": SupportResistanceRejection,
 }
+
+
+def _resolve_strategy(name: str):
+    """A config's strategy name -> its class.
+
+    Checks the historical aliases first, then the plugin registry. That order
+    means an installed plugin cannot capture a name an existing config already
+    resolves to, while any newly installed plugin becomes nameable in a config
+    file without this module being edited — which is the point: the CLI's
+    strategy list was the second hand-maintained registry in the codebase.
+    """
+    if name in _STRATEGY_ALIASES:
+        return _STRATEGY_ALIASES[name]
+    # Imported lazily: bot/ must keep starting when only the engine is
+    # installed, and a config naming a plugin is the only case that needs it.
+    try:
+        from tradexa.strategy import default_registry, discover_entry_points
+        registry = default_registry()
+        if name not in registry:
+            discover_entry_points(registry)
+        found = registry.find(name)
+    except Exception:  # noqa: BLE001 — an unavailable registry is "not found"
+        found = None
+    if found is None:
+        known = ", ".join(sorted(_STRATEGY_ALIASES))
+        raise ValueError(f"Unknown strategy: {name}. Built in: {known}. "
+                         "Installed plugins are resolved by their meta.key.")
+    return found
 
 
 def build_from_config(cfg: dict):
@@ -65,9 +97,7 @@ def build_from_config(cfg: dict):
 
     scfg = cfg.get("strategy", {}) or {}
     sname = scfg.get("name", "support_resistance_rejection")
-    if sname not in _STRATEGY_REGISTRY:
-        raise ValueError(f"Unknown strategy: {sname}")
-    strategy = _STRATEGY_REGISTRY[sname](symbol=symbol, **(scfg.get("params") or {}))
+    strategy = _resolve_strategy(sname)(symbol=symbol, **(scfg.get("params") or {}))
 
     risk_cfg = RiskConfig(**(cfg.get("risk") or {}))
     risk = RiskManager(risk_cfg)

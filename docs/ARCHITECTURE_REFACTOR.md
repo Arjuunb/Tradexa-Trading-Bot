@@ -526,3 +526,61 @@ convention introduced afterwards.
 **Verification.** Root 508 → **556** passed. Backend 1465 → **1504** passed.
 Every one of the eight built-in strategies constructs with its declared
 defaults, and the offered set is asserted to be exactly what it was.
+
+
+### Phase 5 addendum — two gaps closed on a re-read of the brief
+
+Re-auditing the delivered work against the brief line by line found two places
+where it was true of most of the system rather than all of it.
+
+**"Every strategy must inherit from BaseStrategy" was true of eight of nine.**
+`bot/strategies/support_resistance.py` — the engine's own strategy, reached by
+`bot/cli.py`, `bot/config.py` and `api/index.py`, none of which go through the
+hub's registry — still inherited the old `Strategy` directly. It is now a plugin
+with 16 declared parameters (its constructor's hand-rolled `if x < 1: raise`
+checks became declarations, so a UI and an optimiser can see the same bounds
+the constructor enforces).
+
+That conversion created an import cycle: `tradexa.strategy` imports
+`bot.strategies.base`, and the strategy imports `tradexa.strategy`. Broken by
+re-exporting lazily from `bot/strategies/__init__.py` via PEP 562 `__getattr__`
+— every existing call site is unchanged, and a test drives five import orders in
+subprocesses, because by the time an in-process test runs, the modules are
+already in `sys.modules` and the cycle cannot reproduce.
+
+`bot/config.py` held the **second** hand-maintained strategy map in the
+codebase. It now resolves historical aliases first, then the plugin registry, so
+a YAML config can name an installed plugin without that module being edited —
+otherwise "install without modifying the trading engine" was true of the hub and
+false of the CLI. Alias-first ordering means an installed plugin cannot capture a
+name an existing config already resolves to.
+
+**Nothing consumed the optimisation grid.** A declared grid that no optimiser
+runs is a field nothing reads. `tradexa/strategy/optimisation.py` adds
+`grid_search`, pure over a scoring callable so the same search drives a
+backtest, a replay or a two-line test:
+
+- the space is **bounded before it runs** — `max_candidates` refuses rather than
+  letting someone discover the size by waiting;
+- combinations the strategy's own rules reject are **skipped and counted**,
+  never scored, so they cannot rank above real losers;
+- an evaluation that raises is skipped, not scored zero;
+- **only the winner is re-scored out of sample** — validating every candidate
+  and picking the best validation score turns the holdout into a second training
+  set with a reassuring name;
+- the split is chronological, matching the spec optimiser, so both report
+  overfitting on the same basis.
+
+`POST /strategies/installed/{key}/optimise` wires it to the real `Backtester`
+over live candles, ranking by net R with a minimum-trades floor — the same
+measure the existing spec optimiser uses, so two optimisers cannot disagree
+about which configuration is better. It returns `available: false` with the
+fetch error when candles cannot be retrieved, which is the normal outcome from a
+datacenter IP.
+
+**Not done, and deliberately:** `sr_rejection` is installed and optimisable but
+is **not** added to the hub's discovery packages, so the bot builder still
+offers exactly `ema`, `rsi`, `smc`. Adding a fourth live option is a product
+decision, not a refactor. Including it is one entry in `BUILTIN_PACKAGE`.
+
+**Verification.** Root 556 → **579** passed. Backend **1504** passed, unchanged.
