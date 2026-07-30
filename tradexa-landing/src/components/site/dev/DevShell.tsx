@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Check, Copy, Terminal } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { DocsBackdrop } from "@/components/site/backdrops";
 import { prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -46,12 +46,7 @@ export function DevShell({
 
   return (
     <>
-      <Ambient base="bg-[#06080C]">
-        <div className="absolute left-[-12rem] top-[-14rem] h-[34rem] w-[44rem] rounded-full bg-electric/[0.07] blur-[160px]" />
-        <div className="absolute bottom-[-12rem] right-[-10rem] h-[28rem] w-[36rem] rounded-full bg-aqua/[0.04] blur-[150px]" />
-        {/* a single vertical rule at the sidebar's edge — the only texture */}
-        <div className="absolute inset-y-0 left-1/2 hidden w-px -translate-x-[27rem] bg-white/[0.04] xl:block" />
-      </Ambient>
+      <DocsBackdrop />
 
       <div className="container-x pt-28 sm:pt-32">
         <div className="grid gap-10 lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-14">

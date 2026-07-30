@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, Minus, X } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { SelectivityBackdrop } from "@/components/site/backdrops";
 import { ConvictionGauge } from "@/components/site/selectivity/ConvictionGauge";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
@@ -287,20 +287,7 @@ export default function SelectivityPage() {
 
   return (
     <>
-      <Ambient base="bg-obsidian">
-        {/* a single warm source, low and central — a jeweller's light */}
-        <div className="absolute left-1/2 top-[-24rem] h-[46rem] w-[46rem] -translate-x-1/2 rounded-full bg-gold/[0.055] blur-[180px]" />
-        <div className="absolute bottom-[-20rem] left-1/2 h-[34rem] w-[54rem] -translate-x-1/2 rounded-full bg-gold-deep/[0.04] blur-[170px]" />
-        {/* fine vertical rules only — no grid; the page should feel like paper */}
-        <div
-          className="absolute inset-0 opacity-40 mask-fade-b"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, rgba(201,162,75,0.05) 1px, transparent 1px)",
-            backgroundSize: "112px 100%",
-          }}
-        />
-      </Ambient>
+      <SelectivityBackdrop />
 
       {/* ── Hero: an editorial statement, right-weighted ────────────────── */}
       <section className="container-x pt-32 sm:pt-40">

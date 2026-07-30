@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Compass } from "lucide-react";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
-import { Ambient } from "@/components/site/Ambient";
+import { NotFoundBackdrop } from "@/components/site/backdrops";
 import { NAV_ROUTES, ACCENT_CLASSES, prefetchRoute } from "@/site/routes";
 import { usePageMeta } from "@/site/seo";
 import { cn } from "@/lib/utils";
@@ -50,10 +50,7 @@ export default function NotFoundPage() {
     <div className="relative min-h-screen">
       <SiteNav />
 
-      <Ambient base="bg-ink">
-        <div className="absolute left-1/2 top-[-20rem] h-[36rem] w-[46rem] -translate-x-1/2 rounded-full bg-gold/[0.05] blur-[160px]" />
-        <div className="absolute inset-0 bg-grid-lines [background-size:34px_34px] opacity-40 mask-fade-b" />
-      </Ambient>
+      <NotFoundBackdrop />
 
       <main className="container-x flex min-h-[70vh] flex-col justify-center pt-32">
         <motion.div

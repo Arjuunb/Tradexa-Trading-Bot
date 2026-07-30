@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Activity, CheckCircle2, Rss } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { StatusBackdrop } from "@/components/site/backdrops";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor, prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
@@ -130,15 +130,7 @@ export default function StatusPage() {
 
   return (
     <>
-      <Ambient base="bg-[#050708]">
-        <div
-          className={cn(
-            "absolute left-1/2 top-[-20rem] h-[34rem] w-[48rem] -translate-x-1/2 rounded-full blur-[165px]",
-            allGood ? "bg-emerald/[0.06]" : "bg-gold/[0.05]",
-          )}
-        />
-        <div className="absolute inset-0 bg-grid-term [background-size:44px_44px] opacity-50 mask-fade-b" />
-      </Ambient>
+      <StatusBackdrop healthy={allGood} />
 
       {/* headline verdict */}
       <section className="container-x pt-32 sm:pt-40">

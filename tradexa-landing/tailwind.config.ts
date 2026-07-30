@@ -119,20 +119,19 @@ export default {
         // leaving the near-black identity
         "page-depth":
           "radial-gradient(120% 85% at 50% 0%, #0D0C0A 0%, #08080A 48%, #050506 100%)",
+        // Landing-only. There used to be three more grid variants beside this
+        // one — grid-cool, grid-emerald and grid-term, one per product page,
+        // all the same 1px lattice in a different hue — and the app painted
+        // this one behind every route besides. That is how each page ended up
+        // looking like the landing page wearing a filter. The variants are
+        // gone and the global layer with them; this is now applied only by the
+        // hero and two landing sections, via `GridTexture`. A new page needing
+        // a texture gets its own in components/site/backdrops.tsx.
         "grid-lines":
           "linear-gradient(to right, rgba(226,214,182,0.045) 1px, transparent 1px), linear-gradient(to bottom, rgba(226,214,182,0.045) 1px, transparent 1px)",
-
-        // Per-page textures. Same 1px-grid language as the landing page, but
-        // tinted to each route's accent so the surface belongs to the palette.
-        "grid-cool":
-          "linear-gradient(to right, rgba(124,173,255,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(124,173,255,0.06) 1px, transparent 1px)",
-        "grid-emerald":
-          "linear-gradient(to right, rgba(79,217,142,0.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(79,217,142,0.055) 1px, transparent 1px)",
-        "grid-term":
-          "linear-gradient(to right, rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.035) 1px, transparent 1px)",
         "electric-sheen": "linear-gradient(135deg, #7CADFF 0%, #2E7BFF 45%, #22D3EE 100%)",
         "emerald-sheen": "linear-gradient(135deg, #7DF0B4 0%, #2FBF71 50%, #1E9457 100%)",
-        // scanline overlay for the terminal + engine surfaces
+        // phosphor scanlines — the terminal surface only
         scanlines:
           "repeating-linear-gradient(to bottom, rgba(255,255,255,0.028) 0px, rgba(255,255,255,0.028) 1px, transparent 1px, transparent 3px)",
       },

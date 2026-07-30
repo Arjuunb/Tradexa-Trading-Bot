@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { ArrowDown } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { JourneyBackdrop } from "@/components/site/backdrops";
 import { STAGES, StageVisual } from "@/components/site/how/stages";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor } from "@/site/routes";
@@ -50,21 +50,7 @@ export default function HowItWorksPage() {
 
   return (
     <>
-      <Ambient base="bg-[#05070C]">
-        {/* the wash follows the active stage — the page literally changes
-            temperature as the trade progresses */}
-        <motion.div
-          className="absolute left-1/2 top-[-20rem] h-[46rem] w-[62rem] -translate-x-1/2 rounded-full blur-[170px]"
-          animate={{ backgroundColor: `${stage.color}14` }}
-          transition={{ duration: 1.1, ease: EASE }}
-        />
-        <motion.div
-          className="absolute bottom-[-16rem] right-[-12rem] h-[32rem] w-[42rem] rounded-full blur-[160px]"
-          animate={{ backgroundColor: `${stage.color}0d` }}
-          transition={{ duration: 1.1, ease: EASE }}
-        />
-        <div className="absolute inset-0 bg-grid-cool [background-size:44px_44px] opacity-40 mask-fade-b" />
-      </Ambient>
+      <JourneyBackdrop color={stage.color} />
 
       {/* ── Hero: the whole journey at a glance ─────────────────────────── */}
       <section ref={heroRef} className="container-x flex min-h-[86vh] flex-col justify-center pt-28">

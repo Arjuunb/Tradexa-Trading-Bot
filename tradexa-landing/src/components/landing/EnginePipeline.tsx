@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { GridTexture } from "@/components/site/backdrops";
 import {
   Radio,
   Waypoints,
@@ -37,7 +38,9 @@ const DOT: Record<Stage["tone"], string> = {
 
 export function EnginePipeline() {
   return (
-    <section id="engine" className="section">
+    <section id="engine" className="section relative">
+      {/* a technical section, so the grid belongs */}
+      <GridTexture />
       <div className="container-x">
         <SectionHeading
           link="/engine"

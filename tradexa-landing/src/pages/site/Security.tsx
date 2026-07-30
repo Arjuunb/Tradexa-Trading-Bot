@@ -1,6 +1,6 @@
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Fingerprint, KeyRound, Network, ScrollText, ServerCog, ShieldCheck, type LucideIcon } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { SecurityBackdrop } from "@/components/site/backdrops";
 import {
   AuditLog,
   DeploymentMap,
@@ -103,20 +103,10 @@ export default function SecurityPage() {
   const route = routeFor("/security")!;
   useRouteMeta(route);
 
-  const reduced = useReducedMotion() ?? false;
 
   return (
     <>
-      <Ambient base="bg-navy">
-        <div className="absolute right-[-14rem] top-[-16rem] h-[40rem] w-[48rem] rounded-full bg-emerald/[0.06] blur-[170px]" />
-        <div className="absolute bottom-[-16rem] left-[-12rem] h-[34rem] w-[42rem] rounded-full bg-signal/[0.05] blur-[160px]" />
-        <div className="absolute inset-0 bg-grid-emerald [background-size:52px_52px] opacity-50 mask-fade-b" />
-        {/* a slow vertical sweep — the only motion on the page, and it reads
-            as a scan rather than decoration */}
-        {!reduced && (
-          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald/[0.05] to-transparent motion-safe:animate-scan-down" />
-        )}
-      </Ambient>
+      <SecurityBackdrop />
 
       {/* ── Hero: claim on the left, mechanism on the right ─────────────── */}
       <section className="container-x pt-32 sm:pt-40">

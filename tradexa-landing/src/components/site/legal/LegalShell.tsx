@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { FileText, Printer } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { LegalBackdrop } from "@/components/site/backdrops";
 import { prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
 
@@ -78,10 +78,7 @@ export function LegalShell({
 
   return (
     <>
-      <Ambient base="bg-[#0A0908]">
-        {/* one warm, very low source — this should read as paper under a lamp */}
-        <div className="absolute left-1/2 top-[-26rem] h-[42rem] w-[52rem] -translate-x-1/2 rounded-full bg-gold/[0.035] blur-[180px]" />
-      </Ambient>
+      <LegalBackdrop />
 
       <div className="container-x pt-28 sm:pt-32">
         {/* sibling documents */}

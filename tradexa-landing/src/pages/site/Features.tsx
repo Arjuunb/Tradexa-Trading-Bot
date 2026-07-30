@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, CornerDownLeft, Search, SlidersHorizontal, X } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { FeaturesBackdrop } from "@/components/site/backdrops";
 import { ScreenMock } from "@/components/site/features/ScreenMock";
 import {
   CATEGORIES,
@@ -373,20 +373,7 @@ export default function FeaturesPage() {
 
   return (
     <>
-      <Ambient base="bg-[#07080B]">
-        {/* cool wash from the upper left — the mirror of the landing page's
-            centred gold bloom, so the two pages read as different rooms */}
-        <div className="absolute -left-40 -top-40 h-[38rem] w-[46rem] rounded-full bg-signal/[0.07] blur-[150px]" />
-        <div className="absolute right-[-16rem] top-1/3 h-[30rem] w-[38rem] rounded-full bg-gold/[0.035] blur-[160px]" />
-        {/* dot matrix rather than the landing's ruled grid */}
-        <div
-          className="absolute inset-0 opacity-[0.5] mask-fade-b"
-          style={{
-            backgroundImage: "radial-gradient(rgba(255,255,255,0.075) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-          }}
-        />
-      </Ambient>
+      <FeaturesBackdrop />
 
       {/* ── Hero: search-first, left-weighted ───────────────────────────── */}
       <section className="container-x pt-32 sm:pt-40">

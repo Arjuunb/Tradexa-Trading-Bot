@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { GridTexture } from "@/components/site/backdrops";
 import {
   motion,
   useMotionValue,
@@ -51,6 +52,8 @@ export function Hero() {
 
   return (
     <section ref={ref} className="relative pt-32 sm:pt-40">
+      {/* the hero is where the grid earns its keep */}
+      <GridTexture />
       {/* hero-local ambient bloom — parallaxes independently of the page backdrop */}
       {!reduced && (
         <motion.div aria-hidden style={{ y: ambientY }} className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">

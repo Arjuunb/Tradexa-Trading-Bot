@@ -1,11 +1,10 @@
 import { lazy, Suspense } from "react";
 import { MotionConfig } from "framer-motion";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { Background } from "@/components/landing/Background";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ToastProvider } from "@/lib/toast";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SettingsProvider, useApplyAppearance } from "@/settings/store";
-import { PAGES, isSitePath } from "@/site/routes";
+import { PAGES } from "@/site/routes";
 import { ScrollManager } from "@/site/ScrollManager";
 
 // Landing renders eagerly (it's the entry point); auth + settings are code-split
@@ -89,19 +88,6 @@ function AppearanceApplier() {
   return null;
 }
 
-/**
- * The shared gold backdrop, withheld from the pages that bring their own.
- *
- * Each dedicated product page paints its own opaque ambient layer — graphite
- * for /engine, navy for /security — and rendering this underneath as well
- * would be a second full-viewport layer doing nothing but costing a paint.
- * Landing, auth and settings keep it.
- */
-function GlobalBackdrop() {
-  const { pathname } = useLocation();
-  return isSitePath(pathname) ? null : <Background />;
-}
-
 export default function App() {
   return (
     // reducedMotion="user" makes EVERY framer-motion animation on the site
@@ -116,7 +102,6 @@ export default function App() {
         <ToastProvider>
           <AppearanceApplier />
           <ScrollManager />
-          <GlobalBackdrop />
           <Suspense fallback={<Fallback />}>
             <Routes>
               <Route path="/" element={<Landing />} />

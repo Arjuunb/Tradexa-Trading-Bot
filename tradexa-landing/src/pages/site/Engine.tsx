@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Cpu, Layers, Network, Terminal, Zap } from "lucide-react";
 import { useVisibleActive } from "@/lib/useVisibleActive";
-import { Ambient } from "@/components/site/Ambient";
+import { EngineBackdrop } from "@/components/site/backdrops";
 import {
   PipelineDiagram,
   ArchitectureDiagram,
@@ -180,14 +180,7 @@ export default function EnginePage() {
 
   return (
     <>
-      <Ambient base="bg-graphite">
-        <div className="absolute left-1/2 top-[-18rem] h-[40rem] w-[60rem] -translate-x-1/2 rounded-full bg-electric/[0.08] blur-[170px]" />
-        <div className="absolute bottom-[-14rem] left-[-10rem] h-[30rem] w-[36rem] rounded-full bg-aqua/[0.05] blur-[150px]" />
-        <div className="absolute inset-0 bg-grid-cool [background-size:34px_34px] opacity-70 mask-fade-b motion-safe:animate-grid-pan" />
-        {/* horizon line: the "operating system" cue */}
-        <div className="absolute inset-x-0 top-[62vh] h-px bg-gradient-to-r from-transparent via-electric/20 to-transparent" />
-        <div className="absolute inset-0 bg-scanlines opacity-[0.35]" />
-      </Ambient>
+      <EngineBackdrop />
 
       {/* ── Hero: console split ─────────────────────────────────────────── */}
       <section className="container-x pt-32 sm:pt-40">

@@ -4,6 +4,7 @@ import { DeferredSection } from "@/components/DeferredSection";
 // Above the fold — eager. These are what a visitor sees before anything can
 // scroll, so making them wait on a chunk request would defeat the point.
 import { SiteNav } from "@/components/site/SiteNav";
+import { LandingAmbient } from "@/components/site/backdrops";
 import { Hero } from "@/components/landing/Hero";
 import { EngineStatusBar } from "@/components/landing/EngineStatusBar";
 
@@ -30,6 +31,11 @@ const Footer = lazy(() => import("@/components/site/SiteFooter").then((m) => ({ 
 export default function Landing() {
   return (
     <>
+      {/* The landing page's own backdrop. It used to be rendered by the app
+          for every route, which is why /engine, auth and the settings tree all
+          sat on the same drifting grid. The grid itself is no longer part of
+          it — it is a texture the hero and two sections opt into below. */}
+      <LandingAmbient />
       <SiteNav />
       <Hero />
       <div className="mt-16 sm:mt-24">

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, LifeBuoy, MessageSquare, Search, ShieldAlert, Timer } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { SupportBackdrop } from "@/components/site/backdrops";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor, prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
@@ -114,16 +114,7 @@ export default function SupportPage() {
 
   return (
     <>
-      <Ambient base="bg-[#08080A]">
-        <div className="absolute left-1/2 top-[-22rem] h-[38rem] w-[50rem] -translate-x-1/2 rounded-full bg-gold/[0.05] blur-[170px]" />
-        <div
-          className="absolute inset-0 opacity-[0.45] mask-fade-b"
-          style={{
-            backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)",
-            backgroundSize: "26px 26px",
-          }}
-        />
-      </Ambient>
+      <SupportBackdrop />
 
       <section className="container-x pt-32 sm:pt-40">
         <motion.div

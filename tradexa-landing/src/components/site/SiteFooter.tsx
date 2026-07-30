@@ -201,7 +201,23 @@ export function SiteFooter() {
   const [year] = useState(() => new Date().getFullYear());
 
   return (
-    <footer className="relative bg-[#040404] text-white">
+    <footer className="relative isolate overflow-hidden bg-[#040404] text-white">
+      {/*
+        The footer's own surface, and nothing borrowed from the page above it.
+        A near-black base with one very low warm lift at the top edge, so the
+        block reads as a solid object the page ends against rather than as more
+        page. Explicitly no grid: this used to sit on the application-wide grid
+        and looked like the landing page continuing past the content.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(to_bottom,rgba(201,162,75,0.045),rgba(0,0,0,0)_22rem)]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-64 bg-[linear-gradient(to_top,rgba(0,0,0,0.65),transparent)]"
+      />
+
       {/* the seam: one gold hairline, brightest in the middle */}
       <div
         aria-hidden

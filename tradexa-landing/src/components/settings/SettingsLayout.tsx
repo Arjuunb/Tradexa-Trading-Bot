@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SETTINGS_NAV, findItem } from "@/settings/nav";
 import { useSettings } from "@/settings/store";
 import { cn, APP_URL } from "@/lib/utils";
+import { AppSurface } from "@/components/site/backdrops";
 
 function SaveIndicator() {
   const { saveState, backendConnected } = useSettings();
@@ -84,6 +85,7 @@ export default function SettingsLayout() {
 
   return (
     <div className="min-h-screen">
+      <AppSurface />
       {/* top bar */}
       <header className="sticky top-0 z-40 border-b border-line bg-ink/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">

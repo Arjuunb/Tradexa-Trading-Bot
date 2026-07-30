@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Activity, Brain, CandlestickChart, Clock, Layers3, Wallet } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { TerminalBackdrop } from "@/components/site/backdrops";
 import { useTape } from "@/components/site/live/useTape";
 import { CandleChart } from "@/components/site/live/CandleChart";
 import {
@@ -96,13 +96,7 @@ export default function LiveTradePage() {
 
   return (
     <>
-      <Ambient base="bg-term">
-        {/* almost nothing: a terminal is lit by its own content */}
-        <div className="absolute inset-0 bg-grid-term [background-size:40px_40px] opacity-60" />
-        <div className="absolute left-1/2 top-0 h-[26rem] w-[52rem] -translate-x-1/2 rounded-full bg-emerald/[0.045] blur-[160px]" />
-        <div className="absolute bottom-0 right-0 h-[24rem] w-[34rem] rounded-full bg-loss/[0.035] blur-[150px]" />
-        <div className="absolute inset-0 bg-scanlines opacity-40" />
-      </Ambient>
+      <TerminalBackdrop />
 
       {/* ── Hero: a status bar, not a headline ──────────────────────────── */}
       <section className="pt-20">

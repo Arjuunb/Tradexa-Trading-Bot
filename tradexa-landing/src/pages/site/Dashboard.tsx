@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   Wallet,
 } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { DashboardBackdrop } from "@/components/site/backdrops";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor, prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
@@ -330,11 +330,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Ambient base="bg-[#070A0F]">
-        <div className="absolute right-[-14rem] top-[-16rem] h-[36rem] w-[46rem] rounded-full bg-aqua/[0.06] blur-[165px]" />
-        <div className="absolute bottom-[-14rem] left-[-12rem] h-[30rem] w-[38rem] rounded-full bg-signal/[0.05] blur-[155px]" />
-        <div className="absolute inset-0 bg-grid-cool [background-size:48px_48px] opacity-40 mask-fade-b" />
-      </Ambient>
+      <DashboardBackdrop />
 
       <section className="container-x pt-32 sm:pt-40">
         <motion.div

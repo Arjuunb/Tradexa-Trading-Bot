@@ -139,7 +139,11 @@ export function SiteNav() {
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden border-t border-line bg-black/95 lg:hidden"
+            // Solid, not translucent. At bg-black/95 the page behind showed
+            // through the sheet — which on the landing page meant the grid, so
+            // the menu read as part of the page it was covering rather than as
+            // a surface above it.
+            className="overflow-hidden border-t border-line bg-[#050505] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)] backdrop-blur-2xl lg:hidden"
           >
             <div className="container-x flex max-h-[calc(100vh-4rem)] flex-col gap-1 overflow-y-auto py-4">
               {NAV_ROUTES.map((r) => {

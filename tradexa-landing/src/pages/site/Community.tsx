@@ -9,7 +9,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { CommunityBackdrop } from "@/components/site/backdrops";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor, prefetchRoute } from "@/site/routes";
 
@@ -49,10 +49,7 @@ export default function CommunityPage() {
 
   return (
     <>
-      <Ambient base="bg-[#08080A]">
-        <div className="absolute right-[-12rem] top-[-18rem] h-[36rem] w-[46rem] rounded-full bg-gold/[0.05] blur-[165px]" />
-        <div className="absolute bottom-[-14rem] left-[-12rem] h-[30rem] w-[38rem] rounded-full bg-signal/[0.04] blur-[155px]" />
-      </Ambient>
+      <CommunityBackdrop />
 
       <section className="container-x pt-32 sm:pt-40">
         <motion.div

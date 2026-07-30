@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Activity, AlertTriangle, LineChart, Scale } from "lucide-react";
-import { Ambient } from "@/components/site/Ambient";
+import { PerformanceBackdrop } from "@/components/site/backdrops";
 import { useRouteMeta } from "@/site/seo";
 import { routeFor, prefetchRoute } from "@/site/routes";
 import { cn } from "@/lib/utils";
@@ -293,18 +293,7 @@ export default function PerformancePage() {
 
   return (
     <>
-      <Ambient base="bg-[#06090B]">
-        <div className="absolute left-1/2 top-[-20rem] h-[38rem] w-[54rem] -translate-x-1/2 rounded-full bg-emerald/[0.055] blur-[170px]" />
-        <div className="absolute bottom-[-14rem] left-[-10rem] h-[28rem] w-[34rem] rounded-full bg-loss/[0.03] blur-[150px]" />
-        {/* a fine baseline rule pattern — this page is a report, not a scene */}
-        <div
-          className="absolute inset-0 opacity-40 mask-fade-b"
-          style={{
-            backgroundImage: "linear-gradient(to bottom, rgba(79,217,142,0.04) 1px, transparent 1px)",
-            backgroundSize: "100% 28px",
-          }}
-        />
-      </Ambient>
+      <PerformanceBackdrop />
 
       {/* hero */}
       <section className="container-x pt-32 sm:pt-40">
