@@ -584,3 +584,67 @@ offers exactly `ema`, `rsi`, `smc`. Adding a fourth live option is a product
 decision, not a refactor. Including it is one entry in `BUILTIN_PACKAGE`.
 
 **Verification.** Root 556 → **579** passed. Backend **1504** passed, unchanged.
+
+---
+
+## Phase 6 — Execution engine (`tradexa/execution/`)
+
+Thirteen features, one foundation. **Idempotency is not one of the thirteen —
+it is the thing that makes the other twelve safe.** Retry, failover,
+reconnection and replay all work by doing something again, and every one is a
+way to open a position twice unless the venue can tell that the second attempt
+is the same intent as the first.
+
+So the client order id is derived from the *intent* — symbol, side, quantity,
+type, prices, originating signal — and never from the attempt. Two submits of
+one trade produce one id; a genuinely new order at the same price produces a
+different one. The id is sent to the venue, because a venue that honours client
+ids provides the cross-process guarantee an in-process store cannot, and that
+boundary is stated rather than glossed.
+
+| Feature | Where | The decision that matters |
+|---|---|---|
+| Smart order routing | `router.py` | Returns a **chain**, not a choice — a router that returns one venue makes failover someone else's problem |
+| Retry | `reliability.py` | **A timeout is not retryable.** It may have reached the venue; the answer is to reconcile, not resend |
+| Circuit breakers | `reliability.py` | Half-open allows exactly one probe; a failed probe restarts the full cooldown |
+| WebSocket monitoring | `monitor.py` | Staleness is judged on time since the last message, because the dangerous failure is the socket that stays **open** and goes quiet |
+| Failover | `engine.py` | Bounded, and **never after a timeout** — that would place a live order at a second venue |
+| Heartbeats | `monitor.py` | Any traffic counts; a venue streaming trades but not pings is not stale |
+| Reconnection | `monitor.py` | Jittered backoff, per-endpoint attempt limits, and the chain wraps back to the primary |
+| Partial fills | `orders.py` | Fills accumulate and are **deduplicated on venue fill id** — a socket push and a REST poll both report the same one |
+| Order amendments | `engine.py` | Updates the local order too; a venue-only amendment makes every later calculation wrong by the difference |
+| Cancel/replace | `engine.py` | Sized to the **remainder**, and the replacement is not sent if the cancel fails |
+| Position reconciliation | `reconciliation.py` | **Reports, never repairs**; signed quantities, so an inverted position is not a match |
+| Exchange synchronisation | `engine.py` | Per venue and across all of them; a failed fetch is explicitly *not* "in sync" |
+| Latency metrics | `reliability.py` | Percentiles, not averages — p99 is where the orders that miss their price live |
+
+Multiple exchanges are the normal case: venues are registered, routed between,
+health-tracked and reconciled independently, and a symbol-restricted venue set
+routes crypto and equities simultaneously without the engine knowing what either
+is.
+
+**What is NOT claimed.** The execution engine is not on the live order path.
+Paper trades still go through the signal pipeline to the paper engine directly.
+`automation-hub/execution/paper_venue.py` puts the real paper executor behind
+the `Venue` port — which is what proves the port against something other than
+test doubles, and it immediately forced two honest refusals a fake would have
+pretended to support (a paper order has nothing resting to cancel; resizing a
+filled position is a new trade, not an amendment). `GET /execution/health`
+reports venue health, circuits, links, latency and a live reconciliation, and
+says `on_live_order_path: false` in the payload rather than in a comment.
+
+Routing production order flow through the engine is a separate, deliberate step.
+Live venue execution remains locked in this build, and unlocking it is a
+decision, not a refactor.
+
+**Bug found while building it.** `submit` never attached the order record to its
+outcome, so `SubmitOutcome.unresolved` — the flag that says *this order may be
+live at the venue, do not resubmit* — was always false, and a successful submit
+reported itself as failed through `explain()`. The most dangerous state in the
+engine was unreachable by the caller.
+
+**Files added.** `tradexa/execution/{idempotency,venues,reliability,orders,monitor,router,reconciliation,engine}.py`,
+`automation-hub/execution/paper_venue.py`, `tests/test_execution_engine.py` (71),
+`automation-hub/tests/test_paper_venue.py` (11).
+
+**Verification.** Root 579 → **650** passed. Backend 1504 → **1515** passed.
