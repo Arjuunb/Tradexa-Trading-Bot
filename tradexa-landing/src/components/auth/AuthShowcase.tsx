@@ -27,7 +27,15 @@ export function AuthShowcase() {
     <div className="relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between">
       {/* backdrop */}
       <div className="absolute inset-0 -z-10 bg-ink-800" />
-      <div className="absolute inset-0 -z-10 bg-grid-lines [background-size:36px_36px] opacity-60" />
+      {/* Was the landing page's grid, which made signing in look like scrolling
+          further down the marketing site. A soft vertical wash instead. */}
+      <div
+        className="absolute inset-0 -z-10 opacity-70"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(180deg, rgba(255,255,255,0.022) 0 1px, transparent 1px 5px)",
+        }}
+      />
       <div className="absolute -left-20 top-10 -z-10 h-80 w-80 rounded-full bg-gold/10 blur-[110px]" />
       <div className="absolute bottom-0 right-0 -z-10 h-72 w-72 rounded-full bg-emerald/[0.07] blur-[120px]" />
 

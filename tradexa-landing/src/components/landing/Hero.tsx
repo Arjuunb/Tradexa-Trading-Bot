@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { GridTexture } from "@/components/site/backdrops";
 import {
   motion,
   useMotionValue,
@@ -8,6 +9,7 @@ import {
   useTransform,
 } from "framer-motion";
 import { ArrowRight, BookOpen, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { DashboardPreview } from "./DashboardPreview";
 import { APP_URL } from "@/lib/utils";
@@ -50,6 +52,8 @@ export function Hero() {
 
   return (
     <section ref={ref} className="relative pt-32 sm:pt-40">
+      {/* the hero is where the grid earns its keep */}
+      <GridTexture />
       {/* hero-local ambient bloom — parallaxes independently of the page backdrop */}
       {!reduced && (
         <motion.div aria-hidden style={{ y: ambientY }} className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -94,12 +98,12 @@ export function Hero() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Button>
             </a>
-            <a href="#docs">
+            <Link to="/docs">
               <Button size="lg" variant="secondary">
                 <BookOpen className="h-4 w-4" />
                 View Documentation
               </Button>
-            </a>
+            </Link>
           </motion.div>
 
           <motion.div

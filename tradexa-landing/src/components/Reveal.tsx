@@ -1,5 +1,6 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { Children, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 // One easing curve for the whole site. A gentle overshoot-free ease-out: motion
 // decelerates into place rather than stopping dead, which is what makes a
@@ -92,35 +93,54 @@ interface SectionHeadingProps {
   title: ReactNode;
   subtitle?: string;
   className?: string;
-  /** Anchor for this section (e.g. "#engine"). When set, the heading becomes a
-   *  clickable deep link: clicking it sets the URL hash and smooth-scrolls the
-   *  section into place, and a gold "#" affordance appears on hover. */
+  /**
+   * Where this section's heading leads.
+   *
+   * A "#anchor" makes the heading a deep link to itself, with a gold "#" on
+   * hover. A route path ("/engine") instead sends the reader to that
+   * section's dedicated page, and the affordance becomes an arrow — because
+   * the two do genuinely different things and a single glyph for both would
+   * be a lie about one of them.
+   */
   link?: string;
 }
 
 /** Consistent centered section header. */
 export function SectionHeading({ eyebrow, title, subtitle, className, link }: SectionHeadingProps) {
+  const isRoute = !!link && link.startsWith("/");
   const heading = (
     <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
       {title}
     </h2>
   );
+  const inner = (
+    <>
+      <span className="eyebrow transition-colors group-hover:text-gold">{eyebrow}</span>
+      <span className="relative block">
+        {heading}
+        <span
+          aria-hidden
+          className="absolute -right-7 top-1/2 hidden -translate-y-1/4 text-2xl font-bold text-gold/0 transition-all duration-300 group-hover:text-gold/60 sm:inline"
+        >
+          {isRoute ? "→" : "#"}
+        </span>
+      </span>
+    </>
+  );
+
   return (
     <Reveal className={className}>
       <div className="mx-auto max-w-2xl text-center">
         {link ? (
-          <a href={link} className="group inline-block no-underline" aria-label={`Link to this section`}>
-            <span className="eyebrow transition-colors group-hover:text-gold">{eyebrow}</span>
-            <span className="relative block">
-              {heading}
-              <span
-                aria-hidden
-                className="absolute -right-6 top-1/2 hidden -translate-y-1/4 text-2xl font-bold text-gold/0 transition-colors group-hover:text-gold/60 sm:inline"
-              >
-                #
-              </span>
-            </span>
-          </a>
+          isRoute ? (
+            <Link to={link} className="group inline-block no-underline" aria-label={`Read more about ${eyebrow}`}>
+              {inner}
+            </Link>
+          ) : (
+            <a href={link} className="group inline-block no-underline" aria-label="Link to this section">
+              {inner}
+            </a>
+          )
         ) : (
           <>
             <span className="eyebrow">{eyebrow}</span>

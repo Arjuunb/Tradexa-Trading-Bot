@@ -36,8 +36,13 @@ const FEED = [
 export function DashboardPreview() {
   return (
     <div className="relative">
-      {/* soft glow behind the panel */}
-      <div className="absolute -inset-6 -z-10 rounded-[2rem] bg-gold/[0.07] blur-3xl" />
+      {/* Soft glow behind the panel. The inset is smaller than the page gutter
+          on phones — at -inset-6 the glow reached 4px past the viewport and gave
+          the whole landing page a horizontal scrollbar. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -inset-4 -z-10 rounded-[2rem] bg-gold/[0.07] blur-3xl sm:-inset-6"
+      />
 
       <motion.div
         initial={{ opacity: 0, y: 30, rotateX: 8 }}

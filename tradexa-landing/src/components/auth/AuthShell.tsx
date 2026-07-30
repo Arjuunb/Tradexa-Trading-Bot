@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { AppSurface } from "@/components/site/backdrops";
 import { AuthShowcase } from "./AuthShowcase";
 import { DemoModeNotice } from "./DemoModeNotice";
 
@@ -20,6 +21,8 @@ interface AuthShellProps {
 export function AuthShell({ children, split = true }: AuthShellProps) {
   if (!split) {
     return (
+      <>
+      <AppSurface />
       <main className="relative flex min-h-screen flex-col items-center justify-center px-5 py-12">
         <TopBar />
         <motion.div
@@ -32,10 +35,13 @@ export function AuthShell({ children, split = true }: AuthShellProps) {
         </motion.div>
         <DemoModeNotice className="mt-6" />
       </main>
+      </>
     );
   }
 
   return (
+    <>
+    <AppSurface />
     <main className="grid min-h-screen lg:grid-cols-2">
       <AuthShowcase />
       <div className="relative flex flex-col items-center justify-center px-5 py-12 sm:px-10">
@@ -51,6 +57,7 @@ export function AuthShell({ children, split = true }: AuthShellProps) {
         </motion.div>
       </div>
     </main>
+    </>
   );
 }
 

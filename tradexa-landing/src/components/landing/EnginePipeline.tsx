@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { GridTexture } from "@/components/site/backdrops";
 import {
   Radio,
   Waypoints,
@@ -37,10 +38,12 @@ const DOT: Record<Stage["tone"], string> = {
 
 export function EnginePipeline() {
   return (
-    <section id="engine" className="section">
+    <section id="engine" className="section relative">
+      {/* a technical section, so the grid belongs */}
+      <GridTexture />
       <div className="container-x">
         <SectionHeading
-          link="#engine"
+          link="/engine"
           eyebrow="Decision Engine"
           title="A disciplined pipeline, not a black box"
           subtitle="Every candle runs the same deterministic path — from market data to a journaled trade. You can see each step, and why it fired or didn't."

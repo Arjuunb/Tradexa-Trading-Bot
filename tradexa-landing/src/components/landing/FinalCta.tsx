@@ -1,4 +1,5 @@
 import { ArrowRight, ShieldCheck, Eye, Ban } from "lucide-react";
+import { GridTexture } from "@/components/site/backdrops";
 import { Reveal } from "@/components/Reveal";
 import { Button } from "@/components/ui/Button";
 import { BrainScanner } from "./BrainScanner";
@@ -14,7 +15,9 @@ const ASSURANCES = [
  *  animation) beside the final call to action. */
 export function FinalCta() {
   return (
-    <section id="cta" className="section">
+    <section id="cta" className="section relative">
+      {/* closes the page on the same texture it opened with */}
+      <GridTexture />
       <div className="container-x">
         <div className="surface relative overflow-hidden px-6 py-14 sm:px-12">
           <div className="pointer-events-none absolute inset-0 bg-radial-fade" />
