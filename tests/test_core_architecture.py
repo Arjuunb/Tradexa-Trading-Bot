@@ -348,7 +348,13 @@ DELIBERATE_TRADEXA_CONSUMERS = {
     # a strategy, so the dependency is the whole point of the phase.
     "automation-hub/bots/registry.py",
     # Phase 5: the plugin endpoints — list, describe, validate, optimise.
+    # Phase 6 adds the execution-engine health endpoint to the same file.
     "automation-hub/routers/bots.py",
+    # Phase 6: the paper executor behind tradexa.execution's Venue port. An
+    # adapter only — every call goes to the existing PaperExecutionEngine, which
+    # stays the single executor for paper trading. Two execution paths for one
+    # account is how a position shows in one view and not the other.
+    "automation-hub/execution/paper_venue.py",
     # Phase 5: the engine's own strategy is a plugin like any other. This is the
     # first import of tradexa from `bot/`, and the direction is worth noting:
     # tradexa.strategy.BaseStrategy subclasses bot.strategies.base.Strategy, so

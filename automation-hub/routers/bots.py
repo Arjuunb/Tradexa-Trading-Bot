@@ -196,3 +196,36 @@ def strategy_optimise(key: str, body: OptimiseBody):
             "bars": len(bars), "train_bars": len(train), "test_bars": len(test),
             "score_basis": f"net R over the window; runs under {_MIN_TRADES} trades are "
                            "ranked last rather than dropped"}
+
+
+# ── execution engine ────────────────────────────────────────────────────────
+
+@router.get("/execution/health")
+def execution_health():
+    """Venue health, circuit breakers, stream links and latency percentiles.
+
+    Read-only, and honest about its scope: the execution engine is NOT on the
+    live order path. Paper trades go through the signal pipeline to the paper
+    engine directly, exactly as before. What this reports is the engine's view
+    of the venues it has been given — today that is the paper executor behind
+    the same port a real exchange would implement — plus a reconciliation of its
+    book against that executor's.
+
+    Routing production order flow through the engine is a separate, deliberate
+    step. Reporting these numbers as though it had already happened would be the
+    dishonest half of shipping it.
+    """
+    from execution.paper_venue import PaperVenue
+    from tradexa.execution import ExecutionEngine, RetryPolicy
+
+    engine = ExecutionEngine(retry=RetryPolicy())
+    engine.add_venue(PaperVenue(_wa.paper))
+    reports = {name: r.as_dict() for name, r in engine.reconcile_all().items()}
+    return {
+        "on_live_order_path": False,
+        "note": ("the execution engine is built, tested and wired to the paper "
+                 "executor through the Venue port; production order flow still "
+                 "goes through the signal pipeline to the paper engine directly"),
+        **engine.health(),
+        "reconciliation": reports,
+    }
