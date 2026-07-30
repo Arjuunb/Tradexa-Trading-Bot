@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { SiteRoute } from "./routes";
+import type { SitePage } from "./routes";
 
 /**
  * Per-route document metadata.
@@ -121,7 +121,7 @@ export function usePageMeta({ title, description, path, label, themeColor }: Pag
  * on each of six pages — exactly the kind of thing that is correct on the day
  * it is written and wrong two pages later.
  */
-export function useRouteMeta(route: SiteRoute) {
+export function useRouteMeta(route: SitePage) {
   usePageMeta({
     title: route.title,
     description: route.description,

@@ -5,7 +5,7 @@ import { ArrowLeft, Compass } from "lucide-react";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { Ambient } from "@/components/site/Ambient";
-import { SITE_ROUTES, ACCENT_CLASSES, prefetchRoute } from "@/site/routes";
+import { NAV_ROUTES, ACCENT_CLASSES, prefetchRoute } from "@/site/routes";
 import { usePageMeta } from "@/site/seo";
 import { cn } from "@/lib/utils";
 
@@ -91,7 +91,7 @@ export default function NotFoundPage() {
               Or go somewhere that exists
             </p>
             <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {SITE_ROUTES.map((r, i) => {
+              {NAV_ROUTES.map((r, i) => {
                 const a = ACCENT_CLASSES[r.accent];
                 return (
                   <motion.li

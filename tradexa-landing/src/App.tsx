@@ -5,7 +5,7 @@ import { Background } from "@/components/landing/Background";
 import { ToastProvider } from "@/lib/toast";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SettingsProvider, useApplyAppearance } from "@/settings/store";
-import { SITE_ROUTES, isSitePath } from "@/site/routes";
+import { PAGES, isSitePath } from "@/site/routes";
 import { ScrollManager } from "@/site/ScrollManager";
 
 // Landing renders eagerly (it's the entry point); auth + settings are code-split
@@ -19,7 +19,7 @@ import Landing from "@/pages/Landing";
 // reads, so the two cannot drift apart.
 const SiteLayout = lazy(() => import("@/components/site/SiteLayout"));
 const NotFound = lazy(() => import("@/pages/site/NotFound"));
-const SITE_ELEMENTS = SITE_ROUTES.map((r) => ({ path: r.path, Component: lazy(r.load) }));
+const SITE_ELEMENTS = PAGES.map((r) => ({ path: r.path, Component: lazy(r.load) }));
 const Login = lazy(() => import("@/pages/auth/Login"));
 const Register = lazy(() => import("@/pages/auth/Register"));
 const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));

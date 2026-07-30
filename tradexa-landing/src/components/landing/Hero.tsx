@@ -8,6 +8,7 @@ import {
   useTransform,
 } from "framer-motion";
 import { ArrowRight, BookOpen, ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { DashboardPreview } from "./DashboardPreview";
 import { APP_URL } from "@/lib/utils";
@@ -94,12 +95,12 @@ export function Hero() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Button>
             </a>
-            <a href="#docs">
+            <Link to="/docs">
               <Button size="lg" variant="secondary">
                 <BookOpen className="h-4 w-4" />
                 View Documentation
               </Button>
-            </a>
+            </Link>
           </motion.div>
 
           <motion.div

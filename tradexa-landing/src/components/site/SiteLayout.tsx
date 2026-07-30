@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { SiteNav } from "@/components/site/SiteNav";
 import { SiteFooter } from "@/components/site/SiteFooter";
-import { SITE_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
+import { NAV_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
 import { settleScroll } from "@/site/scroll";
 import { cn } from "@/lib/utils";
 
@@ -39,11 +39,11 @@ function PageFallback() {
  */
 function PagePager() {
   const { pathname } = useLocation();
-  const index = SITE_ROUTES.findIndex((r) => r.path === pathname);
+  const index = NAV_ROUTES.findIndex((r) => r.path === pathname);
   if (index === -1) return null;
 
-  const prev = index > 0 ? SITE_ROUTES[index - 1] : null;
-  const next = index < SITE_ROUTES.length - 1 ? SITE_ROUTES[index + 1] : null;
+  const prev = index > 0 ? NAV_ROUTES[index - 1] : null;
+  const next = index < NAV_ROUTES.length - 1 ? NAV_ROUTES[index + 1] : null;
   if (!prev && !next) return null;
 
   return (

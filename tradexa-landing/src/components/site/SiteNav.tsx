@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
-import { SITE_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
+import { NAV_ROUTES, ACCENT_CLASSES, routeFor, prefetchRoute } from "@/site/routes";
 import { cn, APP_URL, LOGIN_URL } from "@/lib/utils";
 
 /**
@@ -75,7 +75,7 @@ export function SiteNav() {
         </Link>
 
         <div className="hidden items-center gap-1 lg:flex">
-          {SITE_ROUTES.map((r) => {
+          {NAV_ROUTES.map((r) => {
             const a = ACCENT_CLASSES[r.accent];
             return (
               <NavLink
@@ -142,7 +142,7 @@ export function SiteNav() {
             className="overflow-hidden border-t border-line bg-black/95 lg:hidden"
           >
             <div className="container-x flex max-h-[calc(100vh-4rem)] flex-col gap-1 overflow-y-auto py-4">
-              {SITE_ROUTES.map((r) => {
+              {NAV_ROUTES.map((r) => {
                 const a = ACCENT_CLASSES[r.accent];
                 return (
                   <NavLink
