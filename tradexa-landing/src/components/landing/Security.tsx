@@ -1,4 +1,5 @@
 import { Lock, KeyRound, Ban, ServerCog, type LucideIcon } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Reveal, RevealGroup } from "@/components/Reveal";
 import { Card } from "@/components/ui/Card";
 
@@ -22,14 +23,14 @@ export function Security() {
         <div className="grid items-center gap-14 lg:grid-cols-[1fr_1.1fr]">
           <div>
             <Reveal>
-              <a href="#security" className="group inline-block no-underline">
+              <Link to="/security" className="group inline-block no-underline">
                 <span className="eyebrow transition-colors group-hover:text-gold">Security</span>
                 <h2 className="mt-4 text-balance text-3xl font-bold tracking-tight text-white sm:text-4xl">
                   Built to be trusted with{" "}
                   <span className="text-gold-gradient">your capital</span>
-                  <span aria-hidden className="ml-2 hidden text-2xl font-bold text-gold/0 transition-colors group-hover:text-gold/60 sm:inline">#</span>
+                  <span aria-hidden className="ml-2 hidden text-2xl font-bold text-gold/0 transition-colors group-hover:text-gold/60 sm:inline">→</span>
                 </h2>
-              </a>
+              </Link>
             </Reveal>
             <Reveal delay={0.1}>
               <p className="mt-4 max-w-md text-white/55">

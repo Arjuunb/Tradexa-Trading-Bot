@@ -3,7 +3,7 @@ import { DeferredSection } from "@/components/DeferredSection";
 
 // Above the fold — eager. These are what a visitor sees before anything can
 // scroll, so making them wait on a chunk request would defeat the point.
-import { Navbar } from "@/components/landing/Navbar";
+import { SiteNav } from "@/components/site/SiteNav";
 import { Hero } from "@/components/landing/Hero";
 import { EngineStatusBar } from "@/components/landing/EngineStatusBar";
 
@@ -25,12 +25,12 @@ const Performance = lazy(() => import("@/components/landing/Performance").then((
 const RiskGuard = lazy(() => import("@/components/landing/RiskGuard").then((m) => ({ default: m.RiskGuard })));
 const Security = lazy(() => import("@/components/landing/Security").then((m) => ({ default: m.Security })));
 const FinalCta = lazy(() => import("@/components/landing/FinalCta").then((m) => ({ default: m.FinalCta })));
-const Footer = lazy(() => import("@/components/landing/Footer").then((m) => ({ default: m.Footer })));
+const Footer = lazy(() => import("@/components/site/SiteFooter").then((m) => ({ default: m.SiteFooter })));
 
 export default function Landing() {
   return (
     <>
-      <Navbar />
+      <SiteNav />
       <Hero />
       <div className="mt-16 sm:mt-24">
         <EngineStatusBar />

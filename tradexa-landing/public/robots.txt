@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Authenticated surfaces — nothing here is useful to a crawler and the settings
+# tree is a large number of URLs that all render the same shell.
+Disallow: /auth/
+Disallow: /settings/
+
+Sitemap: https://www.trade-logx.com/sitemap.xml

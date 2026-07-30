@@ -1,14 +1,26 @@
 import { lazy, Suspense } from "react";
 import { MotionConfig } from "framer-motion";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Background } from "@/components/landing/Background";
 import { ToastProvider } from "@/lib/toast";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SettingsProvider, useApplyAppearance } from "@/settings/store";
+import { isSitePath } from "@/site/routes";
 
 // Landing renders eagerly (it's the entry point); auth + settings are code-split
 // so the marketing page ships the smallest possible bundle.
 import Landing from "@/pages/Landing";
+
+// The dedicated product pages. Each is a self-contained document with its own
+// palette, illustrations and interactions, so they are split individually —
+// visiting /engine should not download the trading terminal.
+const SiteLayout = lazy(() => import("@/components/site/SiteLayout"));
+const FeaturesPage = lazy(() => import("@/pages/site/Features"));
+const EnginePage = lazy(() => import("@/pages/site/Engine"));
+const LiveTradePage = lazy(() => import("@/pages/site/LiveTrade"));
+const SelectivityPage = lazy(() => import("@/pages/site/Selectivity"));
+const HowItWorksPage = lazy(() => import("@/pages/site/HowItWorks"));
+const SecurityPage = lazy(() => import("@/pages/site/Security"));
 const Login = lazy(() => import("@/pages/auth/Login"));
 const Register = lazy(() => import("@/pages/auth/Register"));
 const ForgotPassword = lazy(() => import("@/pages/auth/ForgotPassword"));
@@ -78,6 +90,19 @@ function AppearanceApplier() {
   return null;
 }
 
+/**
+ * The shared gold backdrop, withheld from the pages that bring their own.
+ *
+ * Each dedicated product page paints its own opaque ambient layer — graphite
+ * for /engine, navy for /security — and rendering this underneath as well
+ * would be a second full-viewport layer doing nothing but costing a paint.
+ * Landing, auth and settings keep it.
+ */
+function GlobalBackdrop() {
+  const { pathname } = useLocation();
+  return isSitePath(pathname) ? null : <Background />;
+}
+
 export default function App() {
   return (
     // reducedMotion="user" makes EVERY framer-motion animation on the site
@@ -91,10 +116,21 @@ export default function App() {
       <SettingsProvider>
         <ToastProvider>
           <AppearanceApplier />
-          <Background />
+          <GlobalBackdrop />
           <Suspense fallback={<Fallback />}>
             <Routes>
               <Route path="/" element={<Landing />} />
+
+              {/* Dedicated product pages share one layout: navigation, the
+                  cross-page pager, the footer and the page transition. */}
+              <Route element={<SiteLayout />}>
+                <Route path="/features" element={<FeaturesPage />} />
+                <Route path="/engine" element={<EnginePage />} />
+                <Route path="/live-trade" element={<LiveTradePage />} />
+                <Route path="/selectivity" element={<SelectivityPage />} />
+                <Route path="/how-it-works" element={<HowItWorksPage />} />
+                <Route path="/security" element={<SecurityPage />} />
+              </Route>
 
               <Route path="/auth/login" element={<Login />} />
               <Route path="/auth/register" element={<Register />} />
