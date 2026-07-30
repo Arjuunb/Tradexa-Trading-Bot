@@ -13,7 +13,9 @@ from __future__ import annotations
 from typing import Optional
 
 from bot.types import Bar, Signal, SignalType
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import atr_parameters, HubStrategy
 
 
 def _supertrend_dirs(bars, period: int, mult: float) -> list[int]:
@@ -48,6 +50,29 @@ class SupertrendStrategy(HubStrategy):
     name = "supertrend"
     label = "Supertrend"
     supported_regimes = ()
+
+    meta = StrategyMeta(
+        key="supertrend", name="Supertrend", version="1.0.0",
+        description="ATR-band trend follower; flips on a band cross.",
+        author="Tradexa", maturity=Maturity.BETA,
+        tags=("trend", "atr"), asset_classes=("crypto",),
+        timeframes=("1h", "4h"),
+        changelog=("1.0.0 - declared as a plugin. BETA: no live paper track "
+                   "record on this platform yet.",))
+    # rr_target 2.5 rather than the shared 2.0: the constructor
+    # setdefaults it, and a declared default that disagrees with what
+    # is built would be shown in the UI and believed.
+    parameters = atr_parameters(rr_target=2.5) + (
+        Parameter("period", ParamType.INT, default=10, minimum=2, maximum=100,
+                  unit="bars", tunable=True, optimise=(7, 10, 14),
+                  description="ATR period for the band."),
+        Parameter("mult", ParamType.FLOAT, default=3.0, minimum=0.5, maximum=15.0,
+                  step=0.5, unit="xATR", tunable=True, optimise=(2.0, 3.0, 4.0),
+                  description="Band width as a multiple of ATR."),
+        Parameter("max_history", ParamType.INT, default=600, minimum=50,
+                  maximum=10_000, unit="bars",
+                  description="Bars retained in memory."),
+    )
 
     def __init__(self, symbol: str, *, period: int = 10, mult: float = 3.0,
                  max_history: int = 600, **params):

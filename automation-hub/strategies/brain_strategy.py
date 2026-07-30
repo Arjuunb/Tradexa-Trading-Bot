@@ -22,7 +22,9 @@ from typing import Optional
 from bot.data.indicators import atr, ema, rsi
 from bot.types import Bar, Signal, SignalType
 from services.regime import RegimeDetector
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import atr_parameters, HubStrategy
 
 # Regime -> conviction multiplier (capital protection: stand aside in chaos).
 # Out-of-sample testing across trend/range/chop regimes showed the brain earns
@@ -64,6 +66,51 @@ class DecisionBrain(HubStrategy):
     name = "brain"
     label = "Decision Brain"
     supported_regimes = ()  # handles regime internally
+
+    meta = StrategyMeta(
+        key="brain", name="Decision Brain", version="1.0.0",
+        description=("Weighted vote across trend, filter, slope and RSI reads, "
+                     "with internal regime detection."),
+        author="Tradexa", maturity=Maturity.BETA,
+        tags=("ensemble", "regime", "conviction"), asset_classes=("crypto",),
+        timeframes=("15m", "1h", "4h"),
+        changelog=("1.0.0 - declared as a plugin. BETA rather than STABLE: it "
+                   "runs the autonomous engine, but it has never been an option "
+                   "in the bot builder and declaring it one is a product "
+                   "decision, not a refactor.",))
+    # rr_target 3.0 rather than the shared 2.0: the constructor
+    # setdefaults it, and a declared default that disagrees with what
+    # is built would be shown in the UI and believed.
+    parameters = atr_parameters(rr_target=3.0) + (
+        Parameter("fast", ParamType.INT, default=12, minimum=2, maximum=200,
+                  unit="bars", description="Fast EMA for the trend read."),
+        Parameter("slow", ParamType.INT, default=26, minimum=3, maximum=400,
+                  unit="bars", description="Slow EMA for the trend read."),
+        Parameter("trend", ParamType.INT, default=50, minimum=3, maximum=500,
+                  unit="bars", description="Long EMA for the filter read."),
+        Parameter("rsi_period", ParamType.INT, default=14, minimum=2, maximum=100,
+                  unit="bars", description="RSI lookback for the momentum read."),
+        Parameter("conviction_threshold", ParamType.FLOAT, default=0.56,
+                  minimum=0.0, maximum=1.0, step=0.01, unit="score",
+                  tunable=True, optimise=(0.50, 0.56, 0.62),
+                  description="Weighted vote required before any entry."),
+        Parameter("er_mode", ParamType.CHOICE, default="off",
+                  choices=("off", "replace", "add"),
+                  description="How the efficiency-ratio read participates."),
+        Parameter("volume_conf", ParamType.BOOL, default=False,
+                  description="Scale conviction by a volume surge."),
+        Parameter("htf_mode", ParamType.CHOICE, default="damp",
+                  choices=("off", "damp", "veto"),
+                  description="How a higher-timeframe disagreement is handled."),
+        Parameter("htf_mult", ParamType.INT, default=12, minimum=2, maximum=100,
+                  unit="x", description="Higher timeframe as a multiple of this one."),
+        Parameter("htf_damp", ParamType.FLOAT, default=0.55, minimum=0.0,
+                  maximum=1.0, step=0.05, unit="x",
+                  description="Conviction multiplier when the higher timeframe disagrees."),
+        Parameter("max_history", ParamType.INT, default=600, minimum=50,
+                  maximum=10_000, unit="bars",
+                  description="Bars retained in memory."),
+    )
 
     # weights for the four reads (sum to 1.0)
     W_TREND, W_FILTER, W_SLOPE, W_RSI = 0.30, 0.25, 0.20, 0.25

@@ -22,7 +22,9 @@ from typing import Optional
 
 from bot.data.indicators import atr
 from bot.types import Bar, Signal, SignalType
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import atr_parameters, HubStrategy
 
 _NEG = -10 ** 9
 
@@ -31,6 +33,35 @@ class SMCStrategy(HubStrategy):
     name = "smc"
     label = "SMC (Smart Money)"
     supported_regimes = ()  # the confluence model gates itself
+
+    meta = StrategyMeta(
+        key="smc", name="SMC (Smart Money)", version="1.0.0",
+        description="Liquidity sweep, change of character and fair-value-gap confluence.",
+        author="Tradexa", maturity=Maturity.STABLE,
+        tags=("smart-money", "structure", "liquidity"),
+        asset_classes=("crypto",), timeframes=("15m", "1h", "4h"),
+        changelog=("1.0.0 - first version declared as a plugin; logic unchanged.",))
+    # rr_target 2.5 rather than the shared 2.0: the constructor
+    # setdefaults it, and a declared default that disagrees with what
+    # is built would be shown in the UI and believed.
+    parameters = atr_parameters(rr_target=2.5) + (
+        Parameter("pivot_len", ParamType.INT, default=5, minimum=2, maximum=50,
+                  unit="bars", description="Bars each side of a swing pivot."),
+        Parameter("sweep_lookback", ParamType.INT, default=10, minimum=1, maximum=100,
+                  unit="bars", tunable=True, optimise=(5, 10, 20),
+                  description="How recently a liquidity sweep must have happened."),
+        Parameter("choch_lookback", ParamType.INT, default=8, minimum=1, maximum=100,
+                  unit="bars", description="Window for a change-of-character break."),
+        Parameter("fvg_lookback", ParamType.INT, default=5, minimum=1, maximum=100,
+                  unit="bars", description="Window for a fair-value gap."),
+        Parameter("use_rejection", ParamType.BOOL, default=False,
+                  description="Require a rejection wick as extra confirmation."),
+        Parameter("wick_mult", ParamType.FLOAT, default=2.0, minimum=0.1,
+                  maximum=20.0, step=0.1, unit="xbody",
+                  description="Wick-to-body ratio that counts as a rejection."),
+        Parameter("warmup", ParamType.INT, default=120, minimum=10, maximum=2000,
+                  unit="bars", description="Bars required before any signal."),
+    )
 
     def __init__(self, symbol: str, *, pivot_len: int = 5, sweep_lookback: int = 10,
                  choch_lookback: int = 8, fvg_lookback: int = 5, use_rejection: bool = False,

@@ -16,7 +16,9 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from bot.types import Bar, Signal, SignalType
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import ATR_PARAMETERS, HubStrategy
 from strategies.brain import TradeBrain, detect_reversal
 from strategies.custom import WARMUP, _rule, _stop_distance, _target_distance, evaluate
 
@@ -24,6 +26,23 @@ from strategies.custom import WARMUP, _rule, _stop_distance, _target_distance, e
 class CustomStrategyAdapter(HubStrategy):
     name = "custom"
     label = "Custom"
+
+    meta = StrategyMeta(
+        key="custom", name="Custom Strategy", version="1.0.0",
+        description=("Runs a user-authored strategy spec from the Strategy Lab. "
+                     "The rules come from the spec, not from this class."),
+        author="Tradexa", maturity=Maturity.STABLE,
+        tags=("user-defined", "spec"),
+        # `spec` has no default: this cannot be built from a key and a symbol
+        # alone, so the bot builder must not offer it. Listing something the
+        # builder would crash on is worse than not listing it.
+        requires=("spec",),
+        changelog=("1.0.0 - declared as a plugin; behaviour unchanged.",))
+    parameters = ATR_PARAMETERS + (
+        Parameter("max_history", ParamType.INT, default=700, minimum=50,
+                  maximum=10_000, unit="bars",
+                  description="Bars retained in memory."),
+    )
 
     def __init__(self, symbol: str, spec: dict, *, max_history: int = 700,
                  brain: Optional[TradeBrain] = None, min_score: Optional[int] = None,
