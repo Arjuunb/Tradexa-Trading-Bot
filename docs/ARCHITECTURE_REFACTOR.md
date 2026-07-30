@@ -349,3 +349,83 @@ still only publishes, never subscribes, and never reads a result back.
 unchanged. Every phase-2 API — `subscribe`, `publish`, `clear`, `default_bus`,
 `published_count`, `handler_error_count` — still works with identical
 behaviour, asserted by a backwards-compatibility test.
+
+---
+
+## Phase 4 — Portfolio Engine (`tradexa/portfolio/`)
+
+One view of capital across every broker and exchange, computed independently of
+the execution engine.
+
+**Thirteen figures, per venue and in aggregate.** Balance, equity, buying power,
+margin (used, free, level), exposure (gross, net, % of equity, by symbol, by
+venue), unrealised P&L, realised P&L, daily return, monthly return, win rate,
+expectancy, Sharpe ratio, maximum drawdown.
+
+**Why it cannot live in the execution engine.** Execution knows how to place an
+order at one venue. "How much do I have, and how exposed am I?" spans all of
+them — and one symbol held on two exchanges is *one* exposure, which no single
+execution engine can compute. Left inside them, a second broker means a second
+copy of the arithmetic, and two copies of a Sharpe ratio drift. Here the venues
+are data: one and nine take the same path, and adding an exchange means adding a
+`VenueSnapshot`, not touching any calculation.
+
+**The arithmetic is reused, not restated.** Drawdown, Sharpe and expectancy come
+from `bot.metrics`, which the backtester already uses. A portfolio page
+disagreeing with the backtest report about the same account's Sharpe is worse
+than either number being absent. What is genuinely new: calendar-window returns,
+daily-close resampling, and multi-venue aggregation.
+
+**Unavailable is a value.** A missing mark, an unreachable venue, a currency
+with no FX rate — each yields `None` plus a note naming what is missing, never a
+zero. A dashboard that cannot tell "flat" from "unknown" reports the second as
+the first at exactly the wrong moment. Two lists travel with the figures:
+`notes` (what is missing now — drives `available`) and `basis` (how the figures
+are derived). Folding them together made `available` false on every call, which
+is a warning nobody reads.
+
+**Files added.** `tradexa/portfolio/{snapshots,metrics,engine}.py`,
+`automation-hub/services/portfolio_view.py` (the read-only adapter),
+`tests/test_portfolio_engine.py` (43), `automation-hub/tests/test_portfolio_view.py`
+(30), `tests/test_packaging.py` (4).
+
+**Files modified.** `pyproject.toml` (see below), `routers/paper.py`
+(`/portfolio/snapshot`, `/portfolio/venues`), `services/signal_pipeline.py`
+(loud warning when the risk engine is absent),
+`tests/test_core_architecture.py` (allowlist entry).
+
+### The packaging bug this phase uncovered
+
+`pyproject.toml` listed only `bot*` under `packages.find`. The Dockerfile runs
+`pip install -e .` and starts uvicorn from `automation-hub/`, where the repo root
+is **not** on `sys.path` — so in the deployed container every `import tradexa...`
+failed:
+
+| | consequence in production |
+|---|---|
+| `tradexa.risk` | the Risk Engine veto was never applied — `risk_engine = None` |
+| `tradexa.risk.sizing` | fell back to its inline copy |
+| `tradexa.infrastructure.events` | engine events not published |
+
+Nothing surfaced. The guarded imports degrade quietly, which is right for
+resilience and exactly wrong for noticing. And the full suite passed, because
+`automation-hub/conftest.py` appends the repo root to `sys.path` — so those
+imports resolved under pytest and *only* under pytest.
+
+Fixed by `include = ["bot*", "tradexa*"]`. Guarded three ways: a test asserting
+every runtime package is in the install list, a test that walks the backend's
+AST and fails on any repo-root import the build does not install, and a boot
+warning naming the fix if the risk engine is ever absent again.
+
+The general lesson: **a test suite that manipulates the import path is testing a
+different program from the one that deploys.**
+
+**Risks.** The portfolio endpoints' import is deliberately unguarded — if
+`tradexa` were missing they fail loudly rather than answering 200 with an empty
+portfolio, which is how the veto went absent for a release. The blast radius is
+those two endpoints (the import is inside the handler, so boot is unaffected).
+
+**Verification.** Root 461 → **508** passed. Backend 1416 → **1465** passed.
+Confirmed the deployed import path directly: `cd /tmp && python -c "import
+tradexa.risk"` now resolves, and `pipeline.risk_engine` is a live `RiskEngine`
+in the running app rather than `None`.

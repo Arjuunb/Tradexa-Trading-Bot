@@ -337,6 +337,12 @@ DELIBERATE_TRADEXA_CONSUMERS = {
     # a differential test asserting bit-identical output against the expression
     # it replaced, and why the import carries a byte-identical fallback.
     "automation-hub/services/signal_pipeline.py",
+    # Phase 4: the adapter for tradexa.portfolio. Read-only and translation-only
+    # — it assembles a Portfolio from the paper engine, ledger and broker
+    # registry and computes nothing itself, which is what keeps portfolio
+    # mathematics out of the execution engine. Adding a venue touches this file
+    # and no arithmetic.
+    "automation-hub/services/portfolio_view.py",
 }
 
 
