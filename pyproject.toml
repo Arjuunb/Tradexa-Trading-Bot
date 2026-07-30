@@ -40,4 +40,12 @@ Homepage = "https://github.com/Arjuunb/Tradexa-Trading-Bot"
 Repository = "https://github.com/Arjuunb/Tradexa-Trading-Bot"
 
 [tool.setuptools.packages.find]
-include = ["bot*"]
+# `tradexa*` is NOT optional. The Docker image runs `pip install -e .` and then
+# starts uvicorn from automation-hub/, so an unlisted top-level package is
+# invisible to the running backend no matter that it sits in the same repo.
+# While only "bot*" was listed, every `import tradexa...` in the backend failed
+# in the deployed container: the risk-engine veto silently fell back to
+# "unavailable" and the sizing import to its inline copy. Tests never caught it
+# because conftest.py appends the repo root to sys.path, so the package resolves
+# under pytest and only under pytest. test_packaging.py now guards this.
+include = ["bot*", "tradexa*"]

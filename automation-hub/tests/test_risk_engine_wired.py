@@ -159,6 +159,20 @@ def test_the_pipeline_still_sizes_the_trade_not_the_engine(pipeline):
         "were bypassed")
 
 
+def test_an_unimportable_engine_announces_itself(capsys, monkeypatch):
+    """The guarded import degrades quietly, and for one release that was the
+    problem rather than the safety net: `tradexa` was missing from the installed
+    package list, so production ran with no veto and nothing said so. Silence is
+    the failure mode."""
+    monkeypatch.setattr(sp, "_RiskEngine", None)
+    led = SqliteLedger(":memory:")
+    pipe = sp.SignalPipeline(led, PaperExecutionEngine(led), TradingControl())
+    assert pipe.risk_engine is None
+    out = capsys.readouterr().out
+    assert "NOT being applied" in out
+    assert "pyproject" in out, "the warning must say how to fix it"
+
+
 def test_a_missing_engine_does_not_break_trading(pipeline):
     """A deployment shipping only automation-hub has no tradexa package. It must
     still trade, and the trail must SAY the veto was absent rather than looking

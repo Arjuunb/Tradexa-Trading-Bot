@@ -261,3 +261,67 @@ def paper_equity_curve():
         eq += (t.get("pnl") or 0.0)
         points.append({"t": t.get("closed_at"), "equity": round(eq, 2)})
     return {"starting_balance": _wa.paper.starting_balance, "points": points}
+
+
+# ── portfolio ───────────────────────────────────────────────────────────────
+# One view of capital across every venue, computed by tradexa.portfolio. The
+# arithmetic deliberately does not live here or in the execution engine: a
+# second broker must mean a second VenueSnapshot, not a second copy of the
+# equity, exposure and Sharpe calculations.
+#
+# The import below is deliberately UNGUARDED, unlike the pipeline's. A guarded
+# import here would answer 200 with an empty portfolio if tradexa were missing
+# from the deployment — which is precisely how the risk-engine veto went absent
+# for a release without anyone noticing. These two endpoints failing loudly is
+# the correct blast radius: it is scoped to them (the import is inside the
+# handler, so boot is unaffected) and it is visible. tests/test_packaging.py
+# guards the packaging side.
+
+def _live_marks(symbols: list[str]) -> dict:
+    """Last traded price per symbol, best effort.
+
+    A symbol that cannot be priced is simply ABSENT from the result — never
+    filled in from the entry price. The portfolio engine reports equity as
+    unavailable when a position is unmarked, and that is the correct answer;
+    substituting entry would report an open loss as break-even.
+
+    Binance answers HTTP 451 from US datacenter IPs, which is where this
+    deploys, so an empty result is a normal outcome rather than a bug.
+    """
+    out: dict = {}
+    for symbol in dict.fromkeys(symbols):
+        try:
+            from data.live_data import fetch_ohlcv
+            bars = fetch_ohlcv(symbol, timeframe="1h", limit=1)
+            if bars:
+                out[symbol] = float(bars[-1].close)
+        except Exception:  # noqa: BLE001 — an unpriceable symbol stays unmarked
+            continue
+    return out
+
+
+@router.get("/portfolio/snapshot")
+def portfolio_snapshot(marks: bool = True):
+    """Balance, equity, buying power, margin, exposure, P&L, returns, win rate,
+    expectancy, Sharpe and max drawdown — per venue and in aggregate.
+
+    ``notes`` carries everything the figures do NOT account for, and
+    ``available`` is false whenever it is non-empty. They travel with the
+    numbers rather than in a separate call, so there is no version of this
+    payload that shows the figures without the caveats.
+    """
+    from services import portfolio_view
+    live = _live_marks([p["symbol"] for p in _wa.paper.positions()]) if marks else {}
+    return portfolio_view.snapshot(paper=_wa.paper, registry=_wa.broker_registry,
+                                   marks=live)
+
+
+@router.get("/portfolio/venues")
+def portfolio_venues(marks: bool = True):
+    """The same figures, per venue. Useful answer to "which account did that?"."""
+    from services import portfolio_view
+    live = _live_marks([p["symbol"] for p in _wa.paper.positions()]) if marks else {}
+    data = portfolio_view.snapshot(paper=_wa.paper, registry=_wa.broker_registry,
+                                   marks=live)
+    return {"venues": data.get("per_venue", []), "base_currency": data.get("base_currency"),
+            "notes": data.get("notes", [])}
