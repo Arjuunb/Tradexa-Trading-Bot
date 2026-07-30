@@ -112,6 +112,21 @@ _MONDAY = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
+class _EngineFill:
+    """A paper ``FillResult`` shape, rebuilt from an ExecutionReport.
+
+    A named type rather than a SimpleNamespace so the four attributes the
+    caller reads are declared, and a fifth appearing downstream fails loudly
+    here rather than as an AttributeError inside the journal.
+    """
+
+    action: str
+    price: float
+    size: float
+    trade_id: Optional[str] = None
+
+
+@dataclass
 class Step:
     rule: str
     passed: bool
@@ -252,6 +267,9 @@ class SignalPipeline:
         # from THIS pipeline's own configured limits, so an operator who
         # tightens a cap tightens both paths at once and they cannot drift.
         self.risk_engine = self._build_risk_engine()
+        # The execution engine, on the live path. None when tradexa is not
+        # installed; the fill call then runs exactly as it always did.
+        self._exec_engine = self._build_execution_engine()
 
     # ------------------------------------------------------------ risk engine
     def _build_risk_engine(self):
@@ -294,6 +312,72 @@ class SignalPipeline:
             trading_days_mask=self.trading_days_mask,
         )
         return _RiskEngine(limits)
+
+    # -------------------------------------------------------- execution engine
+    def _build_execution_engine(self):
+        """The execution engine wrapping the paper executor, or ``None``.
+
+        One venue today, because one is what exists — the live brokers expose no
+        order API in this build. The engine is multi-venue by construction, so
+        adding one is registering it rather than changing this method.
+        """
+        try:
+            from execution.paper_venue import PaperVenue
+            from tradexa.execution import ExecutionEngine, RetryPolicy
+        except Exception:  # noqa: BLE001 — trade without it rather than not at all
+            print("[execution] tradexa.execution is not importable — orders run "
+                  "straight to the paper engine, without idempotency, latency "
+                  "metrics or reconciliation.", flush=True)
+            return None
+        engine = ExecutionEngine(
+            # One attempt. The paper executor is in-process: it cannot time out,
+            # and a retry against it would be a second real fill rather than a
+            # second delivery attempt.
+            retry=RetryPolicy(max_attempts=1, base_delay=0.0, jitter=0.0))
+        engine.add_venue(PaperVenue(self.paper))
+        return engine
+
+    def _execute_via_engine(self, *, symbol, side, size, entry, stop, alert_id,
+                            maker):
+        """Submit through the engine and adapt back to the paper FillResult.
+
+        Returns ``None`` when the engine could not produce a fill, so the caller
+        falls back to the direct call. Never raises: a fault in the execution
+        layer must not become a dropped signal, and the executor underneath is
+        the same object either way.
+        """
+        from bot.types import Order, OrderType, Side
+        try:
+            order = Order(symbol=symbol,
+                          side=Side.BUY if _dir(side) == "long" else Side.SELL,
+                          qty=float(size), order_type=OrderType.MARKET,
+                          limit_price=float(entry),
+                          stop_loss=float(stop) if stop is not None else None)
+            outcome = self._exec_engine.submit(
+                order, strategy="pipeline", signal_id=alert_id,
+                venue_params={"maker": bool(maker)})
+        except Exception as exc:  # noqa: BLE001
+            self.ledger.log(level="warning", stage="execution", symbol=symbol,
+                            message=f"execution engine error, using the direct "
+                                    f"path: {type(exc).__name__}: {exc}")
+            return None
+        if outcome.duplicate:
+            # The engine recognised this exact intent. The dedup gate should
+            # have caught it first, so reaching here means a signal arrived by a
+            # route that bypassed it — worth a log, and worth NOT filling.
+            self.ledger.log(level="warning", stage="execution", symbol=symbol,
+                            message=f"duplicate intent {outcome.client_id} "
+                                    "stopped at the execution engine")
+            return None
+        report = outcome.report
+        if report is None or not report.ok:
+            return None
+        record = outcome.record
+        return _EngineFill(
+            action="opened",
+            price=float(report.avg_fill_price or entry),
+            size=float(report.filled_qty or size),
+            trade_id=(record.broker_order_id if record else None))
 
     def _risk_context(self, *, symbol: str, side: str, entry: float, stop: float,
                       confidence: float, payload: dict):
@@ -694,9 +778,28 @@ class SignalPipeline:
             steps.append(Step("risk_engine", True,
                               "tradexa.risk unavailable in this deployment — veto not applied"))
 
-        # 6. paper execution (routed through the fill model)
-        fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop,
-                               alert_id=alert_id, maker=bool(payload.get("maker")))
+        # 6. execution — through the ExecutionEngine when it is available.
+        #
+        # The engine does NOT execute: PaperExecutionEngine still does, through
+        # the Venue port, with the identical arguments. What the engine adds on
+        # the live path is everything around the fill — an intent-derived client
+        # id (so a redelivered signal cannot open a second position even if the
+        # dedup gate above is bypassed), an order record with the fill attached,
+        # per-venue latency percentiles, and a book that reconciliation can
+        # compare against the executor's.
+        #
+        # Guarded like every other tradexa import, and the fallback is the exact
+        # call this replaced — so a deployment without the package trades
+        # identically rather than not at all.
+        fill = None
+        if self._exec_engine is not None:
+            fill = self._execute_via_engine(
+                symbol=symbol, side=side, size=size, entry=entry, stop=stop,
+                alert_id=alert_id, maker=bool(payload.get("maker")))
+        if fill is None:
+            fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry,
+                                   stop=stop, alert_id=alert_id,
+                                   maker=bool(payload.get("maker")))
         if fill.action == "rejected":
             return reject("execution", "Order rejected at fill (execution model)")
         entry, size = fill.price, fill.size          # actual filled price / size

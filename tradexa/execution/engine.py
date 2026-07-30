@@ -157,7 +157,8 @@ class ExecutionEngine:
     # ──────────────────────────────────────────────────────────────── submit
     def submit(self, order: Order, *, strategy: str = "", signal_id: str = "",
                routing: Optional[RoutingStrategy] = None,
-               max_venues: int = 2) -> SubmitOutcome:
+               max_venues: int = 2,
+               venue_params: Optional[Mapping[str, Any]] = None) -> SubmitOutcome:
         """Place an order, idempotently, with retry and failover.
 
         ``max_venues`` bounds failover. Unbounded failover across a five-venue
@@ -208,7 +209,8 @@ class ExecutionEngine:
 
             outcome.venues_tried.append(venue_name)
             record.venue = venue_name
-            report, attempts, error = self._attempt(venue, order, cid, profile)
+            report, attempts, error = self._attempt(venue, order, cid, profile,
+                                                    venue_params or {})
             outcome.attempts.extend(attempts)
 
             if report is not None:
@@ -435,14 +437,14 @@ class ExecutionEngine:
 
     # ─────────────────────────────────────────────────────────────── private
     def _attempt(self, venue: Venue, order: Order, client_id: str,
-                 profile: VenueProfile):
+                 profile: VenueProfile, venue_params: Mapping[str, Any]):
         """One venue, under retry. Records latency and health either way."""
         name = profile.name
 
         def call() -> ExecutionReport:
             started = time.perf_counter()
             try:
-                report = venue.submit(order, client_id=client_id)
+                report = venue.submit(order, client_id=client_id, **venue_params)
             except BaseException:
                 elapsed = (time.perf_counter() - started) * 1000
                 self.metrics.record(f"{name}.submit", elapsed)
