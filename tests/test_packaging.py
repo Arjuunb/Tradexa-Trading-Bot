@@ -23,7 +23,9 @@ obeys.
 from __future__ import annotations
 
 import pathlib
-import tomllib
+import re
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -31,15 +33,68 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: installed, not merely present in the repository.
 REQUIRED_PACKAGES = ("bot", "tradexa")
 
+#: ``tomllib`` is 3.11+. The support matrix includes 3.10, where importing it at
+#: module level took the whole file out at COLLECTION time — so the guard
+#: against a packaging bug was itself a packaging-era mistake, and it turned one
+#: third of CI red. Optional import, with a narrow fallback below.
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on 3.10 only
+    tomllib = None
 
-def _config() -> dict:
-    return tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+def _pyproject_text() -> str:
+    return (ROOT / "pyproject.toml").read_text()
+
+
+def _include_via_toml(text: str) -> list[str]:
+    find = (tomllib.loads(text).get("tool", {}).get("setuptools", {})
+            .get("packages", {}).get("find", {}))
+    return list(find.get("include") or [])
+
+
+def _include_via_scan(text: str) -> list[str]:
+    """Read the include list without a TOML parser.
+
+    Deliberately narrow: it looks for one known key in one known section of one
+    file in this repository. It is not a TOML parser and must never grow into
+    one — ``test_both_readers_agree`` keeps it honest wherever ``tomllib``
+    exists, which is everywhere except the oldest supported interpreter.
+    """
+    section = re.search(
+        r"^\[tool\.setuptools\.packages\.find\]\s*$(.*?)(?=^\[|\Z)",
+        text, re.MULTILINE | re.DOTALL)
+    if not section:
+        return []
+    include = re.search(r"^\s*include\s*=\s*\[(.*?)\]", section.group(1),
+                        re.MULTILINE | re.DOTALL)
+    if not include:
+        return []
+    # Strip comments before harvesting strings: a commented-out pattern is not
+    # installed, and counting it would make this test pass on a broken build.
+    body = re.sub(r"#[^\n]*", "", include.group(1))
+    return re.findall(r"[\"']([^\"']+)[\"']", body)
 
 
 def _include_patterns() -> list[str]:
-    find = (_config().get("tool", {}).get("setuptools", {})
-            .get("packages", {}).get("find", {}))
-    return list(find.get("include") or [])
+    text = _pyproject_text()
+    return _include_via_toml(text) if tomllib else _include_via_scan(text)
+
+
+@pytest.mark.skipif(tomllib is None, reason="no tomllib before Python 3.11")
+def test_both_readers_agree():
+    """The fallback cannot drift from the real parser unnoticed.
+
+    Without this, the 3.10 path could quietly read nothing and every assertion
+    below would pass vacuously on the one interpreter the original bug hit.
+    """
+    text = _pyproject_text()
+    assert _include_via_scan(text) == _include_via_toml(text)
+
+
+def test_the_reader_finds_something():
+    """Guards the guard: an empty read makes every test below vacuous."""
+    assert _include_patterns(), "could not read packages.find include"
 
 
 def test_every_runtime_package_is_installed_by_the_build():
