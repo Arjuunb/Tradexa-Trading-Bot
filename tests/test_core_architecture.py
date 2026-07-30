@@ -347,6 +347,20 @@ DELIBERATE_TRADEXA_CONSUMERS = {
     # than hand-maintained here. This is the file that used to be edited to add
     # a strategy, so the dependency is the whole point of the phase.
     "automation-hub/bots/registry.py",
+    # Phase 5: the plugin endpoints — list, describe, validate, optimise.
+    "automation-hub/routers/bots.py",
+    # Phase 5: the engine's own strategy is a plugin like any other. This is the
+    # first import of tradexa from `bot/`, and the direction is worth noting:
+    # tradexa.strategy.BaseStrategy subclasses bot.strategies.base.Strategy, so
+    # the arrow that looks reversed here is a subclass reaching for its own base
+    # class's plugin layer, not the engine depending on an application service.
+    # It forced bot/strategies/__init__.py to re-export lazily; see the module.
+    "bot/strategies/support_resistance.py",
+    # Phase 5: a config's strategy name resolves through the plugin registry
+    # when it is not one of the historical aliases, so a YAML file can name an
+    # installed plugin without this module being edited. The import is lazy —
+    # bot/ must keep starting when only the engine is installed.
+    "bot/config.py",
 }
 
 #: Directories where importing tradexa is expected of EVERY file, listed as a

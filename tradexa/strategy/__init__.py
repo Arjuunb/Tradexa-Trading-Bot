@@ -26,6 +26,10 @@ from tradexa.strategy.discovery import (
     ENTRY_POINT_GROUP, discover_all, discover_directory, discover_entry_points,
     discover_package, register_module, strategies_in,
 )
+from tradexa.strategy.optimisation import (
+    Candidate, DEFAULT_MAX_CANDIDATES, OptimisationError, OptimisationResult,
+    candidates, grid_search, split,
+)
 from tradexa.strategy.metadata import (
     Maturity, ParamType, Parameter, StrategyMeta, ValidationIssue,
     ValidationResult, validate,
@@ -41,6 +45,8 @@ __all__ = [
     "ValidationResult", "ValidationIssue", "validate",
     "StrategyRegistry", "default_registry", "StrategyRegistryError",
     "DuplicateStrategyError", "InvalidStrategyError", "UnknownStrategyError",
+    "Candidate", "OptimisationResult", "OptimisationError", "candidates",
+    "grid_search", "split", "DEFAULT_MAX_CANDIDATES",
     "ENTRY_POINT_GROUP", "discover_all", "discover_directory",
     "discover_entry_points", "discover_package", "register_module",
     "strategies_in",
