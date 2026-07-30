@@ -10,13 +10,43 @@ from typing import Optional
 
 from bot.data.indicators import rsi
 from bot.types import Bar, Signal, SignalType
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import ATR_PARAMETERS, HubStrategy
 
 
 class RSIStrategy(HubStrategy):
     name = "rsi"
     label = "RSI Scalper"
     supported_regimes = ("Ranging", "Low Volatility")
+
+    meta = StrategyMeta(
+        key="rsi", name="RSI Scalper", version="1.0.0",
+        description="Mean reversion: buys oversold crosses, sells overbought ones.",
+        author="Tradexa", maturity=Maturity.STABLE,
+        tags=("mean-reversion", "oscillator"),
+        asset_classes=("crypto", "stocks"), timeframes=("5m", "15m", "1h"),
+        regimes=("Ranging", "Low Volatility"),
+        changelog=("1.0.0 - first version declared as a plugin; logic unchanged.",))
+    parameters = ATR_PARAMETERS + (
+        Parameter("period", ParamType.INT, default=14, minimum=2, maximum=100,
+                  unit="bars", tunable=True, optimise=(7, 14, 21),
+                  description="RSI lookback."),
+        Parameter("oversold", ParamType.FLOAT, default=30.0, minimum=1.0,
+                  maximum=99.0, unit="RSI", tunable=True, optimise=(20.0, 30.0),
+                  description="Long when RSI crosses up through this level."),
+        Parameter("overbought", ParamType.FLOAT, default=70.0, minimum=1.0,
+                  maximum=99.0, unit="RSI", tunable=True, optimise=(70.0, 80.0),
+                  description="Short when RSI crosses down through this level."),
+    )
+
+    @classmethod
+    def validate(cls, params):
+        """The same ordering rule the constructor has always raised on."""
+        lo, hi = params.get("oversold"), params.get("overbought")
+        if lo is not None and hi is not None and not 0 < lo < hi < 100:
+            return (f"require 0 < oversold ({lo}) < overbought ({hi}) < 100",)
+        return ()
 
     def __init__(self, symbol: str, period: int = 14, oversold: float = 30.0,
                  overbought: float = 70.0, **params):
