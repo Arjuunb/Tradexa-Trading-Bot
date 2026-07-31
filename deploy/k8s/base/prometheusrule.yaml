@@ -1,0 +1,170 @@
+# GENERATED FILE — DO NOT EDIT.
+#
+# Source:    deploy/observability/prometheus/rules/hub-alerts.yml
+# Regenerate: python deploy/scripts/gen_prometheusrule.py
+#
+# Edit the source file and re-run the generator. CI runs this script with
+# --check, so hand-editing this file fails the build.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: tradexa-hub-alerts
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: hub-availability
+    rules:
+    - alert: HubTargetDown
+      expr: up{job=~"hub-.*"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ $labels.job }} target {{ $labels.instance }} is down'
+        description: Prometheus has failed to scrape this instance for two minutes. Either the process
+          is gone or it cannot serve /metrics.
+        runbook: docs/RUNBOOK.md#service-down
+    - alert: HubNoWebCapacity
+      expr: absent(up{job="hub-web"} == 1) or sum(up{job="hub-web"}) == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: No web replicas are serving traffic
+        description: Every hub-web instance is down or unscrapeable. The site is offline.
+        runbook: docs/RUNBOOK.md#service-down
+    - alert: HubHighErrorRate
+      expr: sum(rate(hub_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(hub_http_requests_total[5m])),
+        0.001) > 0.05
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: Over 5% of requests are failing
+        description: 5xx rate is {{ $value | humanizePercentage }} over the last 5 minutes.
+        runbook: docs/RUNBOOK.md#elevated-error-rate
+    - alert: HubHighLatency
+      expr: "histogram_quantile(0.95,\n  sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m])))\
+        \ > 2"
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: p95 latency above 2s
+        description: p95 request latency is {{ $value | humanizeDuration }}.
+        runbook: docs/RUNBOOK.md#high-latency
+    - alert: HubNotReady
+      expr: sum(hub_http_requests_total{path="/health/ready",status="503"}) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: An instance is failing its readiness probe
+        description: Readiness has been returning 503; check /health/ready for the failing check.
+        runbook: docs/RUNBOOK.md#readiness-failing
+  - name: hub-engine
+    rules:
+    - alert: HubMultipleEngineLeaders
+      expr: sum(hub_engine_leader) > 1
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: MORE THAN ONE ENGINE HOLDS THE SINGLETON LEASE
+        description: '{{ $value }} instances believe they are the trading leader. This is duplicate order
+          flow. Scale the engine to a single replica now.'
+        runbook: docs/RUNBOOK.md#split-brain-engine
+    - alert: HubMultipleEnginesRunning
+      expr: sum(hub_engine_running) > 1
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: More than one trading engine is running
+        description: '{{ $value }} engine threads are alive across the deployment. Exactly one is safe.
+          Check HUB_ROLE on every replica.'
+        runbook: docs/RUNBOOK.md#split-brain-engine
+    - alert: HubNoEngineRunning
+      expr: sum(hub_engine_running) < 1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: No trading engine is running
+        description: Signals are not being evaluated and positions are unmanaged.
+        runbook: docs/RUNBOOK.md#engine-not-running
+    - alert: HubEngineStalled
+      expr: (time() - max(hub_engine_last_cycle_timestamp_seconds > 0)) > 900
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: Engine has not completed a cycle in 15 minutes
+        description: "The thread is alive but not progressing \u2014 typically a wedged exchange call\
+          \ or a stalled market-data feed."
+        runbook: docs/RUNBOOK.md#engine-stalled
+    - alert: HubEngineErrors
+      expr: sum(rate(hub_engine_errors_total[10m])) > 0.05
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: Engine is raising errors
+        description: '{{ $value | printf "%.2f" }} errors/sec in the engine loop.'
+        runbook: docs/RUNBOOK.md#engine-errors
+  - name: hub-risk
+    rules:
+    - alert: HubRiskVetoSurge
+      expr: sum(rate(hub_risk_vetoes_total[15m])) > 0.5
+      for: 15m
+      labels:
+        severity: info
+      annotations:
+        summary: Risk gates are rejecting an unusual number of trades
+        description: '{{ $value | printf "%.2f" }} vetoes/sec. Check which gate in the decision journal.'
+        runbook: docs/RUNBOOK.md#risk-veto-surge
+  - name: hub-durability
+    rules:
+    - alert: HubBackupStale
+      expr: (time() - max(hub_backup_last_success_timestamp_seconds > 0)) > 129600
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: No successful backup in 36 hours
+        description: Backups run nightly; two missed runs means the restore point is aging.
+        runbook: docs/DISASTER_RECOVERY.md#backup-failing
+    - alert: HubBackupNeverRan
+      expr: absent(hub_backup_last_success_timestamp_seconds > 0)
+      for: 26h
+      labels:
+        severity: warning
+      annotations:
+        summary: No backup has ever completed successfully
+        description: There is no restore point. Check the backup CronJob and the daily task.
+        runbook: docs/DISASTER_RECOVERY.md#backup-failing
+  - name: hub-security
+    rules:
+    - alert: HubAuthFailureSpike
+      expr: sum(rate(hub_auth_failures_total[5m])) > 1
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: Sustained authentication failures
+        description: "{{ $value | printf \"%.2f\" }} failures/sec \u2014 credential stuffing, or a client\
+          \ wedged with a stale secret."
+        runbook: docs/RUNBOOK.md#auth-failure-spike
+    - alert: HubRateLimitSaturated
+      expr: sum(rate(hub_rate_limit_rejections_total[5m])) > 2
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: Rate limiter is rejecting heavily
+        description: '{{ $value | printf "%.2f" }} rejections/sec on scope {{ $labels.scope }}. Either
+          an attack or a limit set too tight for real traffic.'
+        runbook: docs/RUNBOOK.md#rate-limit-saturated

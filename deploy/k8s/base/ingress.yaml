@@ -1,0 +1,67 @@
+# Public entry point. Assumes ingress-nginx and cert-manager; adapt the
+# annotations if you run Traefik, HAProxy or a cloud load-balancer controller.
+#
+# Rate limiting is applied here AS WELL AS in the application, and the
+# duplication is intentional. The ingress limiter is cheap, distributed across
+# replicas, and drops floods before they reach Python at all. The application
+# limiter (services/ratelimit.py) is per-route and understands what it is
+# protecting — login versus webhook — so it can be strict where brute force
+# matters without throttling normal browsing. Neither one subsumes the other.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tradexa-hub
+  namespace: tradexa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Connections and requests per second, per client IP.
+    nginx.ingress.kubernetes.io/limit-connections: "40"
+    nginx.ingress.kubernetes.io/limit-rps: "25"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+
+    # Bound request size. The API takes small JSON payloads; anything larger is
+    # either a mistake or an attempt to exhaust memory upstream of the app.
+    nginx.ingress.kubernetes.io/proxy-body-size: 2m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+
+    # Defence-in-depth headers. The app sets its own (see _security_headers in
+    # app.py) and uses setdefault, so these do not conflict — whichever arrives
+    # first wins and the values agree. Setting them here means a request that
+    # errors out before reaching the app is still protected.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - www.trade-logx.com
+        - trade-logx.com
+      secretName: tradexa-hub-tls
+  rules:
+    - host: www.trade-logx.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tradexa-hub-web
+                port:
+                  name: http
+    - host: trade-logx.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tradexa-hub-web
+                port:
+                  name: http

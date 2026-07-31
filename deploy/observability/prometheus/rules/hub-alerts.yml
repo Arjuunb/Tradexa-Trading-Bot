@@ -1,0 +1,214 @@
+# Alert rules for the Automation Hub.
+#
+# Shared verbatim between the local stack and the cluster: deploy/k8s/base/
+# prometheusrule.yaml embeds these same groups, so an alert cannot be true on a
+# laptop and quietly missing in production.
+#
+# Severities mean something specific here:
+#   critical  money or correctness is at risk right now — wake someone
+#   warning   degraded, will become critical if ignored — next working hour
+#   info      worth knowing, never pages
+#
+# Every alert carries a `runbook` annotation pointing at the section of
+# docs/RUNBOOK.md that says what to actually do. An alert without a runbook is a
+# notification, not an alert.
+
+groups:
+  # ── availability ──────────────────────────────────────────────────────────
+  - name: hub-availability
+    rules:
+      - alert: HubTargetDown
+        expr: up{job=~"hub-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
+          description: >-
+            Prometheus has failed to scrape this instance for two minutes. Either
+            the process is gone or it cannot serve /metrics.
+          runbook: docs/RUNBOOK.md#service-down
+
+      - alert: HubNoWebCapacity
+        expr: absent(up{job="hub-web"} == 1) or sum(up{job="hub-web"}) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No web replicas are serving traffic"
+          description: "Every hub-web instance is down or unscrapeable. The site is offline."
+          runbook: docs/RUNBOOK.md#service-down
+
+      - alert: HubHighErrorRate
+        # Rate-of-errors over rate-of-requests, not a raw 5xx count: a hundred
+        # errors an hour is catastrophic on low traffic and noise on high.
+        expr: >-
+          sum(rate(hub_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(hub_http_requests_total[5m])), 0.001)
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Over 5% of requests are failing"
+          description: "5xx rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+          runbook: docs/RUNBOOK.md#elevated-error-rate
+
+      - alert: HubHighLatency
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency above 2s"
+          description: "p95 request latency is {{ $value | humanizeDuration }}."
+          runbook: docs/RUNBOOK.md#high-latency
+
+      - alert: HubNotReady
+        expr: sum(hub_http_requests_total{path="/health/ready",status="503"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An instance is failing its readiness probe"
+          description: "Readiness has been returning 503; check /health/ready for the failing check."
+          runbook: docs/RUNBOOK.md#readiness-failing
+
+  # ── the trading engine: the alerts that actually matter ───────────────────
+  - name: hub-engine
+    rules:
+      # The most important alert in this file. Two engines against one account
+      # means duplicate orders and double exposure. If this fires, stop one.
+      - alert: HubMultipleEngineLeaders
+        expr: sum(hub_engine_leader) > 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MORE THAN ONE ENGINE HOLDS THE SINGLETON LEASE"
+          description: >-
+            {{ $value }} instances believe they are the trading leader. This is
+            duplicate order flow. Scale the engine to a single replica now.
+          runbook: docs/RUNBOOK.md#split-brain-engine
+
+      - alert: HubMultipleEnginesRunning
+        # Catches the case the lease cannot: two processes with HUB_ROLE=all and
+        # no shared lease file each running their own engine quite happily.
+        expr: sum(hub_engine_running) > 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than one trading engine is running"
+          description: >-
+            {{ $value }} engine threads are alive across the deployment. Exactly
+            one is safe. Check HUB_ROLE on every replica.
+          runbook: docs/RUNBOOK.md#split-brain-engine
+
+      - alert: HubNoEngineRunning
+        expr: sum(hub_engine_running) < 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No trading engine is running"
+          description: "Signals are not being evaluated and positions are unmanaged."
+          runbook: docs/RUNBOOK.md#engine-not-running
+
+      - alert: HubEngineStalled
+        # The `> 0` filter matters: the gauge reads 0 before the first cycle
+        # completes, and time() - 0 is fifty-odd years, which would fire this
+        # alert on every cold start.
+        expr: (time() - max(hub_engine_last_cycle_timestamp_seconds > 0)) > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Engine has not completed a cycle in 15 minutes"
+          description: >-
+            The thread is alive but not progressing — typically a wedged exchange
+            call or a stalled market-data feed.
+          runbook: docs/RUNBOOK.md#engine-stalled
+
+      - alert: HubEngineErrors
+        expr: sum(rate(hub_engine_errors_total[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Engine is raising errors"
+          description: "{{ $value | printf \"%.2f\" }} errors/sec in the engine loop."
+          runbook: docs/RUNBOOK.md#engine-errors
+
+  # ── risk posture ──────────────────────────────────────────────────────────
+  - name: hub-risk
+    rules:
+      - alert: HubRiskVetoSurge
+        # Not a failure — the risk engine doing its job. But a sudden surge means
+        # either market conditions changed sharply or a gate is misconfigured,
+        # and both are worth a human look before the next session.
+        expr: sum(rate(hub_risk_vetoes_total[15m])) > 0.5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Risk gates are rejecting an unusual number of trades"
+          description: "{{ $value | printf \"%.2f\" }} vetoes/sec. Check which gate in the decision journal."
+          runbook: docs/RUNBOOK.md#risk-veto-surge
+
+  # ── durability ────────────────────────────────────────────────────────────
+  - name: hub-durability
+    rules:
+      - alert: HubBackupStale
+        expr: (time() - max(hub_backup_last_success_timestamp_seconds > 0)) > 129600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful backup in 36 hours"
+          description: "Backups run nightly; two missed runs means the restore point is aging."
+          runbook: docs/DISASTER_RECOVERY.md#backup-failing
+
+      - alert: HubBackupNeverRan
+        # absent() is the only way to catch "the nightly job has never once
+        # succeeded" — the staleness rule above matches nothing when the series
+        # does not exist, which is exactly the worst case.
+        expr: absent(hub_backup_last_success_timestamp_seconds > 0)
+        for: 26h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No backup has ever completed successfully"
+          description: "There is no restore point. Check the backup CronJob and the daily task."
+          runbook: docs/DISASTER_RECOVERY.md#backup-failing
+
+  # ── security signal ───────────────────────────────────────────────────────
+  - name: hub-security
+    rules:
+      - alert: HubAuthFailureSpike
+        expr: sum(rate(hub_auth_failures_total[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained authentication failures"
+          description: >-
+            {{ $value | printf "%.2f" }} failures/sec — credential stuffing, or a
+            client wedged with a stale secret.
+          runbook: docs/RUNBOOK.md#auth-failure-spike
+
+      - alert: HubRateLimitSaturated
+        expr: sum(rate(hub_rate_limit_rejections_total[5m])) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limiter is rejecting heavily"
+          description: >-
+            {{ $value | printf "%.2f" }} rejections/sec on scope
+            {{ $labels.scope }}. Either an attack or a limit set too tight for
+            real traffic.
+          runbook: docs/RUNBOOK.md#rate-limit-saturated

@@ -18,6 +18,7 @@ from typing import Optional
 from database.models import RiskRules
 from data.ledger import Ledger
 from execution.paper_engine import PaperExecutionEngine, _dir
+from ops import metrics as _metrics
 from risk.position_sizing import size_position
 
 # Position-sizing arithmetic (architecture phase 3). Gathering the factors is
@@ -368,6 +369,12 @@ class SignalPipeline:
 
         def reject(stage: str, reason: str, status: str = "rejected") -> PipelineResult:
             steps.append(Step(stage, False, reason))
+            # Every "no" in the pipeline funnels through here, so this one call
+            # covers all of them. Labelled by STAGE, not by the free-text reason:
+            # reasons interpolate symbols and prices, and a label built from
+            # those is unbounded cardinality that would eventually take the
+            # Prometheus server down.
+            _metrics.record_risk_veto(stage)
             self.ledger.insert_webhook_event(alert_id=alert_id, symbol=symbol, side=side,
                                               entry=entry, stop=stop, payload=payload,
                                               status=status, reason=reason)
@@ -467,6 +474,7 @@ class SignalPipeline:
                                          costing_rules=costing)
                 except Exception:  # noqa: BLE001 — learning must never block trading
                     pass
+            _metrics.record_trade(symbol, side)
             return PipelineResult(True, "execution", "position closed", steps, fill.__dict__)
 
         # 3b. OPEN — no pyramiding in Phase 1
@@ -730,6 +738,7 @@ class SignalPipeline:
                                           "regime": payload.get("regime", "")}
             if len(self._alert_info) > 500:
                 self._alert_info.pop(next(iter(self._alert_info)))
+        _metrics.record_trade(symbol, side)
         return PipelineResult(True, "execution", "paper trade opened", steps, fill.__dict__)
 
     # ----------------------------------------------------- auto risk guard

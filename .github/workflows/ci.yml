@@ -5,8 +5,17 @@ on:
     branches: ["**"]
   pull_request:
 
+# A new push to the same branch makes the previous run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,6 +28,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install (with dev extras)
         run: |
@@ -32,3 +42,144 @@ jobs:
       - name: Run automation-hub test suite
         working-directory: automation-hub
         run: python -m pytest -q
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install ruff
+      # Scoped by [tool.ruff] in pyproject.toml to the operational code, where
+      # it is clean today. See the comment there on why it is not repo-wide yet.
+      - run: ruff check .
+
+  manifests:
+    name: deployment manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pyyaml
+
+      - name: Install kustomize
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kustomize
+          kustomize version
+
+      - name: Alert rules and the PrometheusRule CRD agree
+        # One source of truth, two consumers. Editing one and forgetting the
+        # other would otherwise ship an alert that exists locally and nowhere else.
+        run: python deploy/scripts/gen_prometheusrule.py --check
+
+      - name: Overlays build
+        run: |
+          kustomize build deploy/k8s/overlays/staging    > /dev/null
+          kustomize build deploy/k8s/overlays/production > /dev/null
+
+      - name: Safety and hardening invariants hold
+        # Single-engine guarantee, non-root, read-only rootfs, dropped
+        # capabilities, resource requests, probes, network posture.
+        run: python deploy/scripts/validate_manifests.py
+
+      - name: Compose stack is valid
+        run: docker compose -f deploy/docker/docker-compose.yml config > /dev/null
+
+  image:
+    name: image builds and boots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: tradexa-hub:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            APP_VERSION=ci-${{ github.run_number }}
+
+      # Building proves it compiles. Only running it proves the thing actually
+      # starts — which is where the packaging bugs live, since an editable
+      # install against a missing source tree fails at import time in the
+      # container while passing every test under pytest.
+      - name: Boots and answers its probes
+        run: |
+          docker run -d --name hub -p 8000:8000 \
+            -e HUB_SECRET=ci-only-not-a-real-secret \
+            -e HUB_AUTO_ENGINE=0 \
+            tradexa-hub:ci
+
+          for i in $(seq 1 45); do
+            if curl -fsS http://localhost:8000/health/live > /dev/null 2>&1; then
+              echo "up after ${i}s"; break
+            fi
+            if [ "$i" = 45 ]; then
+              echo "::error::container never became live"; docker logs hub; exit 1
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://localhost:8000/health/live    | tee /dev/stderr | grep -q alive
+          curl -fsS http://localhost:8000/health/startup | tee /dev/stderr | grep -q started
+          curl -fsS http://localhost:8000/metrics        | grep -q hub_build_info
+          # The build metadata must reach the running app, or /version and the
+          # build_info metric are useless for identifying what is deployed.
+          curl -fsS http://localhost:8000/version | grep -q "${GITHUB_SHA:0:7}"
+
+      - name: Runs as a non-root user
+        run: |
+          uid=$(docker exec hub id -u)
+          echo "container uid: $uid"
+          [ "$uid" != "0" ] || { echo "::error::container is running as root"; exit 1; }
+
+      - name: Container healthcheck reports healthy
+        run: |
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' hub)
+            [ "$status" = healthy ] && { echo "healthy after ${i}s"; exit 0; }
+            [ "$status" = unhealthy ] && { docker logs hub; exit 1; }
+            sleep 2
+          done
+          echo "::error::healthcheck never reported healthy"; docker logs hub; exit 1
+
+      - name: Logs are valid JSON
+        # Structured logging is load-bearing for the whole observability story,
+        # and one stray print outside the bridge breaks log ingestion silently —
+        # the log backend keeps accepting lines and quietly stops parsing them.
+        # stdout only: the boot-time security warnings go to stderr by design.
+        run: |
+          docker logs hub 2>/dev/null > /tmp/hub.log
+          python3 - <<'PY'
+          import json, sys
+          bad = []
+          for n, line in enumerate(open("/tmp/hub.log"), 1):
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  json.loads(line)
+              except json.JSONDecodeError:
+                  bad.append((n, line[:200]))
+          for n, line in bad[:10]:
+              print(f"::error::log line {n} is not JSON: {line}")
+          if bad:
+              sys.exit(1)
+          print("every log line parses as JSON")
+          PY
+
+      - name: Container logs
+        if: always()
+        run: docker logs hub || true

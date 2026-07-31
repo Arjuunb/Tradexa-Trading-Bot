@@ -1,0 +1,88 @@
+# Production.
+#
+#   kubectl apply -k deploy/k8s/overlays/production
+#
+# CI does not run this directly — deploy.yml pins the image digest and applies
+# the rendered output, so what reaches the cluster is the exact artifact that
+# passed the pipeline.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tradexa
+
+resources:
+  - namespace.yaml
+  - ../../base
+  # See the header of hpa.yaml before relying on this: it raises the web tier
+  # above one replica, which requires the shared-state precondition to be met.
+  - hpa.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/instance: production
+
+configMapGenerator:
+  - name: tradexa-hub-config
+    behavior: merge
+    literals:
+      - HUB_ENV=production
+      - HUB_LOG_LEVEL=INFO
+      # 10% sampling. Full sampling at production volume is expensive and adds
+      # nothing — errors are sampled separately by the collector's tail policy
+      # when one is configured.
+      - HUB_TRACE_SAMPLE=0.1
+
+patches:
+  # Match the HPA's floor. Leaving this at the base's 1 makes the first HPA
+  # evaluation scale up immediately, which looks like a load spike in the
+  # deploy timeline every single release.
+  - target: { kind: Deployment, name: tradexa-hub-web }
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 512Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1536Mi
+
+  # With three web replicas, tolerate losing one to a drain.
+  - target: { kind: PodDisruptionBudget, name: tradexa-hub-web }
+    patch: |
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+
+  # An RWX storage class is required — both roles mount this volume. Name the
+  # one your cluster provides: efs-sc on EKS, azurefile-csi on AKS,
+  # filestore-csi on GKE.
+  - target: { kind: PersistentVolumeClaim, name: tradexa-hub-data }
+    patch: |
+      - op: add
+        path: /spec/storageClassName
+        value: efs-sc
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 50Gi
+
+  - target: { kind: StatefulSet, name: tradexa-hub-engine }
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 750m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+
+images:
+  - name: ghcr.io/arjuunb/tradexa-hub
+    # Overwritten by CI with the digest of the image that passed the pipeline.
+    # A tag can be moved; a digest cannot, so pinning one is what guarantees the
+    # thing running in production is the thing that was tested.
+    newTag: latest

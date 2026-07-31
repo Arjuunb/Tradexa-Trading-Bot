@@ -1,0 +1,48 @@
+# Prometheus Operator discovery. Skip these two objects if you run a plain
+# Prometheus — configure the equivalent scrape jobs the way
+# deploy/observability/prometheus/prometheus.yml does instead.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tradexa-hub-web
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    # Prometheus selects ServiceMonitors by label; this must match the
+    # `serviceMonitorSelector` on your Prometheus resource or the target is
+    # simply never scraped and nothing anywhere reports an error.
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: web
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      # Set when HUB_METRICS_TOKEN is in use. The Secret must exist in the
+      # namespace Prometheus reads from, not this one.
+      # bearerTokenSecret:
+      #   name: tradexa-hub-secrets
+      #   key: HUB_METRICS_TOKEN
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tradexa-hub-engine
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: engine
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

@@ -23,6 +23,7 @@ import time
 from typing import Callable, Optional
 
 from bot.types import Signal, SignalType
+from ops import metrics as _metrics
 from data.ledger import Ledger
 from execution.paper_engine import PaperExecutionEngine
 from services.signal_pipeline import SignalPipeline
@@ -246,6 +247,19 @@ class AutoStrategyEngine:
         }
 
     # ----------------------------------------------------------- worker
+    def _publish_account_metrics(self) -> None:
+        """Push account state onto the gauges once per cycle.
+
+        Sampled per cycle rather than written on every fill: a gauge only has to
+        be correct at scrape time, and doing it here keeps equity and position
+        count current even through cycles that produce no trades at all.
+        """
+        try:
+            _metrics.set_equity(self.paper.equity())
+            _metrics.set_open_positions(len(self.paper.positions()))
+        except Exception:  # noqa: BLE001 — telemetry must never stop the engine
+            pass
+
     def _run(self) -> None:
         try:
             if self.live:
@@ -269,6 +283,7 @@ class AutoStrategyEngine:
             self._load_batch(sym, strategies, live, seeds, get_bars)
 
         while not self._stop.is_set():
+            _cycle_start = time.perf_counter()
             advanced = False
             for sym in self.symbols:
                 if self._stop.is_set():
@@ -281,6 +296,8 @@ class AutoStrategyEngine:
                 self._process_bar(sym, bar, strategies[sym])
                 self.stats["bars"] += 1
                 advanced = True
+            _metrics.record_cycle(time.perf_counter() - _cycle_start)
+            self._publish_account_metrics()
             if not advanced:
                 break
             self._stop.wait(self.interval)
@@ -306,6 +323,7 @@ class AutoStrategyEngine:
                                     f"watching for new {self.timeframe} candles")
 
         while not self._stop.is_set():
+            _cycle_start = time.perf_counter()
             for sym in self.symbols:
                 if self._stop.is_set():
                     break
@@ -336,10 +354,16 @@ class AutoStrategyEngine:
                         self.ledger.log(level="info", stage="engine", symbol=sym,
                                         message=f"{sym}: live feed recovered ({src}).")
                 except Exception as e:  # noqa: BLE001 — a fetch hiccup shouldn't stop the engine
+                    _metrics.record_engine_error("fetch")
                     self.ledger.log(level="warning", stage="engine", symbol=sym,
                                     message=f"{sym}: live fetch failed ({e})")
                     continue
                 last_ts[sym] = self._ingest(sym, strategies[sym], bars, last_ts[sym])
+            # One pass over every symbol is one cycle. Recorded here rather than
+            # per symbol so the stall alert measures progress through the whole
+            # watchlist, not just the first ticker that happens to respond.
+            _metrics.record_cycle(time.perf_counter() - _cycle_start)
+            self._publish_account_metrics()
             self._stop.wait(self.live_poll_s)
 
     def _ingest(self, sym, strat, bars, last_ts):

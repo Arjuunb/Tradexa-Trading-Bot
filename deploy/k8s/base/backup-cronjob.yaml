@@ -1,0 +1,88 @@
+# Nightly backup: snapshot, verify restorability, ship offsite.
+#
+# The application already takes a nightly in-process snapshot as part of its
+# daily tasks. This CronJob exists for the two things that one cannot do:
+# it VERIFIES the snapshot is restorable, and it copies it OFF the volume. A
+# backup sitting on the same PersistentVolume as its source protects against a
+# bad DELETE and against nothing else.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tradexa-hub-backup
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: backup
+spec:
+  # 02:17 UTC. Deliberately not on the hour: every cron job on every cluster in
+  # the world fires at :00, and that is when shared storage and object-store
+  # endpoints are slowest.
+  schedule: "17 2 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid          # never overlap two backups on one volume
+  startingDeadlineSeconds: 3600      # still run if the cluster was busy at 02:17
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5          # keep failures around longer than successes
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # Without this a stuck job runs until someone notices, holding the
+      # Forbid lock and blocking every subsequent night's backup.
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: tradexa-hub
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: tradexa-hub
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: ghcr.io/arjuunb/tradexa-hub:latest
+              command: ["python", "/app/automation-hub/ops/backup_job.py"]
+              env:
+                - name: HUB_DATA_DIR
+                  value: /data
+                # HUB_ROLE is required at import; "web" is the role that starts
+                # no background workers, which is what a batch job wants.
+                - name: HUB_ROLE
+                  value: web
+              envFrom:
+                - configMapRef:
+                    name: tradexa-hub-config
+                - secretRef:
+                    name: tradexa-hub-secrets
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 512Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: tradexa-hub-data
+            - name: tmp
+              # The archive is built here before upload, so it needs room for
+              # roughly one snapshot.
+              emptyDir:
+                sizeLimit: 2Gi

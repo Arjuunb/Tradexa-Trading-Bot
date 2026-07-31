@@ -1,0 +1,120 @@
+# Zero-trust networking: deny by default, then allow exactly what is needed.
+#
+# Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, or the
+# managed equivalents). On a CNI that ignores them these objects apply cleanly
+# and enforce nothing, which is worth knowing before relying on them — verify
+# with a denied-connection test after applying, not by reading `kubectl get`.
+
+# 1. Default deny. Every pod in the namespace, both directions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: tradexa
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. DNS. Required by everything, and the single most common cause of a
+# "NetworkPolicy broke my cluster" incident — without this, every outbound
+# connection fails at name resolution with a misleading timeout.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: tradexa
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# 3. User traffic: ingress controller -> web tier only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-web
+  namespace: tradexa
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# 4. Scraping: monitoring namespace -> both roles. This is what keeps /metrics
+# unreachable from the public internet even though it needs no session.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: tradexa
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# 5. Egress. The engine must reach exchange APIs, and both roles export traces.
+#
+# The internet rule excludes RFC1918 and link-local ranges rather than allowing
+# 0.0.0.0/0 outright. That is the SSRF control: a compromised pod can still
+# reach Kraken, but not the cluster's internal services, the Kubernetes API, or
+# 169.254.169.254 — the cloud metadata endpoint that hands out node IAM
+# credentials to anything that asks.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress
+  namespace: tradexa
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    # OTLP to the collector in the observability namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 4318
+          protocol: TCP
+        - port: 4317
+          protocol: TCP

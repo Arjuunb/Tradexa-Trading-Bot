@@ -1,0 +1,136 @@
+# Web tier — serves the marketing site, the dashboard and the API.
+#
+# HUB_ROLE=web means this process starts NO singleton workers: no trading
+# engine, no watchdog, no daily-report scheduler, no monitor agent. That is what
+# makes it restartable and, once the store moves off SQLite, scalable. See
+# automation-hub/ops/runtime.py.
+#
+# Splitting it out from the engine pays off immediately even at one replica: a
+# code deploy rolls the web tier without stopping the trading engine, so
+# shipping a CSS fix no longer interrupts signal evaluation.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tradexa-hub-web
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: web
+spec:
+  # One by default. Not a limitation of these manifests — a property of the
+  # application's storage. See pvc.yaml and docs/PRODUCTION.md#scaling-the-web-tier
+  # before raising it; overlays/production raises it to 3.
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never drop below current capacity during a rollout
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tradexa-hub
+        app.kubernetes.io/component: web
+    spec:
+      serviceAccountName: tradexa-hub
+      automountServiceAccountToken: false
+      # Time for the preStop drain plus in-flight requests to finish.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001            # makes the mounted PVC group-writable by the app
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes so a single node failure cannot take out
+      # the whole web tier. ScheduleAnyway rather than DoNotSchedule: on a small
+      # cluster a hard constraint leaves pods Pending forever, which is a worse
+      # outcome than imperfect spreading.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: tradexa-hub
+              app.kubernetes.io/component: web
+      containers:
+        - name: hub
+          image: ghcr.io/arjuunb/tradexa-hub:latest   # overlays pin a digest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: HUB_ROLE
+              value: web
+            # Pod name, so a log line or a metric identifies the exact replica.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: tradexa-hub-config
+            - secretRef:
+                name: tradexa-hub-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem means the process cannot write anywhere
+            # else; Python and uvicorn both need a real temp directory.
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              # No CPU limit on purpose. A CPU limit throttles rather than
+              # kills, and a throttled web tier fails its readiness probe and
+              # gets pulled from the Service — turning a busy moment into an
+              # outage. The request guarantees a floor; memory is limited
+              # because memory pressure is not gracefully degradable.
+              memory: 768Mi
+          # Three probes, three questions. See automation-hub/ops/health.py.
+          startupProbe:
+            httpGet: { path: /health/startup, port: http }
+            periodSeconds: 5
+            failureThreshold: 30      # up to 150s to boot before giving up
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                # Kubernetes removes the pod from Service endpoints and sends
+                # SIGTERM at the same moment, and that race drops requests: the
+                # process can exit before the last kube-proxy has stopped
+                # routing to it. Sleeping here holds the container open while
+                # endpoints converge. The app has already begun failing
+                # readiness by then (ops/health.begin_drain).
+                command: ["sleep", "15"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tradexa-hub-data
+        - name: tmp
+          emptyDir: {}

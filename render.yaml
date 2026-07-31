@@ -8,8 +8,26 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    # Kept at /health rather than moved to /health/live: Render restarts the
+    # service on a failed health check, and /health/live would report "alive"
+    # even when a dependency has made the app unable to serve — which is
+    # correct for a Kubernetes liveness probe (where readiness handles traffic
+    # separately) but wrong for a single-instance host with no such distinction.
+    # /health/live, /health/ready and /health/startup all exist and are what
+    # deploy/k8s uses. See automation-hub/ops/health.py.
     healthCheckPath: /health
     envVars:
+      # Single instance: serve HTTP and run the trading engine in one process.
+      # This is the default and the behaviour this service has always had; it is
+      # stated explicitly so the contrast with the split web/engine topology in
+      # deploy/k8s is obvious. Do NOT raise Render's instance count with this
+      # set — every instance would start its own engine. See docs/PRODUCTION.md.
+      - key: HUB_ROLE
+        value: "all"
+      # Structured JSON logs, so Render's log stream is machine-parseable and
+      # matches what the Kubernetes deployment emits.
+      - key: HUB_LOG_FORMAT
+        value: "json"
       - key: HUB_AUTO_ENGINE
         value: "1"
       # Paper-trade the validated DecisionBrain on real candles instead of
@@ -50,6 +68,24 @@ services:
       # real deploy runs with the guard engaged and Safety Center shows it green.
       - key: HUB_MAX_DAILY_LOSS
         value: "0.03"
+      # --- rate limiting ---
+      # Render has no ingress-level limiter, so the app's own limiter is the
+      # only thing between this service and a crawler in a loop. 600/min per IP
+      # is generous — one landing-page load is tens of requests — and static
+      # assets, the probes and /metrics are exempt. Set 0 to disable.
+      - key: HUB_RL_GLOBAL_MAX
+        value: "600"
+      # --- observability ---
+      # /metrics is public by path so a scraper needs no session. On Kubernetes
+      # a NetworkPolicy keeps it inside the cluster; on Render there is no such
+      # boundary, so set a token here to gate it. Render generates one.
+      - key: HUB_METRICS_TOKEN
+        generateValue: true
+      # Tracing stays off until an OTLP collector endpoint is set. Uncomment and
+      # point it at a collector (or a vendor endpoint) to turn it on — no code
+      # change and no redeploy of anything else is needed.
+      # - key: OTEL_EXPORTER_OTLP_ENDPOINT
+      #   sync: false
       # --- FREE persistence (so trades AND saved settings survive redeploy
       # without a paid disk): create a free Supabase project, run automation-hub/
       # data/ledger_schema.sql (it now includes a user_settings table), then set

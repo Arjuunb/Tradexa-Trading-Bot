@@ -18,6 +18,21 @@ ccxt>=4.3.0
 requests>=2.31
 anthropic>=0.69
 
+# --- production observability (automation-hub/ops) ---
+# Metrics exposition for /metrics. Every recorder in ops/metrics.py degrades to
+# a no-op when this is missing, so a bare virtualenv still runs the app — but
+# without it there is nothing to scrape and no alerting.
+prometheus-client>=0.20
+
+# Tracing. Entirely inert until OTEL_EXPORTER_OTLP_ENDPOINT is set, so it costs
+# nothing on deployments that have no collector; ops/tracing.py wires the
+# exporter and the FastAPI/requests instrumentation when one is configured.
+opentelemetry-api>=1.24
+opentelemetry-sdk>=1.24
+opentelemetry-exporter-otlp-proto-http>=1.24
+opentelemetry-instrumentation-fastapi>=0.45b0
+opentelemetry-instrumentation-requests>=0.45b0
+
 # The trading engine itself is the parent package (pure stdlib):
 #   pip install -e ..            # installs the `bot` package
 # Optional live venues:

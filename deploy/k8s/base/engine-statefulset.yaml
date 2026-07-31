@@ -1,0 +1,131 @@
+# The trading engine. Exactly one, always.
+#
+# WHY A STATEFULSET AND NOT A DEPLOYMENT — this is the load-bearing decision in
+# these manifests. During a rolling update a Deployment may briefly run the old
+# and new pod together. For a stateless web tier that overlap is the entire
+# point. For this workload it means two autonomous engines evaluating the same
+# signals against the same account for a few seconds: duplicate orders, doubled
+# exposure, two conflicting views of the same position.
+#
+# A StatefulSet with replicas: 1 gives at-most-one semantics — it terminates the
+# existing pod and waits for it to be gone before creating its replacement. The
+# brief gap during a rollout is exactly the trade we want: a few seconds of no
+# engine is recoverable, a few seconds of two engines is not.
+#
+# Defence in depth, three layers deep:
+#   1. HUB_ROLE=engine        — only this workload starts singleton workers
+#   2. StatefulSet replicas:1 — the scheduler guarantees at-most-one
+#   3. HUB_SINGLETON_LEASE=1  — the app itself refuses to trade without the
+#                               lease (ops/singleton.py), which catches the
+#                               failure a human actually produces: scaling this
+#                               to 2 "just to see".
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tradexa-hub-engine
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: engine
+spec:
+  # DO NOT RAISE. Two engines against one account is duplicate order flow.
+  # The HubMultipleEnginesRunning alert pages if this is ever violated.
+  replicas: 1
+  serviceName: tradexa-hub-engine
+  revisionHistoryLimit: 5
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: engine
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tradexa-hub
+        app.kubernetes.io/component: engine
+    spec:
+      serviceAccountName: tradexa-hub
+      automountServiceAccountToken: false
+      # Longer than the web tier: the engine finishes its current cycle, stops
+      # the workers and releases the singleton lease on the way out. Releasing
+      # the lease is what lets a replacement start trading in seconds rather
+      # than waiting out the full TTL.
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hub
+          image: ghcr.io/arjuunb/tradexa-hub:latest   # overlays pin a digest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: HUB_ROLE
+              value: engine
+            - name: HUB_SINGLETON_LEASE
+              value: "1"
+            - name: HUB_LEASE_TTL_S
+              value: "60"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          envFrom:
+            - configMapRef:
+                name: tradexa-hub-config
+            - secretRef:
+                name: tradexa-hub-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 300m
+              memory: 512Mi
+            limits:
+              # Same reasoning as the web tier: no CPU limit. Throttling the
+              # engine mid-cycle makes it miss candles, which is a trading
+              # correctness problem, not just a slow response.
+              memory: 1Gi
+          startupProbe:
+            httpGet: { path: /health/startup, port: http }
+            periodSeconds: 5
+            failureThreshold: 36      # 180s — warm-up loads history per symbol
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            # Reports ready when this pod holds the lease AND its engine thread
+            # is alive — and also when it is a standby that correctly holds no
+            # lease. See _register_readiness_checks in app.py.
+            httpGet: { path: /health/ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "10"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tradexa-hub-data
+        - name: tmp
+          emptyDir: {}

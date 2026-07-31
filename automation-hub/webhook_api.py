@@ -22,6 +22,11 @@ from services.auto_engine import AutoStrategyEngine
 from services.controls import TradingControl
 from services.market_quality import MarketQualityConfig, MarketQualityGate
 from services.signal_pipeline import SignalPipeline
+# The singleton workers further down (feed, watchdog, monitor agent, daily
+# tasks) start at IMPORT time, so every process that imports this module used to
+# run its own copy of each. HUB_ROLE decides which process owns them — see
+# ops/runtime.py. Default "all" keeps single-instance deployments unchanged.
+from ops.runtime import runs_workers as _runs_workers
 
 # --- Phase 1 singletons (one ledger / paper account / control switch) ---
 _BOOT = time.time()
@@ -203,7 +208,7 @@ def _make_strategy(symbol: str):
 from data.ws_feed import WebSocketFeed  # noqa: E402
 from services.auto_engine import _default_fetcher  # noqa: E402
 ws_feed = WebSocketFeed(list(settings.auto_symbols), timeframe=settings.auto_timeframe)
-if settings.use_live_data:
+if settings.use_live_data and _runs_workers():
     ws_feed.start()
 
 engine = AutoStrategyEngine(
@@ -234,7 +239,11 @@ engine.approvals = approvals
 # dies, or the stream degrades to REST. Heartbeat shown at /ops/watchdog.
 from services.watchdog import Watchdog  # noqa: E402
 watchdog = Watchdog(engine, ledger, notifier.dispatch, ws_feed=ws_feed)
-watchdog.start()
+# Not on web replicas. The watchdog alerts when the engine thread dies, and a
+# process that never starts an engine would fire that alert forever — paging
+# on a condition that is, for that process, entirely correct.
+if _runs_workers():
+    watchdog.start()
 
 # AI Monitoring Agent, on a timer: compares the DEPLOYED strategy's live
 # behaviour against a backtest of that same spec and alerts on deviation. Reads
@@ -245,7 +254,7 @@ monitor_runner = MonitorRunner(engine, paper, ledger, exec_quality=exec_quality,
 # Opt-out for multi-worker deployments: each worker would otherwise run its own
 # loop and alert the same deviation N times. The endpoints keep working either
 # way — only the timer stops.
-if _os.environ.get("HUB_MONITOR_AGENT", "1").strip().lower() not in ("0", "false", "no", "off"):
+if _runs_workers() and _os.environ.get("HUB_MONITOR_AGENT", "1").strip().lower() not in ("0", "false", "no", "off"):
     monitor_runner.start()
 
 # Daily report + nightly backup: one honest digest to Telegram per UTC day
@@ -344,7 +353,9 @@ daily_tasks = DailyTasks(
            _auto_retune_check,
            _memory_review,
            _retention_prune])
-daily_tasks.start()
+# One digest and one nightly backup per deployment, not one per replica.
+if _runs_workers():
+    daily_tasks.start()
 
 # Apply persisted runtime overrides on top of env defaults.
 from services.runtime_settings import load_overrides, save_overrides  # noqa: E402

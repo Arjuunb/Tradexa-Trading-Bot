@@ -1,0 +1,34 @@
+# PodDisruptionBudgets govern VOLUNTARY disruption — node drains, cluster
+# upgrades, autoscaler scale-down. They do not protect against crashes.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tradexa-hub-web
+  namespace: tradexa
+spec:
+  # minAvailable: 1 rather than a percentage. At one replica a percentage-based
+  # budget rounds down to zero and lets a drain take the whole tier out.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: web
+---
+# The engine gets maxUnavailable: 0 — a node drain must not evict it silently.
+#
+# This deliberately makes draining a node running the engine require an
+# explicit override. Stopping the trading engine should be a decision someone
+# makes, not something a routine cluster upgrade does on its way past. The
+# operator's escape hatch is to delete the pod directly, which the StatefulSet
+# then reschedules under the same at-most-one guarantee.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tradexa-hub-engine
+  namespace: tradexa
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tradexa-hub
+      app.kubernetes.io/component: engine

@@ -1,0 +1,77 @@
+# OpenTelemetry Collector.
+#
+# The app exports to the collector, not directly to a backend. That indirection
+# is the point: swapping Tempo for Honeycomb, Datadog or Grafana Cloud becomes a
+# change to this file and a restart, with no application redeploy and no code
+# change. It also gives the app a local, always-available export target, so a
+# backend outage buffers here instead of blocking the trading process.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bounds collector memory so a trace spike can never OOM it and take the
+  # sidecar (and in a DaemonSet deployment, the node's telemetry) with it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  # Drop the probe traffic. Kubernetes hits liveness and readiness on a fixed
+  # interval forever; left in, those spans are the overwhelming majority of the
+  # volume and none of them has ever helped anyone debug anything. The app also
+  # filters these at source (ops/tracing.py) — belt and braces, because the
+  # filter here also catches anything instrumented later that forgets to.
+  filter/drop_probes:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.route"] == "/health"'
+        - 'attributes["http.route"] == "/health/live"'
+        - 'attributes["http.route"] == "/health/ready"'
+        - 'attributes["http.route"] == "/health/startup"'
+        - 'attributes["http.route"] == "/metrics"'
+
+  resource:
+    attributes:
+      - key: collector.name
+        value: tradexa-otel
+        action: upsert
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true      # in-cluster / compose-network hop only
+
+  # The collector's own span throughput, scraped by Prometheus. Without it a
+  # broken trace pipeline is indistinguishable from an app producing no spans.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop_probes, resource, batch]
+      exporters: [otlp/tempo]
+  telemetry:
+    logs:
+      level: warn

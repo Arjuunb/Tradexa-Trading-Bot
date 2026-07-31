@@ -1,0 +1,77 @@
+# Staging — same topology as production, smaller and louder.
+#
+#   kubectl apply -k deploy/k8s/overlays/staging
+#
+# The engine still runs as a single-replica StatefulSet under a lease. Staging
+# exists to catch deployment problems, and it cannot do that if it is deployed
+# differently from production.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tradexa-staging
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+nameSuffix: ""
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/instance: staging
+
+configMapGenerator:
+  - name: tradexa-hub-config
+    behavior: merge
+    literals:
+      - HUB_ENV=staging
+      # Verbose logs and full trace sampling: staging volume is low enough that
+      # keeping everything costs nothing and makes debugging a deploy trivial.
+      - HUB_LOG_LEVEL=DEBUG
+      - HUB_TRACE_SAMPLE=1.0
+      # Paper trading against a single symbol keeps runs cheap and comparable.
+      - HUB_AUTO_SYMBOLS=BTCUSDT
+      - HUB_CORS_ORIGINS=https://staging.trade-logx.com
+
+patches:
+  # Staging tracks the branch build rather than a pinned digest.
+  - target: { kind: Ingress, name: tradexa-hub }
+    patch: |
+      - op: replace
+        path: /spec/tls/0/hosts
+        value: [staging.trade-logx.com]
+      - op: replace
+        path: /spec/rules
+        value:
+          - host: staging.trade-logx.com
+            http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: tradexa-hub-web
+                      port:
+                        name: http
+
+  # Smaller volume — staging keeps no history worth preserving.
+  - target: { kind: PersistentVolumeClaim, name: tradexa-hub-data }
+    patch: |
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 2Gi
+
+  # Lower resource floors so staging fits alongside other workloads.
+  - target: { kind: Deployment, name: tradexa-hub-web }
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 192Mi
+
+images:
+  - name: ghcr.io/arjuunb/tradexa-hub
+    newTag: staging

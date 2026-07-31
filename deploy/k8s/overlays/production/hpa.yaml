@@ -1,0 +1,55 @@
+# Horizontal autoscaling for the WEB tier only.
+#
+# READ deploy/k8s/base/pvc.yaml BEFORE ENABLING THIS.
+#
+# This overlay raises the web tier above one replica, which is only correct once
+# the account and settings stores are off local SQLite — set SUPABASE_URL and
+# SUPABASE_KEY (the app already mirrors settings and the ledger there) or
+# migrate the store to Postgres. Autoscaling a tier whose replicas each hold
+# their own SQLite file produces users who can log in on one pod and not
+# another, intermittently, which is a miserable thing to debug.
+#
+# There is deliberately no HPA for the engine. Scaling it is never the answer:
+# a second engine is duplicate order flow, not more throughput.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: tradexa-hub-web
+  namespace: tradexa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tradexa-hub-web
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # React quickly to load, but not to a single noisy scrape interval.
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      # Deliberately slow. Aggressive scale-down after a traffic spike removes
+      # the capacity that is about to be needed again, and each removal costs a
+      # 15s connection drain.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

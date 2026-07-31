@@ -1,5 +1,19 @@
 # Deploying the live dashboard (real data, public URL)
 
+> **Looking for the production-grade path?** This page covers the quick
+> Render + Vercel deployment, which is unchanged and still works. For
+> Kubernetes, observability, backups and incident response see:
+>
+> | | |
+> |---|---|
+> | [docs/PRODUCTION.md](docs/PRODUCTION.md) | Topology, Kubernetes, CI/CD, configuration, security posture |
+> | [docs/RUNBOOK.md](docs/RUNBOOK.md) | What to do when an alert fires |
+> | [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) | Backups, restores, RTO/RPO, the quarterly drill |
+>
+> Read the first section of `docs/PRODUCTION.md` before scaling anything:
+> **exactly one trading engine may run at a time**, and that constraint shapes
+> the whole deployment.
+
 The dashboard has two parts that deploy separately:
 
 | Part | What | Where |

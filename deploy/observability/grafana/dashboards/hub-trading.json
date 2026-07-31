@@ -1,0 +1,214 @@
+{
+  "uid": "tradexa-hub-trading",
+  "title": "Hub — Trading Engine",
+  "description": "The autonomous engine: is exactly one running, is it making progress, and what is it deciding. The top-left tile is the single most important number on any Tradexa dashboard — it must read 1.",
+  "tags": ["tradexa", "trading", "engine"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Engines running",
+      "description": "Must be exactly 1. Zero means signals are not being evaluated and open positions are unmanaged. More than one means duplicate order flow against the same account — stop a replica immediately. Both cases page (HubNoEngineRunning / HubMultipleEnginesRunning).",
+      "gridPos": { "h": 5, "w": 5, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(hub_engine_running)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "0 — STOPPED", "color": "red", "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "1 — healthy", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lease holders",
+      "description": "Instances that believe they are the trading leader. More than one is split brain — see docs/RUNBOOK.md#split-brain-engine.",
+      "gridPos": { "h": 5, "w": 5, "x": 5, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(hub_engine_leader)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "text", "value": null },
+              { "color": "green", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Since last cycle",
+      "description": "Time since the engine last completed a full pass over the watchlist. This — not the cycle counter — is what distinguishes a quiet market from a wedged thread.",
+      "gridPos": { "h": 5, "w": 5, "x": 10, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "time() - max(hub_engine_last_cycle_timestamp_seconds > 0)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Open positions",
+      "gridPos": { "h": 5, "w": 4, "x": 15, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(hub_open_positions)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Backup age",
+      "description": "Time since the last successful backup. Nightly, so anything over ~36h means the job is failing — docs/DISASTER_RECOVERY.md.",
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "time() - max(hub_backup_last_success_timestamp_seconds > 0)", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 108000 },
+              { "color": "red", "value": 129600 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Account equity",
+      "description": "Paper account equity as sampled once per engine cycle.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(hub_equity_value)", "legendFormat": "equity", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 10, "lineWidth": 2 }, "decimals": 2 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Engine cycle duration",
+      "description": "How long one full pass over the watchlist takes. A rising p95 usually means an exchange endpoint is slowing down before it starts failing outright.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(hub_engine_cycle_duration_seconds_bucket[10m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(hub_engine_cycle_duration_seconds_bucket[10m])))", "legendFormat": "p95", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Decisions: accepted vs rejected",
+      "description": "Every signal the pipeline evaluated. A healthy system rejects most of what it sees — selectivity is the product, so a rejection ratio near zero is more suspicious than one near one.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (decision) (increase(hub_trade_decisions_total[1h]))",
+        "legendFormat": "{{decision}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "accepted" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "rejected" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "Which gate rejected (last 24h)",
+      "description": "Labelled by pipeline STAGE, so the cardinality stays bounded. To see the human-readable reason for a specific rejection, open the decision journal.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sort_desc(sum by (reason) (increase(hub_risk_vetoes_total[24h])))",
+        "legendFormat": "{{reason}}",
+        "format": "time_series",
+        "instant": true,
+        "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Executed trades by symbol",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (symbol) (increase(hub_trades_total[1h]))",
+        "legendFormat": "{{symbol}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": { "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Engine errors",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (stage) (rate(hub_engine_errors_total[10m]))",
+        "legendFormat": "{{stage}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20 } },
+        "overrides": []
+      }
+    }
+  ]
+}

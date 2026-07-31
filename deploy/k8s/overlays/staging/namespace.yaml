@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tradexa-staging
+  labels:
+    app.kubernetes.io/name: tradexa
+    # Same Pod Security Admission profile as production. Staging running looser
+    # rules than production is how a manifest that cannot be admitted to
+    # production passes staging unnoticed.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

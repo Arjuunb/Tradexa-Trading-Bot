@@ -1,0 +1,53 @@
+# Base manifests. Not deployed directly — apply an overlay:
+#
+#   kubectl apply -k deploy/k8s/overlays/staging
+#   kubectl apply -k deploy/k8s/overlays/production
+#
+# The Namespace is deliberately not listed here. Kustomize's `namespace:`
+# transformer sets metadata.namespace on namespaced objects but does not rename
+# a Namespace object, so a shared base namespace would force staging and
+# production into the same one. Each overlay brings its own instead.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tradexa
+
+resources:
+  - serviceaccount.yaml
+  - pvc.yaml
+  - web-deployment.yaml
+  - engine-statefulset.yaml
+  - service.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - ingress.yaml
+  - backup-cronjob.yaml
+  # Prometheus Operator CRDs. Remove these two if you run a plain Prometheus —
+  # the equivalent scrape config and rule file live in deploy/observability.
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: tradexa
+      app.kubernetes.io/managed-by: kustomize
+
+configMapGenerator:
+  - name: tradexa-hub-config
+    envs:
+      - config.env
+
+# The Secret is NOT generated and NOT committed. It is created out of band —
+# by External Secrets, Sealed Secrets, or `kubectl create secret` — and
+# referenced by fixed name. See secret.example.yaml for the required keys.
+#
+# The consequence worth knowing: because the Secret name carries no content
+# hash, rotating a credential does not roll the pods by itself. Follow a
+# rotation with:
+#     kubectl -n tradexa rollout restart deploy/tradexa-hub-web
+#     kubectl -n tradexa rollout restart statefulset/tradexa-hub-engine
+
+images:
+  - name: ghcr.io/arjuunb/tradexa-hub
+    newTag: latest   # overlays pin this to a digest

@@ -1,0 +1,286 @@
+name: CD
+
+# Build once, deploy that exact artifact everywhere.
+#
+# The image is built a single time and referred to by DIGEST from then on. Tags
+# move; digests do not. Deploying by tag means staging and production can run
+# different bytes under the same name, and the resulting "works in staging"
+# investigation is miserable. Every deploy step here pins the digest that this
+# run built and scanned.
+#
+# Cluster deployment is opt-in: set the repository variable K8S_DEPLOY_ENABLED
+# to "true" and provide KUBE_CONFIG_STAGING / KUBE_CONFIG_PRODUCTION. Without
+# them the build, scan, sign and SBOM steps still run and the deploy jobs skip,
+# so this workflow is useful immediately rather than permanently red.
+#
+# Render is unaffected: it deploys from main on its own via render.yaml.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: "Deploy to production after staging"
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false      # never interrupt a deploy mid-flight
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/tradexa-hub
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build, scan, sign
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write          # keyless signing via OIDC — no long-lived key
+      security-events: write   # upload scan results to the Security tab
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            type=raw,value=staging,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('main-{0}', github.run_number) }}
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy.sarif
+          severity: CRITICAL,HIGH
+          # Report everything; the gate below decides what blocks. Splitting the
+          # two means the Security tab keeps a full picture even when the gate
+          # is tuned.
+          exit-code: "0"
+
+      - name: Upload scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
+
+      - name: Block on fixable CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: table
+          severity: CRITICAL
+          # ignore-unfixed is the difference between a gate people respect and
+          # one they disable in week two: blocking on a CRITICAL with no
+          # available patch gives the team no action except to switch it off.
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Publish SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.spdx.json
+          retention-days: 90
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image
+        # Keyless, via the workflow's OIDC identity. The signature says "this
+        # digest was produced by this workflow in this repository", which is
+        # what an admission controller can verify before allowing a deploy.
+        run: cosign sign --yes "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+      - name: Attest the SBOM
+        run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson \
+               "${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+  deploy-staging:
+    name: deploy staging
+    needs: build
+    if: vars.K8S_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.trade-logx.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up tooling
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kustomize
+          curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.31.3/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+
+      - name: Configure cluster access
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Pin the digest that was built and scanned
+        working-directory: deploy/k8s/overlays/staging
+        run: |
+          kustomize edit set image \
+            "ghcr.io/arjuunb/tradexa-hub=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
+
+      - name: Re-validate the rendered manifests
+        # The digest edit rewrote the overlay. Validating after the edit rather
+        # than before is the only way this check covers what actually ships.
+        run: |
+          pip install pyyaml
+          python deploy/scripts/validate_manifests.py --overlay staging
+
+      - name: Apply
+        run: kubectl apply -k deploy/k8s/overlays/staging
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n tradexa-staging rollout status deploy/tradexa-hub-web --timeout=5m
+          kubectl -n tradexa-staging rollout status statefulset/tradexa-hub-engine --timeout=5m
+
+      - name: Smoke test
+        run: ./deploy/scripts/smoke_test.sh https://staging.trade-logx.com
+
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          echo "::error::staging deploy failed — rolling back"
+          kubectl -n tradexa-staging rollout undo deploy/tradexa-hub-web || true
+          kubectl -n tradexa-staging rollout undo statefulset/tradexa-hub-engine || true
+
+  deploy-production:
+    name: deploy production
+    needs: [build, deploy-staging]
+    if: >-
+      vars.K8S_DEPLOY_ENABLED == 'true' &&
+      (github.ref_type == 'tag' || inputs.deploy_production)
+    runs-on: ubuntu-latest
+    # Configure this environment with required reviewers in repo settings. That
+    # approval gate is what makes production a decision rather than a push.
+    environment:
+      name: production
+      url: https://www.trade-logx.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up tooling
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz" \
+            | tar xz -C /usr/local/bin kustomize
+          curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.31.3/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+
+      - name: Configure cluster access
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Record the current revision for rollback
+        id: current
+        run: |
+          echo "web=$(kubectl -n tradexa get deploy/tradexa-hub-web \
+            -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')" >> "$GITHUB_OUTPUT"
+
+      - name: Back up before deploying
+        # A pre-deploy restore point. Cheap, and the one moment you are most
+        # likely to want one.
+        run: |
+          kubectl -n tradexa create job --from=cronjob/tradexa-hub-backup \
+            "predeploy-$(date +%s)"
+
+      - name: Pin the digest
+        working-directory: deploy/k8s/overlays/production
+        run: |
+          kustomize edit set image \
+            "ghcr.io/arjuunb/tradexa-hub=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
+
+      - name: Re-validate the rendered manifests
+        run: |
+          pip install pyyaml
+          python deploy/scripts/validate_manifests.py --overlay production
+
+      - name: Apply
+        run: kubectl apply -k deploy/k8s/overlays/production
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n tradexa rollout status deploy/tradexa-hub-web --timeout=10m
+          kubectl -n tradexa rollout status statefulset/tradexa-hub-engine --timeout=10m
+
+      - name: Smoke test
+        run: ./deploy/scripts/smoke_test.sh https://www.trade-logx.com
+
+      - name: Confirm exactly one trading engine
+        # The invariant that matters most, checked against the live cluster
+        # rather than against the manifests.
+        run: |
+          running=$(kubectl -n tradexa get pods \
+            -l app.kubernetes.io/component=engine \
+            --field-selector=status.phase=Running -o name | wc -l)
+          echo "engine pods running: $running"
+          [ "$running" -eq 1 ] || { echo "::error::expected exactly 1 engine pod, found $running"; exit 1; }
+
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          echo "::error::production deploy failed — rolling back"
+          kubectl -n tradexa rollout undo deploy/tradexa-hub-web || true
+          kubectl -n tradexa rollout undo statefulset/tradexa-hub-engine || true
+          kubectl -n tradexa rollout status deploy/tradexa-hub-web --timeout=5m || true

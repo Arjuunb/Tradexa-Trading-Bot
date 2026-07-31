@@ -1,0 +1,121 @@
+name: Security
+
+# Scheduled scanning matters more than per-commit scanning for dependencies:
+# most vulnerabilities appear in code you have not touched. A package you
+# shipped last month becomes vulnerable this morning without a single commit,
+# and only a scheduled run notices.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 04:00 UTC Monday — findings land before the working week, not during it.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: dependency vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit
+      - name: Audit installed packages
+        run: |
+          pip install -e ".[dev]"
+          pip install -r automation-hub/requirements.txt
+          # Reports without failing the build. A vulnerability with no released
+          # fix cannot be actioned by this repository, and a gate that cannot be
+          # satisfied is a gate that gets disabled. The scheduled run and the
+          # Security tab are where these get triaged.
+          pip-audit --desc --format columns || true
+
+  secrets:
+    name: secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # gitleaks scans history, not just the tip
+      - name: Scan for committed credentials
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  config:
+    name: IaC and Dockerfile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan manifests and Dockerfile
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+
+      - name: No plaintext secrets in committed manifests
+        # secret.example.yaml is a template full of REPLACE_ME placeholders and
+        # is meant to stay that way. This catches the moment someone fills one
+        # in "just to test" and commits it.
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          # Placeholder values that are correct to have in the repo.
+          allowed = re.compile(
+              r"REPLACE_ME|CHANGE_?ME|^\"\"$|^''$|example|placeholder|local-dev|"
+              r"ci-only|not-for-production|dev-insecure|dev-webhook",
+              re.IGNORECASE)
+          suspicious = []
+          for p in list(pathlib.Path("deploy").rglob("*.yaml")) + \
+                   list(pathlib.Path("deploy").rglob("*.yml")):
+              for n, line in enumerate(p.read_text().splitlines(), 1):
+                  s = line.strip()
+                  if s.startswith("#"):
+                      continue
+                  m = re.match(
+                      r'^\s*(HUB_SECRET|HUB_PASSWORD|HUB_WEBHOOK_SECRET|HUB_API_KEY|'
+                      r'HUB_METRICS_TOKEN|SUPABASE_KEY|TELEGRAM_BOT_TOKEN)\s*:\s*(.+)$', s)
+                  if m and not allowed.search(m.group(2)):
+                      suspicious.append(f"{p}:{n}: {s[:100]}")
+          for s in suspicious:
+              print(f"::error::possible committed secret: {s}")
+          sys.exit(1 if suspicious else 0)
+          PY
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-python

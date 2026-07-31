@@ -1,0 +1,36 @@
+# Tempo — trace storage for the local stack.
+#
+# Single-binary, local-filesystem mode. Deliberately not a production
+# configuration: production should point the collector at a managed backend
+# (Grafana Cloud, Honeycomb, Datadog) by editing the exporter in
+# ../otel/collector.yaml. This exists so traces are actually *viewable* while
+# developing, rather than exported into a void.
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 48h    # local debugging horizon; not an archive
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+usage_report:
+  reporting_enabled: false

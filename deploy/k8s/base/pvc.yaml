@@ -1,0 +1,41 @@
+# Shared state for the hub.
+#
+# READ THIS BEFORE CHANGING REPLICA COUNTS.
+#
+# The hub keeps its state in SQLite files under HUB_DATA_DIR: the bot and user
+# store, the trade ledger, the decision journal, the paper account, learned
+# lessons. Both roles need the same files — the engine writes trades, the web
+# tier renders them — so this volume is shared rather than per-pod. A web
+# replica with its own empty volume would serve a dashboard showing no trades.
+#
+# ACCESS MODE. ReadWriteMany, because two different pods mount it. On managed
+# clusters that means EFS (EKS), Azure Files (AKS) or Filestore (GKE); set
+# `storageClassName` in the overlay to whichever your cluster provides. If you
+# only have ReadWriteOnce, both pods must be scheduled onto the same node for
+# the mount to succeed — workable for a single-node or pinned deployment, and
+# the reason the base keeps the web tier at one replica.
+#
+# THE LIMIT, STATED HONESTLY. SQLite is a single-writer database. The engine is
+# the only writer of *trading* state, which is what makes this arrangement safe
+# today. The web tier does still write user accounts and settings, so scaling it
+# beyond one replica is only correct once that state moves off local SQLite —
+# set SUPABASE_URL/SUPABASE_KEY (the app already mirrors settings and the ledger
+# there) and migrate the account store to Postgres. Until then, treat web
+# replicas > 1 as a deliberate, tested decision, not a default. See
+# docs/PRODUCTION.md#scaling-the-web-tier.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tradexa-hub-data
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName intentionally unset: the cluster default applies unless an
+  # overlay names one. Patch it in overlays/production for an RWX class.

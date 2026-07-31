@@ -1,0 +1,187 @@
+{
+  "uid": "tradexa-hub-service",
+  "title": "Hub — Service Health",
+  "description": "Request rate, errors, latency and capacity for the Automation Hub web tier. The four stat tiles across the top are the ones to look at first during an incident.",
+  "tags": ["tradexa", "service"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "role",
+        "label": "Role",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(hub_build_info, role)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Instances up",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(up{job=~\"hub-.*\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Requests / sec",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(hub_http_requests_total[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error rate (5xx)",
+      "description": "Fraction of requests returning 5xx. The HubHighErrorRate alert fires above 5% for 5 minutes.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum(rate(hub_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(hub_http_requests_total[5m])), 0.001)",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "p95 latency",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m])))",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request rate by status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (status) (rate(hub_http_requests_total[5m]))",
+        "legendFormat": "{{status}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 15, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "description": "p50 next to p99 is the useful comparison: a p99 climbing while p50 stays flat is a slow minority of requests, not a general slowdown.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(hub_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Slowest routes (p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "topk(8, histogram_quantile(0.95, sum by (le, path) (rate(hub_http_request_duration_seconds_bucket[5m]))))",
+        "legendFormat": "{{path}}",
+        "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "In-flight requests",
+      "description": "Concurrency. A rising floor here while request rate is flat means requests are taking longer to finish — usually the first visible sign of saturation.",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(hub_http_requests_in_flight)", "legendFormat": "in flight", "refId": "A" }],
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 20 } }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Protection: rate limits & auth failures",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum by (scope) (rate(hub_rate_limit_rejections_total[5m]))", "legendFormat": "limited: {{scope}}", "refId": "A" },
+        { "expr": "sum by (reason) (rate(hub_auth_failures_total[5m]))", "legendFormat": "auth fail: {{reason}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Deployed build",
+      "description": "Which version and commit each running instance is on. Two rows here during a rollout is expected; two rows an hour later is a stuck deploy.",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "hub_build_info", "format": "table", "instant": true, "refId": "A" }],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "Value": true, "__name__": true } } }
+      ]
+    }
+  ]
+}

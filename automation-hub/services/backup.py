@@ -13,6 +13,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ops import metrics as _metrics
+
 KEEP = 7
 
 
@@ -21,6 +23,7 @@ def backup_now(data_dir: str, *, keep: int = KEEP, now: datetime = None) -> dict
     backups/<UTC timestamp>/. Returns what was saved and what was pruned."""
     src = Path(data_dir)
     if not src.exists():
+        _metrics.record_backup(ok=False)
         return {"ok": False, "error": f"data dir {data_dir} does not exist"}
     now = now or datetime.now(timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -54,6 +57,10 @@ def backup_now(data_dir: str, *, keep: int = KEEP, now: datetime = None) -> dict
 
     (dest / "manifest.json").write_text(json.dumps(
         {"created": now.isoformat(), "files": saved, "errors": errors}, indent=1))
+    # Stamps hub_backup_last_success_timestamp_seconds, which is what the
+    # "no backup in 36 hours" alert measures. A backup job that fails silently
+    # is indistinguishable from one that never ran until you need to restore.
+    _metrics.record_backup(ok=not errors)
     return {"ok": not errors, "snapshot": stamp, "files": saved,
             "errors": errors, "pruned": pruned}
 

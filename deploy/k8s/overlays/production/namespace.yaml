@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa
+    # Pod Security Admission, enforced by the API server rather than by review.
+    # "restricted" is the strictest built-in profile: no privilege escalation,
+    # non-root only, all capabilities dropped, seccomp required. Every pod spec
+    # in this directory already satisfies it — the label makes a future pod that
+    # does not get rejected at admission instead of quietly running privileged.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

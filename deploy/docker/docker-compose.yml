@@ -1,0 +1,148 @@
+# Production-shaped local stack.
+#
+# The point is not "run the app locally" — `uvicorn app:app` already does that.
+# The point is to run the *topology* locally: the web tier and the trading
+# engine as separate processes sharing one state volume, with the full
+# observability path attached, so that role splitting, lease election, metrics
+# and traces are all exercised on a laptop instead of being discovered for the
+# first time in a cluster.
+#
+#   docker compose -f deploy/docker/docker-compose.yml up --build
+#
+#   app        http://localhost:8000
+#   Grafana    http://localhost:3000   (admin / admin — local only)
+#   Prometheus http://localhost:9090
+#
+# Scale the web tier and watch the engine stay singular:
+#   docker compose -f deploy/docker/docker-compose.yml up --scale hub-web=3
+
+name: tradexa
+
+x-hub-image: &hub-image
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      APP_VERSION: ${APP_VERSION:-0.0.0-local}
+      GIT_COMMIT: ${GIT_COMMIT:-local}
+
+# Settings both roles share. Anchored rather than repeated so the two services
+# cannot drift apart — a web tier and an engine disagreeing about which ledger
+# or which data directory they use is a genuinely nasty class of bug.
+x-hub-env: &hub-env
+  HUB_ENV: local
+  HUB_LOG_FORMAT: json
+  HUB_LOG_LEVEL: INFO
+  HUB_DATA_DIR: /data
+  # Local-only credentials. The app hard-fails on default secrets when it
+  # detects a cloud host (RENDER/DYNO), so these are safe here and only here.
+  HUB_SECRET: local-dev-secret-not-for-production
+  HUB_USERNAME: admin
+  # Named for what it is, so the committed-secret scanner in
+  # .github/workflows/security.yml stays strict instead of having to allow the
+  # literal "admin" everywhere.
+  HUB_PASSWORD: local-dev-admin
+  HUB_WEBHOOK_SECRET: local-dev-webhook-secret
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  HUB_TRACE_SAMPLE: "1.0"
+
+services:
+  # ── web tier: stateless, scale freely ─────────────────────────────────────
+  hub-web:
+    <<: *hub-image
+    environment:
+      <<: *hub-env
+      # No singleton workers here. This is what makes --scale hub-web=3 safe:
+      # three processes serving HTTP, zero extra trading engines.
+      HUB_ROLE: web
+    volumes:
+      - hub-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  # ── engine tier: exactly one ──────────────────────────────────────────────
+  hub-engine:
+    <<: *hub-image
+    environment:
+      <<: *hub-env
+      HUB_ROLE: engine
+      # On by default for this role, set explicitly here because it is the
+      # behaviour the stack exists to demonstrate: start a second engine
+      # container and it stays a warm standby rather than double-trading.
+      HUB_SINGLETON_LEASE: "1"
+      HUB_LEASE_TTL_S: "30"
+    volumes:
+      # Same volume as the web tier. The lease lives on it, so it is a real
+      # mutual-exclusion boundary here, exactly as the engine PVC is in
+      # Kubernetes. See ops/singleton.py on the limits of that guarantee.
+      - hub-data:/data
+    restart: unless-stopped
+    expose:
+      - "8000"
+
+  # ── telemetry pipeline ────────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ../observability/otel/collector.yaml:/etc/otel/collector.yaml:ro
+    expose:
+      - "4318"   # OTLP/HTTP
+      - "8889"   # Prometheus exporter (collector's own view of spans)
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      # Required by Grafana's "Explore → Metrics" and by alert-rule unit tests.
+      - --web.enable-lifecycle
+    volumes:
+      - ../observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    expose:
+      - "3200"   # query API
+      - "4317"   # OTLP/gRPC from the collector
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Lets a panel jump from a slow request straight to its trace.
+      GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    restart: unless-stopped
+
+volumes:
+  hub-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

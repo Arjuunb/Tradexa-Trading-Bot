@@ -1,0 +1,52 @@
+# Prometheus configuration for the local stack (deploy/docker/docker-compose.yml).
+#
+# In Kubernetes this file is not used: the Prometheus Operator discovers targets
+# from the ServiceMonitor in deploy/k8s/base/servicemonitor.yaml, and the same
+# alert rules are delivered as a PrometheusRule. The rule file below is shared
+# verbatim between the two so an alert cannot be true locally and missing in
+# production.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: local
+    service: tradexa-hub
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # The web tier. Compose resolves this name to every replica of the service, so
+  # `--scale hub-web=3` produces three targets automatically — which is also how
+  # the "more than one engine leader" alert gets something to detect.
+  - job_name: hub-web
+    dns_sd_configs:
+      - names: [hub-web]
+        type: A
+        port: 8000
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: role
+        replacement: web
+
+  - job_name: hub-engine
+    dns_sd_configs:
+      - names: [hub-engine]
+        type: A
+        port: 8000
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: role
+        replacement: engine
+
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
+
+  # The collector's own telemetry — span throughput and export failures. Without
+  # it, a broken trace pipeline looks identical to an application that simply
+  # is not producing spans.
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:8889]

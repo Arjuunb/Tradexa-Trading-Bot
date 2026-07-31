@@ -1,0 +1,42 @@
+# Datasources are provisioned as code, never clicked in.
+#
+# A hand-configured Grafana is a single point of failure that nobody can rebuild
+# after the volume is lost. Everything here is recreated from this file on every
+# start, so the monitoring stack is as reproducible as the app it watches.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s      # must match prometheus.yml scrape_interval
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Turns a slow span into "and here is what the service was doing at the
+      # time" without leaving the trace view.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags:
+          - key: service.name
+            value: service
+        queries:
+          - name: Request rate
+            query: 'sum(rate(hub_http_requests_total{$$__tags}[5m]))'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

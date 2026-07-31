@@ -1,0 +1,47 @@
+# Public traffic reaches the web tier only.
+#
+# There is deliberately no Service selecting the engine's HTTP port for user
+# traffic: the engine is not a front end, and routing requests to it would put
+# request latency in the same process as signal evaluation.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tradexa-hub-web
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+# Headless Service for the engine. Not for user traffic — it exists so
+# Prometheus can discover and scrape the engine pod, which is the only way the
+# "is exactly one engine running" alert has anything to evaluate. clusterIP:
+# None means no load-balancing virtual IP, just DNS to the pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tradexa-hub-engine
+  namespace: tradexa
+  labels:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: engine
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: tradexa-hub
+    app.kubernetes.io/component: engine
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

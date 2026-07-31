@@ -24,6 +24,34 @@ from pathlib import Path
 # whether launched via uvicorn from this dir or imported by the test suite.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# ── production runtime ──────────────────────────────────────────────────────
+# Structured logging is installed before any other hub module is imported.
+# Several of them print at import time (the ledger backend, the settings mirror,
+# the engine wiring), and those lines are precisely the ones you need when a
+# deploy comes up wrong — so they have to land in the same JSON stream as
+# everything else rather than as bare text ahead of the formatter.
+from ops import (  # noqa: E402
+    health as ops_health, metrics as ops_metrics, runtime as ops_runtime,
+)
+from ops.log import configure_logging, get_logger  # noqa: E402
+
+configure_logging()
+# Resolve HUB_ROLE now, at import. It raises on an unrecognised value, which is
+# deliberate: a typo that quietly fell back to "all" would start a second
+# trading engine, and a crash-looping pod is far cheaper to notice than
+# duplicate order flow.
+HUB_ROLE = ops_runtime.role()
+ops_metrics.init()
+log = get_logger("app")
+# Log what this process will actually do, not just what it is called. "The
+# engine isn't running" is a very different investigation depending on whether
+# this replica was ever supposed to run one.
+log.info("booting", extra={"role": HUB_ROLE, "env": ops_runtime.environment(),
+                           "version": ops_runtime.version(),
+                           "instance": ops_runtime.instance_id(),
+                           "runs_workers": ops_runtime.runs_workers(),
+                           "serves_ui": ops_runtime.serves_ui()})
+
 from typing import Optional  # noqa: E402
 from fastapi import FastAPI, Form, HTTPException, Request  # noqa: E402
 from fastapi.responses import (  # noqa: E402
@@ -191,6 +219,12 @@ async def _security_headers(request, call_next):
 # static assets, and "/" (which redirects anonymous visitors to /login).
 _AUTH_EXEMPT = ("/login", "/signup", "/auth/", "/webhook", "/assets",
                 "/favicon", "/openapi.json", "/health", "/version",
+                # Prometheus scrape endpoint. Exempt by path so a scraper needs
+                # no session, then gated by HUB_METRICS_TOKEN when one is set
+                # and by NetworkPolicy in Kubernetes (deploy/k8s/base). "/health"
+                # above already covers the /health/live|ready|startup probes,
+                # since this list is prefix-matched.
+                "/metrics",
                 "/api/v1/docs", "/api/v1/redoc",   # Swagger/ReDoc moved off "/docs"; same audience as before
                 "/nexus-mark", "/apple-touch", "/icon-", "/maskable-", "/mstile-",
                 "/og-image", "/logo-mark", "/site.webmanifest", "/robots.txt",
@@ -222,6 +256,26 @@ from services.ratelimit import limiter as _rl  # noqa: E402
 _RL_AUTH = (int(_sec_os.environ.get("HUB_RL_AUTH_MAX", "12")), 300.0)      # login/signup: 12 / 5 min
 _RL_WEBHOOK = (int(_sec_os.environ.get("HUB_RL_WEBHOOK_MAX", "120")), 60.0)  # webhook: 120 / min
 
+# Third tier: a per-IP ceiling on everything else, covering the endpoints that
+# are not worth brute-forcing but are worth scraping or hammering.
+#
+# On Kubernetes the ingress limits requests per second before they ever reach
+# Python, so this is defence in depth. On Render there IS no ingress limiter,
+# and this is the only thing between the app and a crawler in a loop — which is
+# why it lives in the application rather than only in the infrastructure.
+#
+# 600/min is deliberately generous: a single landing-page load is tens of
+# requests, and a limiter that catches real users gets switched off. Set
+# HUB_RL_GLOBAL_MAX=0 to disable.
+_RL_GLOBAL = (int(_sec_os.environ.get("HUB_RL_GLOBAL_MAX", "600")), 60.0)
+
+# Never rate-limited: static assets (one page load is many of them), the probes
+# (Kubernetes polls them every few seconds forever and a 429 would read as an
+# outage), and the scrape endpoint.
+_RL_EXEMPT_PREFIXES = ("/assets", "/health", "/metrics", "/favicon",
+                       "/nexus-mark", "/apple-touch", "/icon-", "/maskable-",
+                       "/mstile-", "/og-image", "/logo-mark")
+
 
 def _client_ip(request: Request) -> str:
     """Real client IP behind Render's proxy (first X-Forwarded-For hop)."""
@@ -238,17 +292,20 @@ async def _require_auth(request: Request, call_next):
     # count. The under-test check is evaluated per-REQUEST (PYTEST_CURRENT_TEST is
     # set during a test's execution, not necessarily at import), so the limiter is
     # inert in the suite but live in production.
-    if request.method == "POST" and not _sec_os.environ.get("PYTEST_CURRENT_TEST"):
-        rule = None
-        if path in ("/login", "/signup"):
+    if not _sec_os.environ.get("PYTEST_CURRENT_TEST"):
+        rule = tag = None
+        if request.method == "POST" and path in ("/login", "/signup"):
             rule, tag = _RL_AUTH, "auth"
-        elif path.startswith("/webhook"):
+        elif request.method == "POST" and path.startswith("/webhook"):
             rule, tag = _RL_WEBHOOK, "webhook"
+        elif _RL_GLOBAL[0] > 0 and not path.startswith(_RL_EXEMPT_PREFIXES):
+            rule, tag = _RL_GLOBAL, "global"
         if rule is not None:
             limit, window = rule
             key = f"{_client_ip(request)}:{tag}"
             if not _rl.allow(key, limit, window):
                 from fastapi.responses import JSONResponse
+                ops_metrics.record_rate_limit(tag)
                 ra = _rl.retry_after(key, window)
                 return JSONResponse(
                     {"error": "Too many attempts. Please wait and try again."},
@@ -274,6 +331,20 @@ async def _require_auth(request: Request, call_next):
         return await call_next(request)
     from fastapi.responses import JSONResponse
     return JSONResponse({"error": "Sign in required"}, status_code=401)
+
+
+# Observability is registered LAST so that it runs FIRST. Starlette applies HTTP
+# middleware in reverse order of registration, so the layer added last is the
+# outermost one — the only position from which it sees the true status code and
+# the full latency, including the time spent in the rate-limit and auth checks
+# above. Registering it earlier would have it time everything except the work
+# most likely to be slow.
+from ops import middleware as ops_middleware, tracing as ops_tracing  # noqa: E402
+
+ops_middleware.install(app)
+# No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set, so local runs and the current
+# Render deployment are unaffected until a collector is configured.
+ops_tracing.configure_tracing(app)
 
 # Single-origin UI: when the React build is present (copied into ./webui by the
 # Docker image), serve it from this backend so Render shows the SAME dashboard as
@@ -387,21 +458,141 @@ if _LANDING_READY:
 
 
 
+# The singleton lease, when one is in use. Module-level so the readiness check
+# and the shutdown handler can both see it.
+_engine_lease = None
+
+
+def _lease_enabled() -> bool:
+    """Whether the engine runs under a singleton lease.
+
+    Defaults on for the dedicated ``engine`` role and off for ``all``. That
+    keeps the existing single-instance deployments (Render, docker run, local
+    uvicorn) behaving exactly as they do today — no extra thread, no extra
+    database file — while the role that exists specifically to be scheduled by
+    an orchestrator gets the protection. ``HUB_SINGLETON_LEASE=1|0`` overrides.
+    """
+    raw = _sec_os.environ.get("HUB_SINGLETON_LEASE", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return HUB_ROLE == ops_runtime.ROLE_ENGINE
+
+
+def _engine_up() -> None:
+    """Start the engine. Called directly, or by the lease on election."""
+    if webhook_api.engine.start():
+        ops_metrics.set_engine_running(True)
+        log.info("autonomous engine started", extra={
+            "symbols": list(settings.auto_symbols), "timeframe": settings.auto_timeframe,
+            "interval_s": settings.auto_interval})
+
+
+def _engine_down() -> None:
+    """Stop the engine because this process is no longer the leader. Losing the
+    lease means another instance has taken over, so continuing to trade here
+    would be the exact duplicate-order-flow failure the lease exists to
+    prevent."""
+    webhook_api.engine.stop()
+    ops_metrics.set_engine_running(False)
+    log.error("autonomous engine stopped — singleton lease lost to another instance")
+
+
+def _register_readiness_checks() -> None:
+    """Dependencies that decide whether this instance should receive traffic."""
+    from config import DATA_DIR
+
+    def _data_dir() -> tuple[bool, str]:
+        # Written, not just stat'd: a full or read-only volume passes an
+        # existence check and then fails every write the app makes.
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        probe = DATA_DIR / ".readiness"
+        probe.write_text("ok")
+        probe.unlink()
+        return True, f"writable: {DATA_DIR}"
+
+    def _database() -> tuple[bool, str]:
+        import contextlib as _cl
+        import sqlite3
+        with _cl.closing(sqlite3.connect(settings.db_path, timeout=5.0)) as conn:
+            conn.execute("SELECT 1").fetchone()
+        return True, "reachable"
+
+    ops_health.register_check("data_dir", _data_dir)
+    ops_health.register_check("database", _database)
+
+    # Only the process that is supposed to be trading is judged on whether it
+    # is. A standby holding no lease is healthy and ready — it is doing exactly
+    # its job — so it reports ok with an explanatory detail rather than failing.
+    if ops_runtime.runs_workers() and settings.auto_engine and not ops_runtime.under_test():
+        def _engine() -> tuple[bool, str]:
+            if _engine_lease is not None and not _engine_lease.held:
+                return True, "standby — another instance holds the engine lease"
+            running = bool(getattr(webhook_api.engine, "running", False))
+            return running, "running" if running else "engine thread is not running"
+
+        ops_health.register_check("engine", _engine)
+
+
 @app.on_event("startup")
 def _start_auto_engine() -> None:
-    """Start the autonomous strategy engine when the server boots (real signals
-    -> paper execution -> ledger). Disabled under pytest and via HUB_AUTO_ENGINE=0."""
-    import os
+    """Boot the autonomous strategy engine (real signals -> paper execution ->
+    ledger), subject to role and to the singleton lease.
+
+    Three separate things can stop the engine starting here, and they mean
+    different things: this process is not a worker (``HUB_ROLE=web``), the
+    engine is switched off (``HUB_AUTO_ENGINE=0``), or another instance already
+    holds the lease. Each is logged distinctly, because "the engine isn't
+    running" is a very different page at 3am depending on which one it was.
+    """
+    global _engine_lease
     backend = type(webhook_api.ledger).__name__
-    print(f"[startup] ledger backend = {backend} "
-          f"(Supabase active: {backend == 'SupabaseLedger'})", flush=True)
-    if settings.auto_engine and "PYTEST_CURRENT_TEST" not in os.environ:
-        webhook_api.engine.start()
-        print(f"[startup] autonomous engine started — symbols={list(settings.auto_symbols)} "
-              f"timeframe={settings.auto_timeframe} interval={settings.auto_interval}s", flush=True)
+    log.info("ledger backend resolved", extra={
+        "backend": backend, "supabase_active": backend == "SupabaseLedger"})
+
+    _register_readiness_checks()
+
+    if not ops_runtime.runs_workers():
+        log.info("engine not started: this process serves HTTP only",
+                 extra={"role": HUB_ROLE})
+    elif not settings.auto_engine or ops_runtime.under_test():
+        log.info("engine not started", extra={
+            "auto_engine": settings.auto_engine, "under_test": ops_runtime.under_test()})
+    elif _lease_enabled():
+        from config import DATA_DIR
+        from ops.singleton import Lease
+
+        _engine_lease = Lease(
+            _sec_os.environ.get("HUB_LEASE_DB") or str(DATA_DIR / "ops_lease.db"),
+            "auto-engine",
+            ttl_s=float(_sec_os.environ.get("HUB_LEASE_TTL_S", "60")),
+        )
+        # Non-blocking: the supervisor elects in the background and starts the
+        # engine on election. A process that loses the race stays up as a warm
+        # standby and promotes itself if the leader disappears.
+        _engine_lease.supervise(_engine_up, _engine_down)
+        log.info("engine placed under singleton lease — starts once elected",
+                 extra={"lease_owner": _engine_lease.owner})
     else:
-        print("[startup] autonomous engine NOT started "
-              f"(auto_engine={settings.auto_engine})", flush=True)
+        _engine_up()
+
+    ops_health.mark_boot_complete()
+
+
+@app.on_event("shutdown")
+def _graceful_shutdown() -> None:
+    """Fail readiness, hand the lease back, flush telemetry.
+
+    Releasing the lease explicitly is what makes failover fast: a standby
+    promotes within one poll instead of waiting out the full TTL for a lease
+    whose owner is already gone.
+    """
+    ops_health.begin_drain()
+    if _engine_lease is not None:
+        _engine_lease.stop()
+    ops_tracing.shutdown()
+    log.info("shutdown complete")
 
 # Phase 8: process-wide event hub for the live (SSE) dashboard.
 from dashboard.stream import HubEventHub, sse_format  # noqa: E402
@@ -2003,10 +2194,63 @@ def _persistence_info() -> dict:
 
 @app.get("/health")
 def health():
+    """The rich status payload the dashboard and the Render health check read.
+
+    Unchanged — but note what it does: it queries the Supabase mirror status,
+    the persistence tier and the tenancy config. That makes it the wrong probe
+    for Kubernetes liveness, where "is a dependency reachable" must never be the
+    question, because answering no gets a healthy process killed mid-trade.
+    Use /health/live and /health/ready for probes; ops/health.py explains why
+    the three are separate.
+    """
     from services.tenancy import multi_user_enabled
     return {"status": "ok", "app": settings.app_name, **_deploy_info(),
             "persistence": _persistence_info(),
             "tenancy": {"multi_user": multi_user_enabled(), "mode": "multi" if multi_user_enabled() else "single-owner"}}
+
+
+# Scrape endpoint protection. Unset means open (the Kubernetes NetworkPolicy in
+# deploy/k8s/base restricts it to the monitoring namespace, which is the normal
+# arrangement); set it when metrics are exposed anywhere reachable from outside
+# the cluster.
+_METRICS_TOKEN = _sec_os.environ.get("HUB_METRICS_TOKEN", "").strip()
+
+
+@app.get("/health/live", include_in_schema=False)
+def health_live():
+    """Liveness. Cheap and dependency-free: a failure means "restart me"."""
+    return ops_health.liveness()
+
+
+@app.get("/health/ready", include_in_schema=False)
+def health_ready():
+    """Readiness. 503 pulls this instance out of the load balancer without
+    restarting it — the right response to a dependency being down, or to the
+    pod draining during a rolling update."""
+    from fastapi.responses import JSONResponse
+    payload, ready = ops_health.readiness()
+    return JSONResponse(payload, status_code=200 if ready else 503)
+
+
+@app.get("/health/startup", include_in_schema=False)
+def health_startup():
+    """Startup gate. Kubernetes holds the liveness probe off until this passes,
+    so a slow boot is not mistaken for a hang and restarted in a loop."""
+    from fastapi.responses import JSONResponse
+    payload, ok = ops_health.startup()
+    return JSONResponse(payload, status_code=200 if ok else 503)
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics_endpoint(request: Request):
+    """Prometheus exposition."""
+    from fastapi.responses import JSONResponse, Response
+    if _METRICS_TOKEN:
+        if request.headers.get("authorization", "") != f"Bearer {_METRICS_TOKEN}":
+            ops_metrics.record_auth_failure("metrics_token")
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body, content_type = ops_metrics.render()
+    return Response(content=body, media_type=content_type)
 
 
 @app.get("/version")
