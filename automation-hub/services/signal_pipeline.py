@@ -112,34 +112,9 @@ from services.market_quality import MarketQualityGate
 _MONDAY = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
-class RuleStatus:
-    """The five things a decision rule can actually report.
-
-    A boolean cannot express this, and the difference is not cosmetic. Before
-    this existed, a risk check that could not run at all was recorded as
-    ``passed=True`` with an explanatory string — honest to a human reading the
-    detail text, and a lie to every machine consumer: the dashboard, the
-    decision store and any audit query all saw a green tick for a rule that
-    never executed.
-
-    PASSED       the rule ran and the trade satisfied it
-    WEAK         satisfied, but marginally — worth surfacing, not a rejection
-    FAILED       the rule ran and the trade did not satisfy it
-    VETOED       overridden by an authority above this rule (the risk engine),
-                 as distinct from failing on its own merits
-    UNAVAILABLE  the rule could not be evaluated — missing data, an absent
-                 module, an unreachable dependency. NOT a pass.
-    """
-
-    PASSED = "passed"
-    WEAK = "weak"
-    FAILED = "failed"
-    VETOED = "vetoed"
-    UNAVAILABLE = "unavailable"
-
-    ALL = (PASSED, WEAK, FAILED, VETOED, UNAVAILABLE)
-    # Only these two mean "this rule affirmatively did not stop the trade".
-    _AFFIRMATIVE = (PASSED, WEAK)
+# Shared vocabulary — see services/rule_status.py. Re-exported here because the
+# pipeline is where most callers meet it.
+from services.rule_status import RuleStatus  # noqa: E402
 
 
 @dataclass
@@ -165,7 +140,7 @@ class Step:
         if self.status:
             # status wins, and `passed` is recomputed from it so the two can
             # never disagree — which is the whole point of deriving it.
-            self.passed = self.status in RuleStatus._AFFIRMATIVE
+            self.passed = RuleStatus.is_affirmative(self.status)
         else:
             self.status = RuleStatus.PASSED if self.passed else RuleStatus.FAILED
 

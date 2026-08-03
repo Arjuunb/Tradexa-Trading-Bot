@@ -13,6 +13,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
+from services.rule_status import RuleStatus
+
 from data.tenant_scope import ensure_tenant_column
 
 
@@ -45,12 +47,23 @@ class DecisionStore:
                    decision TEXT NOT NULL,      -- accepted | rejected
                    reason TEXT,
                    executed INTEGER NOT NULL DEFAULT 0,
-                   components_json TEXT
+                   components_json TEXT,
+                   rules_json TEXT
                )""")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_decisions_ts ON decisions(ts)")
         self._c.execute("CREATE INDEX IF NOT EXISTS ix_decisions_decision ON decisions(decision)")
         ensure_tenant_column(self._c, "decisions")   # Phase C-3: schema-only, additive
+        # CREATE TABLE IF NOT EXISTS does nothing to a table that already
+        # exists, so a database written before rules_json existed needs the
+        # column adding explicitly. Additive and nullable: old rows keep
+        # working and read back with rules reconstructed from the flat lists.
+        self._add_column_if_missing("rules_json", "TEXT")
         self._c.commit()
+
+    def _add_column_if_missing(self, column: str, decl: str) -> None:
+        cols = {r[1] for r in self._c.execute("PRAGMA table_info(decisions)")}
+        if column not in cols:
+            self._c.execute(f"ALTER TABLE decisions ADD COLUMN {column} {decl}")
 
     def record(self, d: dict) -> int:
         with self._lock:
@@ -59,8 +72,8 @@ class DecisionStore:
                    (ts, symbol, timeframe, strategy, side, regime, htf_bias,
                     setup_quality_score, volume_score, rr_score, confidence,
                     passed_json, failed_json, decision, reason, executed,
-                    components_json)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    components_json, rules_json)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (d.get("ts") or _utcnow(), d["symbol"], d.get("timeframe"),
                  d.get("strategy"), d.get("side"), d.get("regime"),
                  d.get("htf_bias"),
@@ -70,7 +83,8 @@ class DecisionStore:
                  json.dumps(d.get("failed_rules") or []),
                  d["decision"], d.get("reason"),
                  1 if d.get("executed") else 0,
-                 json.dumps(d.get("components") or {})))
+                 json.dumps(d.get("components") or {}),
+                 json.dumps(d.get("rules") or [])))
             self._c.commit()
             return int(cur.lastrowid)
 
@@ -84,6 +98,16 @@ class DecisionStore:
         d["passed_rules"] = json.loads(d.pop("passed_json") or "[]")
         d["failed_rules"] = json.loads(d.pop("failed_json") or "[]")
         d["components"] = json.loads(d.pop("components_json") or "{}")
+        d["rules"] = json.loads(d.pop("rules_json", None) or "[]")
+        if not d["rules"]:
+            # A row written before rules_json existed. Reconstruct what can be
+            # reconstructed and no more: the flat lists cannot say which of the
+            # failures were weak and which were hard blocks, so those come back
+            # as FAILED rather than being guessed at.
+            d["rules"] = (
+                [{"rule": n, "status": RuleStatus.PASSED} for n in d["passed_rules"]]
+                + [{"rule": n, "status": RuleStatus.FAILED} for n in d["failed_rules"]]
+            )
         d["executed"] = bool(d["executed"])
         return d
 

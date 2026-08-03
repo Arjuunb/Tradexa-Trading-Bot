@@ -126,3 +126,93 @@ def test_every_status_the_pipeline_emits_is_a_known_one():
     assert seen, "no steps recorded at all"
     unknown = seen - set(RuleStatus.ALL)
     assert not unknown, f"unknown rule statuses emitted: {unknown}"
+
+
+# ── the decision gate stops flattening weak into failed ──────────────────────
+
+class _Verdict:
+    """Stands in for strategies.brain.BrainVerdict."""
+
+    def __init__(self, *, passed=(), failed=(), blocks=(), score=80, allowed=True):
+        self.passed, self.failed, self.blocks = list(passed), list(failed), list(blocks)
+        self.score, self.allowed = score, allowed
+        self.grade, self.regime, self.htf_bias = "B", "trending", "long"
+        self.components = {"volume": 12, "rr_quality": 15}
+
+
+def _decide(verdict, min_score=60):
+    from services.decision_gate import build_decision
+
+    return build_decision(symbol="ETHUSDT", timeframe="4h", strategy="brain",
+                          side="buy", confidence=0.8, verdict=verdict,
+                          min_score=min_score)
+
+
+def test_weak_rules_are_distinguished_from_hard_blocks():
+    """verdict.failed are marginal passes — the gate's own reason string calls
+    them "weak" — and verdict.blocks are hard stops. Merging them into one
+    failed_rules list threw that away, permanently, on write to the store."""
+    d = _decide(_Verdict(passed=["trend"], failed=["volume"], blocks=["spread"]))
+
+    by_rule = {r["rule"]: r["status"] for r in d["rules"]}
+    assert by_rule == {"trend": RuleStatus.PASSED,
+                       "volume": RuleStatus.WEAK,
+                       "spread": RuleStatus.FAILED}
+
+
+def test_the_flat_lists_are_preserved_for_existing_consumers():
+    """Seven call sites read passed_rules/failed_rules. They must not move."""
+    d = _decide(_Verdict(passed=["trend"], failed=["volume"], blocks=["spread"]))
+    assert d["passed_rules"] == ["trend"]
+    assert d["failed_rules"] == ["volume", "spread"]     # still flattened, as before
+
+
+def test_a_gate_that_did_not_run_reports_no_rules_rather_than_inventing_them():
+    d = _decide(None)
+    assert d["rules"] == []
+    assert d["decision"] == "accepted"
+    assert "not evaluated" in d["reason"]
+
+
+# ── the store keeps the distinction ──────────────────────────────────────────
+
+def test_decision_store_round_trips_rule_statuses(tmp_path):
+    from data.decision_store import DecisionStore
+
+    store = DecisionStore(str(tmp_path / "d.db"))
+    store.record(_decide(_Verdict(passed=["trend"], failed=["volume"], blocks=["spread"])))
+
+    row = store.list(limit=1)[0]
+    by_rule = {r["rule"]: r["status"] for r in row["rules"]}
+    assert by_rule["volume"] == RuleStatus.WEAK, (
+        "weak collapsed to failed on the round trip — the archive cannot "
+        "distinguish a marginal setup from a blocked one")
+    assert by_rule["spread"] == RuleStatus.FAILED
+
+
+def test_a_database_written_before_rules_json_still_opens(tmp_path):
+    """The additive migration. CREATE TABLE IF NOT EXISTS does nothing to an
+    existing table, so a pre-upgrade database needs the column added."""
+    import sqlite3
+
+    path = str(tmp_path / "legacy.db")
+    legacy = sqlite3.connect(path)
+    legacy.execute("""CREATE TABLE decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, symbol TEXT NOT NULL,
+        timeframe TEXT, strategy TEXT, side TEXT, regime TEXT, htf_bias TEXT,
+        setup_quality_score REAL, volume_score REAL, rr_score REAL, confidence REAL,
+        passed_json TEXT, failed_json TEXT, decision TEXT NOT NULL, reason TEXT,
+        executed INTEGER NOT NULL DEFAULT 0, components_json TEXT)""")
+    legacy.execute(
+        "INSERT INTO decisions (ts,symbol,decision,passed_json,failed_json) "
+        "VALUES ('2026-01-01T00:00:00Z','ETHUSDT','rejected','[\"trend\"]','[\"spread\"]')")
+    legacy.commit()
+    legacy.close()
+
+    from data.decision_store import DecisionStore
+
+    row = DecisionStore(path).list(limit=1)[0]
+    by_rule = {r["rule"]: r["status"] for r in row["rules"]}
+    # Reconstructed, not guessed: the flat list cannot say whether "spread" was
+    # weak or a hard block, so it comes back FAILED rather than being invented.
+    assert by_rule == {"trend": RuleStatus.PASSED, "spread": RuleStatus.FAILED}
