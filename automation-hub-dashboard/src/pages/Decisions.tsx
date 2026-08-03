@@ -4,6 +4,7 @@ import Card from "../components/common/Card";
 import Icon from "../components/common/Icon";
 import { Badge, PageHeader, StatCard } from "../components/common/ui";
 import { useLive, API_BASE } from "../lib/api";
+import RiskPipelineVerdicts from "../components/decisions/RiskPipelineVerdicts";
 
 /** Decisions — the Explainable Trading feed. One complete Decision Report per
  *  analysis cycle (including WAIT candles): narrated market analysis, the
@@ -255,6 +256,12 @@ export default function DecisionsPage({ focusId }: { focusId?: string } = {}) {
           </table>
         </div>
       </Card>
+
+      {/* The other half of the same question. The reports above are what the
+          ANALYSIS saw on each candle; this is what the RISK PIPELINE ruled
+          about the signals that reached it, including every rejection reason.
+          Both were being recorded; only the first was being shown. */}
+      <RiskPipelineVerdicts />
     </>
   );
 }

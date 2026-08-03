@@ -228,6 +228,49 @@ export function useLive<T>(path: string, intervalMs = 2500): LiveState<T> {
 }
 
 // ---- response shapes (match the FastAPI endpoints) ----
+
+/** The five verdicts a decision rule can return — services/rule_status.py.
+ *
+ *  `vetoed` is not `failed`: the risk engine overrode an otherwise acceptable
+ *  trade, rather than the trade failing this rule on its merits. `unavailable`
+ *  is neither: the rule could not be evaluated at all, which is emphatically
+ *  not a pass. A boolean cannot carry those distinctions, which is why the
+ *  backend stopped using one. */
+export type RuleStatus = "passed" | "weak" | "failed" | "vetoed" | "unavailable";
+
+export interface DecisionRule {
+  rule: string;
+  status: RuleStatus;
+}
+
+/** One evaluated signal, accepted or rejected — GET /decisions/latest.
+ *  Written by services/decision_gate.build_decision and persisted by
+ *  data/decision_store. */
+export interface DecisionRecord {
+  id: number;
+  ts: string;
+  symbol: string;
+  timeframe: string | null;
+  strategy: string | null;
+  side: string | null;
+  regime: string | null;
+  htf_bias: string | null;
+  setup_quality_score: number | null;
+  volume_score: number | null;
+  rr_score: number | null;
+  confidence: number | null;
+  /** Per-rule verdicts. Absent on rows written before the store carried them. */
+  rules?: DecisionRule[];
+  /** Flat lists, kept for older readers. `failed_rules` merges weak with
+   *  hard-blocked; `rules` above is the non-lossy form. */
+  passed_rules?: string[];
+  failed_rules?: string[];
+  decision: "accepted" | "rejected";
+  reason: string | null;
+  executed: boolean;
+  /** Deterministic score categories, each out of 20. */
+  components: Record<string, number>;
+}
 export interface PaperAccount {
   // separated, persisted concepts
   initial_capital: number;
