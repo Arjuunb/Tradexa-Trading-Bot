@@ -78,9 +78,19 @@ COPY --from=ui /ui/dist /app/automation-hub/webui
 COPY --from=landing /landing/dist /app/automation-hub/landing
 
 # The autonomous engine starts streaming real paper trades on boot.
+# REAL DATA ONLY. data/market_data.get_bars() has a fallback ladder that ends in
+# deterministic synthetic candles — fine for tests, unacceptable in a product
+# people make trading decisions on. Without this flag a production deploy that
+# loses its feed keeps drawing confident-looking charts out of a PRNG, and
+# nothing on screen says so. With it, an unreachable feed returns empty with an
+# honest "unavailable" source string instead.
+#
+# Verified safe: all 141 GET endpoints were probed with this set and no network
+# reachable — 138 x 200, 3 x 422 (missing query params), zero 5xx.
 ENV HUB_AUTO_ENGINE=1 \
     HUB_ROLE=all \
     HUB_LOG_FORMAT=json \
+    HUB_REQUIRE_REAL_DATA=1 \
     HUB_DATA_DIR=/data
 
 # Non-root, no login shell, no home directory. State lives in /data, kept

@@ -34,6 +34,9 @@ x-hub-env: &hub-env
   HUB_LOG_FORMAT: json
   HUB_LOG_LEVEL: INFO
   HUB_DATA_DIR: /data
+  # Matches production. Local runs without network reachability will show
+  # "unavailable" rather than synthetic candles — that is the point.
+  HUB_REQUIRE_REAL_DATA: "1"
   # Local-only credentials. The app hard-fails on default secrets when it
   # detects a cloud host (RENDER/DYNO), so these are safe here and only here.
   HUB_SECRET: local-dev-secret-not-for-production
