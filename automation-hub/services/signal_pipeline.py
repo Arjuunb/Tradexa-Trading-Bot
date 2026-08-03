@@ -112,11 +112,62 @@ from services.market_quality import MarketQualityGate
 _MONDAY = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 
+class RuleStatus:
+    """The five things a decision rule can actually report.
+
+    A boolean cannot express this, and the difference is not cosmetic. Before
+    this existed, a risk check that could not run at all was recorded as
+    ``passed=True`` with an explanatory string — honest to a human reading the
+    detail text, and a lie to every machine consumer: the dashboard, the
+    decision store and any audit query all saw a green tick for a rule that
+    never executed.
+
+    PASSED       the rule ran and the trade satisfied it
+    WEAK         satisfied, but marginally — worth surfacing, not a rejection
+    FAILED       the rule ran and the trade did not satisfy it
+    VETOED       overridden by an authority above this rule (the risk engine),
+                 as distinct from failing on its own merits
+    UNAVAILABLE  the rule could not be evaluated — missing data, an absent
+                 module, an unreachable dependency. NOT a pass.
+    """
+
+    PASSED = "passed"
+    WEAK = "weak"
+    FAILED = "failed"
+    VETOED = "vetoed"
+    UNAVAILABLE = "unavailable"
+
+    ALL = (PASSED, WEAK, FAILED, VETOED, UNAVAILABLE)
+    # Only these two mean "this rule affirmatively did not stop the trade".
+    _AFFIRMATIVE = (PASSED, WEAK)
+
+
 @dataclass
 class Step:
+    """One rule's outcome in the decision trail.
+
+    ``passed`` is retained because ~50 call sites and the dashboard read it, but
+    it is now DERIVED from ``status`` rather than being the source of truth.
+    Construct with a status where the distinction matters:
+
+        Step("risk_engine", status=RuleStatus.UNAVAILABLE, detail="...")
+
+    and positionally where it does not — ``Step("dedup", True, "no duplicate")``
+    still means exactly what it always did.
+    """
+
     rule: str
-    passed: bool
+    passed: bool = True
     detail: str = ""
+    status: str = ""
+
+    def __post_init__(self) -> None:
+        if self.status:
+            # status wins, and `passed` is recomputed from it so the two can
+            # never disagree — which is the whole point of deriving it.
+            self.passed = self.status in RuleStatus._AFFIRMATIVE
+        else:
+            self.status = RuleStatus.PASSED if self.passed else RuleStatus.FAILED
 
 
 @dataclass
@@ -367,8 +418,12 @@ class SignalPipeline:
                           "daily_loss", "weekly_loss", "session", "trading_day",
                           "cooldown", "max_trades", "portfolio_exposure")
 
-        def reject(stage: str, reason: str, status: str = "rejected") -> PipelineResult:
-            steps.append(Step(stage, False, reason))
+        def reject(stage: str, reason: str, status: str = "rejected",
+                   rule_status: str = RuleStatus.FAILED) -> PipelineResult:
+            # `status` is the LEDGER's word for the outcome ("rejected" /
+            # "duplicate"); `rule_status` is the RULE's own verdict. They are
+            # different axes and were previously conflated into one boolean.
+            steps.append(Step(stage, detail=reason, status=rule_status))
             # Every "no" in the pipeline funnels through here, so this one call
             # covers all of them. Labelled by STAGE, not by the free-text reason:
             # reasons interpolate symbols and prices, and a label built from
@@ -691,7 +746,11 @@ class SignalPipeline:
                 symbol=symbol, side=side, entry=entry, stop=stop,
                 confidence=confidence, payload=payload))
             if not decision.approved:
-                return reject("risk_engine", decision.explain())
+                # VETOED, not FAILED: the risk engine is the authority that
+                # overrides an otherwise-acceptable trade, which is a different
+                # thing from the trade failing this rule on its own merits.
+                return reject("risk_engine", decision.explain(),
+                              rule_status=RuleStatus.VETOED)
             steps.append(Step("risk_engine", True,
                               f"approved by {decision.limits_name} "
                               f"({len(decision.checks)} rules, "
@@ -699,8 +758,15 @@ class SignalPipeline:
         else:
             # Stated rather than skipped in silence: a decision trail that looks
             # identical whether or not the engine ran cannot be audited.
-            steps.append(Step("risk_engine", True,
-                              "tradexa.risk unavailable in this deployment — veto not applied"))
+            #
+            # UNAVAILABLE, emphatically not PASSED. This previously recorded
+            # passed=True with an explanatory string, so the detail text told
+            # the truth and every machine consumer — dashboard, decision store,
+            # audit query — read a green tick for a veto that was never applied.
+            steps.append(Step("risk_engine", status=RuleStatus.UNAVAILABLE,
+                              detail="tradexa.risk unavailable in this deployment — "
+                                     "veto NOT applied; trade cleared on the "
+                                     "pipeline's own gates only"))
 
         # 6. paper execution (routed through the fill model)
         fill = self.paper.open(symbol=symbol, side=side, size=size, entry=entry, stop=stop,
