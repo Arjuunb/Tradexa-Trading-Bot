@@ -1,0 +1,25 @@
+# Renews Let's Encrypt certificates, then reloads nginx so it picks them up.
+#
+# The reload is a SEPARATE step, run only after `certbot renew` exits 0, which
+# is exactly requirement 11 ("reload Nginx after successful renewal"). Doing it
+# cross-container from the host — rather than a --deploy-hook inside the certbot
+# container — avoids giving certbot the docker socket or the ability to signal
+# another container, which is a privilege a cert renewer should not hold.
+#
+# `certbot renew` is a no-op until a certificate is inside 30 days of expiry, so
+# running this twice a day (see the .timer) is safe and is the recommended
+# cadence.
+#
+# Install: see docs/DEPLOYMENT_VPS.md. Edit the paths below if your deployment
+# directory is not /opt/VPS-productn.
+[Unit]
+Description=Renew Let's Encrypt certificates for trade-logx.com and reload nginx
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/VPS-productn
+# renew (quiet unless something changed), then reload nginx ONLY on success.
+ExecStart=/usr/bin/docker compose run --rm certbot renew --webroot -w /var/www/certbot
+ExecStartPost=/usr/bin/docker compose exec -T nginx nginx -s reload

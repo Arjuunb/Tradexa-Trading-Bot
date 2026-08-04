@@ -1,0 +1,12 @@
+# Never commit issued certificates, private keys, or the ACME account material.
+# In this stack they live in the `letsencrypt` NAMED VOLUME, not on disk here,
+# so nothing should ever appear — but if you switch to a bind mount, these keep
+# a private key out of git even so (requirement 12).
+letsencrypt/
+certbot/
+*.pem
+*.key
+privkey*.pem
+fullchain*.pem
+# Runtime secrets for the app.
+.env
