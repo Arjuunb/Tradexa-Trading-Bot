@@ -237,7 +237,38 @@ told. That is Apple's behaviour, not a bug in the hub.
 `/login` shows only the providers that are fully configured, and the boot log
 names any single variable that is missing rather than saying "Apple is off".
 
-### 3.3 TradingView alerts
+### 3.3 The separated admin portal
+
+User management can run as its own process, so that a compromise of the trading
+app — the thing parsing webhooks from the internet — does not reach the surface
+that can grant privilege.
+
+```bash
+# On the VPS, alongside the app. Loopback only: no public port.
+HUB_ADMIN_SECRET=$(python -c "import secrets;print(secrets.token_urlsafe(48))")
+uvicorn admin_app:app --host 127.0.0.1 --port 8001
+```
+
+Reach it over an SSH tunnel rather than publishing it:
+
+```bash
+ssh -L 8001:127.0.0.1:8001 you@your-vps    # then open http://localhost:8001
+```
+
+Only `admin` and `owner` accounts can sign in at all — everyone else is refused
+at the door, not shown an empty page. If the account has two-factor on, the
+portal demands it; it is not a way around 2FA. Every action, **including every
+refusal**, is appended to `admin_audit.jsonl` under `HUB_DATA_DIR`.
+
+`HUB_ADMIN_SECRET` is a hardening step, not the mechanism: portal cookies are
+signed with a purpose-scoped key, so a stolen trading-app session cookie cannot
+open the portal even if you never set it. Setting it separates the raw key
+material too.
+
+The main app's `/users` page is unchanged and still works — this adds a safer
+door rather than removing the existing one.
+
+### 3.4 TradingView alerts
 
 Point the webhook at `https://trade-logx.com/webhook` with the header
 `X-Webhook-Secret: <HUB_WEBHOOK_SECRET>`. Now that HTTPS is on, the secret is no

@@ -664,6 +664,29 @@ class SqliteStore:
                                (pw_hash, salt, existing.username))
             self._conn.commit()
 
+    def set_role(self, username: str, role: str) -> bool:
+        """Change an account's role. True if a row changed.
+
+        Storage only — WHO may grant WHAT is decided in
+        ``services.admin_portal``, because those rules need testing against
+        combinations of actor and target that a setter cannot see. The one
+        thing enforced here is that the value is a role at all: an unknown
+        string would rank below every requirement and silently strip the
+        account of access it appeared to keep.
+        """
+        from services import rbac
+        role = (role or "").strip().lower()
+        if not rbac.is_valid_role(role):
+            return False
+        existing = self.get_user(username)
+        if existing is None or existing.role == role:
+            return False
+        with self._lock:
+            self._conn.execute("UPDATE users SET role=? WHERE username=?",
+                               (role, existing.username))
+            self._conn.commit()
+        return True
+
     # -------------------------------------------------- per-user settings
     def _sqlite_get_settings(self, username: str, namespace: str) -> dict:
         r = self._conn.execute(
