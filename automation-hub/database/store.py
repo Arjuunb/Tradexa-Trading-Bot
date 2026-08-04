@@ -14,7 +14,7 @@ import os
 import threading
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +25,31 @@ from database.models import (
 
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 _ACTIVE = {BotState.RUNNING, BotState.PAPER, BotState.PAUSED}
+
+
+def _parse_dt(value):
+    """ISO text -> datetime, tolerantly. A malformed timestamp must not break a
+    login: the field is informational, and raising here would lock the account
+    out over a display value."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_json(value) -> dict:
+    """Stored preferences -> dict. Corrupt JSON degrades to empty rather than
+    raising, for the same reason: preferences are not worth a failed sign-in."""
+    if not value:
+        return {}
+    try:
+        import json
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _norm_username(username: str) -> str:
@@ -136,7 +161,13 @@ class SqliteStore:
                     email_verified=bool(col("email_verified", 0)),
                     totp_secret=col("totp_secret"),
                     totp_enabled=bool(col("totp_enabled", 0)),
-                    totp_last_step=col("totp_last_step"))
+                    totp_last_step=col("totp_last_step"),
+                    full_name=col("full_name"),
+                    avatar_url=col("avatar_url"),
+                    timezone=col("timezone"),
+                    last_login=_parse_dt(col("last_login")),
+                    preferences=_parse_json(col("preferences")),
+                    deleted_at=_parse_dt(col("deleted_at")))
 
     def get_user(self, username: str) -> User | None:
         username = _norm_username(username)
@@ -166,13 +197,23 @@ class SqliteStore:
         user = self.get_user(username)
         matched = bool(user and auth.verify_password(
             password, user.salt, user.password_hash))
+        # A soft-deleted account must not sign in. The password is still
+        # verified FIRST and only then discarded, so a deleted account and a
+        # wrong password take the same code path and the same time — otherwise
+        # a fast rejection tells an attacker the address is real and was
+        # deleted, which is exactly the enumeration signal the check exists to
+        # avoid leaking.
+        deleted = bool(user and user.deleted_at is not None)
+        if deleted:
+            matched = False
         if os.environ.get("HUB_AUTH_DEBUG") == "1":
             # Diagnostic trail for "my password is right but sign-in fails".
             # Prints the identity looked up and the two booleans that decide the
             # outcome — deliberately NEVER the password and never the stored
             # hash or salt, which would turn a log file into a credential dump.
             print(f"[auth] lookup={_norm_username(username)!r} "
-                  f"user_found={user is not None} password_match={matched}",
+                  f"user_found={user is not None} password_match={matched}"
+                  f"{' account_deleted=True' if deleted else ''}",
                   flush=True)
         return user if matched else None
 
@@ -402,6 +443,213 @@ class SqliteStore:
                 "DELETE FROM oauth_identities WHERE provider=? AND username=?",
                 (provider, user.username))
             self._conn.commit()
+
+    # ───────────────────────────────────────────────── profile & deletion (0005)
+    def update_profile(self, username: str, *, full_name=None, avatar_url=None,
+                       timezone=None, preferences=None) -> Optional[User]:
+        """Patch semantics: ``None`` means "leave alone", not "clear".
+
+        A PATCH that treated omission as deletion would wipe a user's avatar
+        every time they changed their timezone. Clearing a field is done by
+        passing an empty string, which is a different thing a caller has to say
+        deliberately.
+        """
+        import json
+        sets, args = [], []
+        for column, value in (("full_name", full_name), ("avatar_url", avatar_url),
+                              ("timezone", timezone)):
+            if value is not None:
+                sets.append(f"{column}=?")
+                args.append(str(value).strip() or None)
+        if preferences is not None:
+            sets.append("preferences=?")
+            args.append(json.dumps(preferences))
+        if not sets:
+            return self.get_user(username)
+        args.append(_norm_username(username))
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE users SET {', '.join(sets)} WHERE username=?", args)
+            self._conn.commit()
+        return self.get_user(username)
+
+    def touch_login(self, username: str) -> None:
+        """Record a successful sign-in. Best-effort: a failure here must never
+        turn a valid login into a failed one."""
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "UPDATE users SET last_login=? WHERE username=?",
+                    (datetime.now(timezone.utc).isoformat(), _norm_username(username)))
+                self._conn.commit()
+        except Exception:  # noqa: BLE001 — informational field, never fatal
+            pass
+
+    def soft_delete_user(self, username: str) -> bool:
+        """Mark an account deleted and revoke every session it holds.
+
+        Soft, so an accidental or coerced deletion is recoverable during the
+        grace period — and so a support request can prove what was deleted and
+        when. The sessions are killed immediately regardless: an account that is
+        "deleted but still logged in somewhere" is the worst of both.
+        """
+        username = _norm_username(username)
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE users SET deleted_at=? WHERE username=? AND deleted_at IS NULL",
+                (now, username))
+            self._conn.execute(
+                "UPDATE user_sessions SET revoked_at=?, revoked_by='account_deleted' "
+                "WHERE username=? AND revoked_at IS NULL", (now, username))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def restore_user(self, username: str) -> bool:
+        """Undo a soft delete within the grace period. Sessions are NOT restored
+        — the user signs in again, which is the correct amount of friction after
+        an account was deleted."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE users SET deleted_at=NULL WHERE username=?",
+                (_norm_username(username),))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def purge_deleted_users(self, older_than_days: int = 30) -> int:
+        """Hard-delete accounts past the grace period. Returns how many went.
+
+        Separate from the soft delete and never automatic on the request path:
+        irreversible destruction should be a scheduled, auditable job, not a
+        side effect of someone clicking a button.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT username FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+                (cutoff,)).fetchall()
+            for row in rows:
+                name = row["username"]
+                # Cascade by hand: SQLite enforces foreign keys only when the
+                # pragma is on, and these tables predate it. Explicit deletes
+                # are what actually guarantee no orphaned rows survive.
+                for table, column in (("user_sessions", "username"),
+                                      ("user_settings", "username"),
+                                      ("oauth_identities", "username"),
+                                      ("auth_tokens", "username")):
+                    try:
+                        self._conn.execute(f"DELETE FROM {table} WHERE {column}=?", (name,))
+                    except Exception:  # noqa: BLE001 — table may not exist yet
+                        pass
+                self._conn.execute("DELETE FROM users WHERE username=?", (name,))
+            self._conn.commit()
+            return len(rows)
+
+    # ─────────────────────────────────────────────────────── sessions (0005)
+    def create_session(self, username: str, session_id: str, *, ttl_days: int,
+                       remembered: bool = False, user_agent: str = "",
+                       ip: str = "") -> dict:
+        """Record a signed-in device. The cookie carries ``session_id``; this row
+        is what that id is checked against, and what revocation acts on."""
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(days=max(1, int(ttl_days)))
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO user_sessions"
+                "(id, username, created_at, last_seen, expires_at, user_agent, ip,"
+                " revoked_at, revoked_by, remembered) VALUES (?,?,?,?,?,?,?,NULL,NULL,?)",
+                (session_id, _norm_username(username), now.isoformat(),
+                 now.isoformat(), expires.isoformat(),
+                 (user_agent or "")[:200], (ip or "")[:64], 1 if remembered else 0))
+            self._conn.commit()
+        return {"id": session_id, "expires_at": expires.isoformat()}
+
+    def session_is_valid(self, session_id: str) -> bool:
+        """Whether this session may still act.
+
+        Unknown ids return True, and that is deliberate: sessions issued before
+        this migration have no row, and failing them closed would sign out every
+        existing user on deploy. A row that EXISTS and is revoked or expired is
+        refused — which is what makes revocation work for everything issued from
+        now on.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT revoked_at, expires_at FROM user_sessions WHERE id=?",
+                (session_id,)).fetchone()
+        if row is None:
+            return True
+        if row["revoked_at"]:
+            return False
+        expires = _parse_dt(row["expires_at"])
+        return not (expires and expires < datetime.now(timezone.utc))
+
+    def touch_session(self, session_id: str) -> None:
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "UPDATE user_sessions SET last_seen=? WHERE id=? AND revoked_at IS NULL",
+                    (datetime.now(timezone.utc).isoformat(), session_id))
+                self._conn.commit()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def list_sessions(self, username: str, *, include_revoked: bool = False) -> list[dict]:
+        """A user's devices, newest first. What the account page renders."""
+        clause = "" if include_revoked else " AND revoked_at IS NULL"
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM user_sessions WHERE username=?{clause} "
+                "ORDER BY last_seen DESC", (_norm_username(username),)).fetchall()
+        return [{"id": r["id"], "created_at": r["created_at"],
+                 "last_seen": r["last_seen"], "expires_at": r["expires_at"],
+                 "user_agent": r["user_agent"], "ip": r["ip"],
+                 "revoked_at": r["revoked_at"], "revoked_by": r["revoked_by"],
+                 "remembered": bool(r["remembered"])} for r in rows]
+
+    def revoke_session(self, username: str, session_id: str, *,
+                       by: str = "user") -> bool:
+        """Revoke ONE session, scoped to its owner.
+
+        The username is part of the WHERE clause, not just a check before it:
+        that is what stops a user revoking somebody else's session by guessing
+        an id, and it holds even if a caller forgets to authorise first.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE user_sessions SET revoked_at=?, revoked_by=? "
+                "WHERE id=? AND username=? AND revoked_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), by, session_id,
+                 _norm_username(username)))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def revoke_all_sessions(self, username: str, *, except_id: str = "",
+                            by: str = "user") -> int:
+        """Sign out everywhere. ``except_id`` keeps the current device signed in.
+
+        Called on password change too: a password reset that leaves an attacker's
+        existing session alive has not actually locked them out, which is the
+        one thing the user believed they were doing.
+        """
+        keep = " AND id != ?" if except_id else ""
+        args = [datetime.now(timezone.utc).isoformat(), by, _norm_username(username)]
+        if except_id:
+            args.append(except_id)
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE user_sessions SET revoked_at=?, revoked_by=? "
+                f"WHERE username=? AND revoked_at IS NULL{keep}", args)
+            self._conn.commit()
+            return cur.rowcount
+
+    def purge_expired_sessions(self) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM user_sessions WHERE expires_at < ?",
+                (datetime.now(timezone.utc).isoformat(),))
+            self._conn.commit()
+            return cur.rowcount
 
     def set_password(self, username: str, new_password: str) -> None:
         # Resolve through get_user so a case- or whitespace-variant of the

@@ -53,6 +53,26 @@ class User:
     # Last TOTP step accepted. A code stays valid for its whole 30s window, so
     # without this an observed code is replayable until the window closes.
     totp_last_step: Optional[int] = None
+    # ── profile (0005) ───────────────────────────────────────────────────────
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    #: IANA zone name, never a fixed offset — an offset is wrong twice a year.
+    timezone: Optional[str] = None
+    last_login: Optional[datetime] = None
+    preferences: dict = field(default_factory=dict)
+    #: Soft delete. Non-None means the account is gone as far as auth is
+    #: concerned, while its rows remain recoverable during the grace period.
+    deleted_at: Optional[datetime] = None
+
+    @property
+    def active(self) -> bool:
+        return self.deleted_at is None
+
+    @property
+    def display_name(self) -> str:
+        """What to show in a UI. Falls back through the identifiers a person
+        would recognise, rather than showing an empty string."""
+        return self.full_name or (self.email or "").split("@")[0] or self.username
 
     @property
     def is_admin(self) -> bool:
