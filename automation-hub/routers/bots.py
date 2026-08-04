@@ -229,3 +229,150 @@ def execution_health():
         **engine.health(),
         "reconciliation": reports,
     }
+
+
+# ── account: profile, sessions, deletion ────────────────────────────────────
+# The HTTP surface over the account layer added in migration 0005. Every route
+# derives the acting user from the SESSION, never from a body field — a
+# `username` parameter here would let any authenticated caller edit or delete
+# anyone's account, which is the classic broken-object-level-authorisation bug.
+
+def _me(request) -> str:
+    """The signed-in username, or 401. The only source of identity here."""
+    import app as _app
+    username = _app._verify_session(request.cookies.get(_app.COOKIE, ""))
+    if not username:
+        raise HTTPException(status_code=401, detail="not signed in")
+    return username
+
+
+class ProfileBody(_wa.BaseModel):
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    timezone: Optional[str] = None
+    preferences: Optional[Dict] = None
+
+
+@router.get("/account/profile")
+def account_profile(request: _wa.Request):
+    import app as _app
+    user = _app.store.get_user(_me(request))
+    if user is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"username": user.username, "email": user.email,
+            "email_verified": user.email_verified,
+            "full_name": user.full_name, "display_name": user.display_name,
+            "avatar_url": user.avatar_url, "timezone": user.timezone,
+            "role": user.role, "two_factor": user.totp_enabled,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "last_login": user.last_login.isoformat() if user.last_login else None,
+            "preferences": user.preferences}
+
+
+@router.patch("/account/profile")
+def account_profile_update(request: _wa.Request, body: ProfileBody):
+    """PATCH: omitted fields are left alone, not cleared.
+
+    Note what is NOT settable here — email, role and username. Changing an email
+    must go through verification (or it is an account-takeover primitive), and
+    role changes belong to the admin surface with its own escalation guard.
+    """
+    import app as _app
+    user = _app.store.update_profile(
+        _me(request), full_name=body.full_name, avatar_url=body.avatar_url,
+        timezone=body.timezone, preferences=body.preferences)
+    if user is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    return {"ok": True, "profile": account_profile(request)}
+
+
+@router.get("/account/sessions")
+def account_sessions(request: _wa.Request):
+    """Every device signed into this account, with the current one marked.
+
+    `current` is what makes the list actionable: without it a user cannot tell
+    which row is the browser they are reading it in, and "sign out everywhere"
+    becomes a coin flip about whether they log themselves out.
+    """
+    import app as _app
+    from services.session_auth import split_session
+    username = _me(request)
+    _u, current = split_session(request.cookies.get(_app.COOKIE, ""),
+                                _app.settings.secret_key)
+    sessions = _app.store.list_sessions(username)
+    for s in sessions:
+        s["current"] = bool(current) and s["id"] == current
+    return {"sessions": sessions, "count": len(sessions),
+            "current_session_recorded": bool(current),
+            "note": ("this session predates the sessions table and cannot be "
+                     "revoked individually — sign out and back in to record it"
+                     if not current else "")}
+
+
+@router.post("/account/sessions/{session_id}/revoke")
+def account_session_revoke(session_id: str, request: _wa.Request):
+    """Sign out one device. Scoped to the caller by the store's WHERE clause."""
+    import app as _app
+    if not _app.store.revoke_session(_me(request), session_id):
+        raise HTTPException(status_code=404,
+                            detail="no such active session on this account")
+    return {"ok": True, "revoked": session_id}
+
+
+@router.post("/account/sessions/revoke-others")
+def account_sessions_revoke_others(request: _wa.Request):
+    """Sign out everywhere except here — the button a user reaches for after
+    losing a laptop."""
+    import app as _app
+    from services.session_auth import split_session
+    _u, current = split_session(request.cookies.get(_app.COOKIE, ""),
+                                _app.settings.secret_key)
+    revoked = _app.store.revoke_all_sessions(_me(request), except_id=current)
+    return {"ok": True, "revoked": revoked,
+            "kept_current": bool(current)}
+
+
+class DeleteAccountBody(_wa.BaseModel):
+    #: Re-authentication. A session cookie proves who you are; it does not prove
+    #: you are still at the keyboard. Destroying an account on a cookie alone
+    #: makes an unlocked laptop a total loss.
+    password: str
+    confirm: str = ""
+
+
+@router.post("/account/delete")
+def account_delete(request: _wa.Request, body: DeleteAccountBody):
+    """Delete the signed-in account. Soft, reversible for a grace period.
+
+    Requires the password AND a typed confirmation, because the two failures
+    this guards against are different: the password stops someone at a borrowed
+    keyboard, the typed phrase stops the owner clicking through a dialog.
+    """
+    import app as _app
+    username = _me(request)
+    if body.confirm.strip().upper() != "DELETE":
+        raise HTTPException(status_code=400,
+                            detail='type DELETE to confirm')
+    if _app.store.authenticate(username, body.password) is None:
+        raise HTTPException(status_code=403, detail="password is incorrect")
+    # An owner deleting themselves would leave the deployment with no one able
+    # to administer it — and no way back in, since signup only mints an owner
+    # when there are no users at all.
+    user = _app.store.get_user(username)
+    if getattr(user, "role", "") == "owner":
+        owners = [u for u in _app.store.list_users()
+                  if u.role == "owner" and u.active and u.username != username]
+        if not owners:
+            raise HTTPException(
+                status_code=409,
+                detail="you are the only owner — promote another owner first, "
+                       "or this deployment would be left with no administrator")
+    _app.store.soft_delete_user(username)
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({
+        "ok": True, "deleted": username,
+        "recoverable_until_days": 30,
+        "note": "the account is disabled immediately and every session is "
+                "revoked; it can be restored by an administrator within 30 days"})
+    resp.delete_cookie(_app.COOKIE)
+    return resp

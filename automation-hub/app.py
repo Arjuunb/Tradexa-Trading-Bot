@@ -411,9 +411,43 @@ hub_events = HubEventHub()
 _sessions: dict[str, str] = {}
 COOKIE = "hub_session"
 SESSION_DAYS = 7
+#: "Remember me" session length. 30 days is the common SaaS choice — long
+#: enough to be the point of the tick box, short enough that a forgotten
+#: session on a shared machine expires within a month.
+REMEMBER_DAYS = 30
 
 
-def _cookie_kwargs() -> dict:
+def _session_days(remember: bool) -> int:
+    return REMEMBER_DAYS if remember else SESSION_DAYS
+
+
+def _start_session(resp, username: str, request=None, *, remember: bool = False):
+    """Issue a session cookie AND record the device it belongs to.
+
+    The row is what makes the session revocable and listable; the cookie carries
+    its id so the two are the same session. Recording is best-effort — a failure
+    here must not turn a valid sign-in into a failed one, and the cookie alone
+    still authenticates exactly as it did before this existed.
+    """
+    import uuid
+    days = _session_days(remember)
+    session_id = uuid.uuid4().hex
+    try:
+        store.create_session(
+            username, session_id, ttl_days=days, remembered=remember,
+            user_agent=(request.headers.get("user-agent", "") if request else ""),
+            ip=((request.client.host if request and request.client else "") or ""))
+        store.touch_login(username)
+    except Exception:  # noqa: BLE001 — never block a login on bookkeeping
+        session_id = ""
+    from services.session_auth import sign
+    token = sign(username, settings.secret_key, ttl_days=days,
+                 session_id=session_id)
+    resp.set_cookie(COOKIE, token, **_cookie_kwargs(days))
+    return resp
+
+
+def _cookie_kwargs(days: int = SESSION_DAYS) -> dict:
     """Session-cookie attributes. Default SameSite=Lax (same-origin dashboard).
     Set HUB_COOKIE_SAMESITE=none to allow the dashboard to be embedded in an
     iframe on another site (e.g. the Tradexa app) — SameSite=None requires
@@ -423,10 +457,27 @@ def _cookie_kwargs() -> dict:
     if samesite not in ("lax", "none", "strict"):
         samesite = "lax"
     kw = {"httponly": True, "samesite": samesite,
-          "max_age": SESSION_DAYS * 86400}
+          "max_age": int(days) * 86400}
     if samesite == "none":
         kw["secure"] = True
     return kw
+
+
+
+def _wants_remember(form) -> bool:
+    """Whether the sign-in form ticked "Remember me".
+
+    Browsers submit a checked box as "on" and omit it entirely when unchecked,
+    so presence is the signal; the value is only checked for explicit falsey
+    strings a JSON client might send.
+    """
+    try:
+        raw = form.get("remember") if form is not None else None
+    except Exception:  # noqa: BLE001
+        return False
+    if raw is None:
+        return False
+    return str(raw).strip().lower() not in ("", "0", "false", "off", "no")
 
 
 # --------------------------------------------------------------- auth helpers
@@ -441,9 +492,24 @@ def _sign_session(username: str) -> str:
 def _verify_session(token: str):
     """Authentic + unexpired + still a real account. session_auth answers the
     first two; the user store answers the third."""
-    from services.session_auth import verify
-    username = verify(token, settings.secret_key)
-    return username if username and store.get_user(username) else None
+    from services.session_auth import split_session
+    username, session_id = split_session(token, settings.secret_key)
+    if not username:
+        return None
+    user = store.get_user(username)
+    # A soft-deleted account holds a signature that is still cryptographically
+    # valid. Authenticity is not authorisation: the token proves who issued it,
+    # the store decides whether that account may still act.
+    if not user or not getattr(user, "active", True):
+        return None
+    if session_id:
+        # Only tokens that CARRY an id are checked against the table, so cookies
+        # issued before the sessions migration keep working (see
+        # store.session_is_valid).
+        if not store.session_is_valid(session_id):
+            return None
+        store.touch_session(session_id)
+    return username
 
 
 # --------------------------------------------------------------- JWT (Sprint 1)
@@ -803,18 +869,20 @@ def _pending_2fa_user(request: Request) -> Optional[str]:
     return name if name and store.get_user(name) else None
 
 
-def _grant_session(user, destination: str = "/"):
+def _grant_session(user, destination: str = "/", request=None, *,
+                   remember: bool = False):
     resp = RedirectResponse(destination, status_code=303)
     # Sign the STORED username, not the typed one — otherwise a case-variant
     # sign-in mints a session under a name whose per-user settings namespace
     # is empty.
-    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
+    _start_session(resp, user.username, request, remember=remember)
     resp.delete_cookie(PENDING_2FA_COOKIE)
     return resp
 
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(request: Request, username: str = Form(...),
+          password: str = Form(...), remember: str = Form("")):
     # verify against hashed credentials; signed cookie survives restarts
     user = store.authenticate(username, password)
     if user is not None:
@@ -826,7 +894,8 @@ def login(username: str = Form(...), password: str = Form(...)):
             kw["max_age"] = PENDING_2FA_TTL_S
             resp.set_cookie(PENDING_2FA_COOKIE, _pending_2fa_token(user.username), **kw)
             return resp
-        return _grant_session(user)
+        return _grant_session(user, request=request,
+                              remember=_wants_remember({"remember": remember}))
     err = _login_failure_message(username).replace(" ", "+")
     return RedirectResponse(f"/login?error={err}", status_code=303)
 
@@ -877,12 +946,13 @@ def _create_owner(username: str, password: str, confirm: str):
 
 
 @app.post("/signup")
-def signup(username: str = Form(...), password: str = Form(...), confirm: str = Form(...)):
+def signup(request: Request, username: str = Form(...),
+           password: str = Form(...), confirm: str = Form(...)):
     user, err = _create_owner(username, password, confirm)
     if err:
         return RedirectResponse(f"/signup?error={err.replace(' ', '+')}", status_code=303)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE, _sign_session(user), **_cookie_kwargs())
+    _start_session(resp, user, request)
     return resp
 
 
@@ -896,7 +966,8 @@ def logout(request: Request):
 
 # ------------------------------------------------------------- auth JSON API
 @app.post("/auth/login")
-def auth_login(username: str = Form(...), password: str = Form(...)):
+def auth_login(request: Request, username: str = Form(...),
+               password: str = Form(...), remember: str = Form("")):
     """JSON login for API clients: returns a JWT access token AND sets the
     session cookie, so callers can use `Authorization: Bearer` while browsers
     keep the cookie. Same credential check as the form /login."""
@@ -919,7 +990,8 @@ def auth_login(username: str = Form(...), password: str = Form(...)):
     token = issue_access(user.username)
     resp = JSONResponse({"ok": True, "user": user.username, "token": token,
                          "token_type": "bearer", "expires_in": SESSION_DAYS * 86400})
-    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
+    _start_session(resp, user.username, request,
+                   remember=_wants_remember({"remember": remember} if remember else None))
     return resp
 
 
@@ -1089,7 +1161,7 @@ def two_factor_submit(request: Request, code: str = Form(...)):
     if not result["ok"]:
         return RedirectResponse("/auth/two-factor?error=" + _q(result["error"]),
                                 status_code=303)
-    return _grant_session(store.get_user(pending))
+    return _grant_session(store.get_user(pending), request=request)
 
 
 @app.get("/auth/2fa/status")
