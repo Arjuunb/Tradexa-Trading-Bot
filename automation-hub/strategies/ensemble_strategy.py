@@ -18,7 +18,9 @@ from typing import Optional
 
 from bot.data.indicators import ema
 from bot.types import Bar, Signal, SignalType
-from strategies.base_strategy import HubStrategy
+from tradexa.strategy import Maturity, ParamType, Parameter, StrategyMeta
+
+from strategies.base_strategy import atr_parameters, HubStrategy
 from strategies.supertrend_strategy import _supertrend_dirs
 
 
@@ -26,6 +28,50 @@ class ConfirmationEnsemble(HubStrategy):
     name = "ensemble"
     label = "Confirmation Ensemble"
     supported_regimes = ()
+
+    meta = StrategyMeta(
+        key="ensemble", name="Confirmation Ensemble", version="1.0.0",
+        description="Trades only when several independent trend reads agree.",
+        author="Tradexa", maturity=Maturity.BETA,
+        tags=("ensemble", "trend", "confirmation"), asset_classes=("crypto",),
+        timeframes=("1h", "4h"),
+        changelog=("1.0.0 - declared as a plugin. BETA: no live paper track "
+                   "record on this platform yet.",))
+    # rr_target 2.5 rather than the shared 2.0: the constructor
+    # setdefaults it, and a declared default that disagrees with what
+    # is built would be shown in the UI and believed.
+    parameters = atr_parameters(rr_target=2.5) + (
+        Parameter("fast", ParamType.INT, default=12, minimum=2, maximum=200,
+                  unit="bars", description="Fast EMA period for the trend vote."),
+        Parameter("slow", ParamType.INT, default=26, minimum=3, maximum=400,
+                  unit="bars", description="Slow EMA period for the trend vote."),
+        Parameter("st_period", ParamType.INT, default=10, minimum=2, maximum=100,
+                  unit="bars", description="Supertrend ATR period."),
+        Parameter("st_mult", ParamType.FLOAT, default=3.0, minimum=0.5,
+                  maximum=15.0, step=0.5, unit="xATR",
+                  description="Supertrend band width."),
+        Parameter("channel", ParamType.INT, default=30, minimum=5, maximum=300,
+                  unit="bars", description="Donchian channel length."),
+        Parameter("min_votes", ParamType.INT, default=2, minimum=1, maximum=3,
+                  unit="votes", tunable=True, optimise=(2, 3),
+                  description="How many of the three reads must agree."),
+        Parameter("max_history", ParamType.INT, default=600, minimum=50,
+                  maximum=10_000, unit="bars",
+                  description="Bars retained in memory."),
+    )
+
+    @classmethod
+    def validate(cls, params):
+        """min_votes above the number of voters can never be satisfied - the
+        strategy would silently never trade, which looks identical to a market
+        with no setups."""
+        votes = params.get("min_votes")
+        if votes is not None and votes > 3:
+            return ("min_votes is %s but there are only 3 reads to agree" % votes,)
+        fast, slow = params.get("fast"), params.get("slow")
+        if fast is not None and slow is not None and fast >= slow:
+            return ("fast EMA period (%s) must be below the slow one (%s)" % (fast, slow),)
+        return ()
 
     def __init__(self, symbol: str, *, fast: int = 12, slow: int = 26,
                  st_period: int = 10, st_mult: float = 3.0, channel: int = 30,

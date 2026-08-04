@@ -54,12 +54,17 @@ seam at a time, each with tests proving behaviour is unchanged.
 | --- | --- | --- | --- |
 | 1 | Foundation — models, exceptions, ports, event vocabulary | none (additive) | **done** |
 | 2 | Event bus + structured logging | low (publish-only) | **done** |
-| 3 | Risk engine behind `RiskManager` | medium | next |
-| 4 | Portfolio engine behind `PortfolioManager` | medium | planned |
-| 5 | Execution engine consolidation | medium | planned |
-| 6 | Strategy plugin registry | low | planned |
+| 3 | Risk engine behind `RiskManager` | medium | **done** |
+| 4 | Portfolio engine behind `PortfolioManager` | medium | **done** |
+| 5 | Strategy plugin registry | low | **done** |
+| 6 | Execution engine consolidation | medium | planned |
 | 7 | Config: YAML/JSON + env precedence | low | planned |
 | 8 | Migrate callers, deprecate old paths | high | planned |
+
+Phases 5 and 6 are swapped from the original numbering: the strategy registry
+turned out to be the lower-risk of the two and unblocks nothing else, so it went
+first rather than waiting behind an execution-engine consolidation that touches
+live order paths.
 
 A phase is not started until the previous one is merged with both suites green.
 
@@ -429,3 +434,153 @@ those two endpoints (the import is inside the handler, so boot is unaffected).
 Confirmed the deployed import path directly: `cd /tmp && python -c "import
 tradexa.risk"` now resolves, and `pipeline.risk_engine` is a live `RiskEngine`
 in the running app rather than `None`.
+
+---
+
+## Phase 5 — Strategies as installable plugins (`tradexa/strategy/`)
+
+Adding a strategy used to mean editing `bots/registry.py`: an import line and a
+tuple, in the module that also decides how bots are constructed. Now it means
+writing a file that declares its own metadata and putting it somewhere. Nothing
+in the trading engine is touched to add, remove or version a strategy.
+
+**`BaseStrategy` subclasses the existing `bot.strategies.base.Strategy`** rather
+than restating it. The bar-feeding contract is tested, in production, and shared
+with the backtester; a parallel implementation would diverge on the first fix and
+a plugin would then behave differently in a backtest from live. `HubStrategy`
+now extends `BaseStrategy`, so all eight existing strategies inherit the plugin
+contract through a one-line change instead of eight rewrites.
+
+**What a plugin declares, and what each declaration buys:**
+
+| Declaration | Enables |
+|---|---|
+| `meta.key` | how a saved bot configuration finds its code — unique, conflicts raise |
+| `meta.version` | semver, enforced: results are only comparable within a version |
+| `meta.maturity` | `STABLE` is what puts it in the builder; below that it is installed and backtestable but not offered |
+| `meta.requires` | constructor arguments with no default — keeps un-buildable strategies out of the builder |
+| `parameters` | types, bounds, units, descriptions the API and UI render |
+| `tunable` + `optimise` | what an optimiser may sweep, and over what |
+| `validate()` | cross-parameter rules, reported with the declarative ones, all at once |
+| the docstring | the generated reference page |
+
+**Two discovery routes, because they answer different needs.** A `.py` file in
+the plugins directory is the zero-ceremony route for writing your own; a pip
+package declaring `[project.entry-points."tradexa.strategies"]` is the
+distributable route for sharing one. Built-ins go through the identical
+registration path — built-in is a location, not a privilege.
+
+**One bad plugin cannot take the platform down.** A syntax error, a missing
+import or a duplicate key is recorded and skipped, printed at boot and returned
+by the API with the failing line. The alternative stops every strategy loading,
+including the ones running live bots. And a dropped file cannot silently
+displace a built-in: discovery order puts built-ins first, and the duplicate-key
+guard reports the conflict rather than letting last-import-wins change what a
+running bot executes.
+
+**`STRATEGIES` is unchanged in content.** It now lists only *offerable*
+strategies — stable, not deprecated, constructible from a key and a symbol —
+which is exactly `ema`, `rsi`, `smc`, as before. The other five built-ins were
+importable but unreachable (files with no registry entry); they are now
+installed, documented and backtestable without becoming live options. Promoting
+one is a one-word change in its own file, and a test fails when the offered set
+changes so it is deliberate.
+
+### Bugs this phase found
+
+**Five strategies advertised a reward:risk target they do not use.** `smc`,
+`donchian`, `supertrend` and `ensemble` `setdefault("rr_target", 2.5)` in their
+constructors, `brain` uses 3.0, and all five inherited a shared declaration
+saying 2.0. A declaration that disagrees with the constructor is worse than none
+because it is believed. Found by
+`test_the_declared_defaults_match_what_construction_produces`, fixed with
+`atr_parameters(rr_target=…)`.
+
+**Every strategy without its own docstring documented itself with
+`BaseStrategy`'s.** `inspect.getdoc` walks the MRO, so their reference pages all
+read "The contract every installable strategy satisfies". Fixed with
+`own_docstring()`.
+
+**An empty registry is falsy.** `StrategyRegistry` defines `__len__`, so
+`registry = registry or default_registry()` — the obvious phrasing — discarded
+the caller's registry on its first call, which is every call. Registration
+landed in the shared default while the caller's stayed empty, and the symptom
+(classes returned, nothing registered) points nowhere near the cause.
+
+**Files added.** `tradexa/strategy/{metadata,base,registry,discovery}.py`,
+`automation-hub/plugins/README.md`, `tests/test_strategy_plugins.py` (45),
+`automation-hub/tests/test_strategy_registry_plugins.py` (39).
+
+**Files modified.** `automation-hub/bots/registry.py` (built from discovery),
+`strategies/*.py` (declarations only — no signal logic changed),
+`routers/bots.py` (three plugin endpoints),
+`tests/test_core_architecture.py` (allowlist).
+
+**Risks.** `HubStrategy.__init__` now validates declared parameters, so a call
+site passing an out-of-bounds value raises where it previously did not.
+Undeclared keyword arguments still pass through untouched, which is the
+compatibility seam — existing call sites hand strategies arguments no
+`Parameter` describes, and rejecting those would break working bots to enforce a
+convention introduced afterwards.
+
+**Verification.** Root 508 → **556** passed. Backend 1465 → **1504** passed.
+Every one of the eight built-in strategies constructs with its declared
+defaults, and the offered set is asserted to be exactly what it was.
+
+
+### Phase 5 addendum — two gaps closed on a re-read of the brief
+
+Re-auditing the delivered work against the brief line by line found two places
+where it was true of most of the system rather than all of it.
+
+**"Every strategy must inherit from BaseStrategy" was true of eight of nine.**
+`bot/strategies/support_resistance.py` — the engine's own strategy, reached by
+`bot/cli.py`, `bot/config.py` and `api/index.py`, none of which go through the
+hub's registry — still inherited the old `Strategy` directly. It is now a plugin
+with 16 declared parameters (its constructor's hand-rolled `if x < 1: raise`
+checks became declarations, so a UI and an optimiser can see the same bounds
+the constructor enforces).
+
+That conversion created an import cycle: `tradexa.strategy` imports
+`bot.strategies.base`, and the strategy imports `tradexa.strategy`. Broken by
+re-exporting lazily from `bot/strategies/__init__.py` via PEP 562 `__getattr__`
+— every existing call site is unchanged, and a test drives five import orders in
+subprocesses, because by the time an in-process test runs, the modules are
+already in `sys.modules` and the cycle cannot reproduce.
+
+`bot/config.py` held the **second** hand-maintained strategy map in the
+codebase. It now resolves historical aliases first, then the plugin registry, so
+a YAML config can name an installed plugin without that module being edited —
+otherwise "install without modifying the trading engine" was true of the hub and
+false of the CLI. Alias-first ordering means an installed plugin cannot capture a
+name an existing config already resolves to.
+
+**Nothing consumed the optimisation grid.** A declared grid that no optimiser
+runs is a field nothing reads. `tradexa/strategy/optimisation.py` adds
+`grid_search`, pure over a scoring callable so the same search drives a
+backtest, a replay or a two-line test:
+
+- the space is **bounded before it runs** — `max_candidates` refuses rather than
+  letting someone discover the size by waiting;
+- combinations the strategy's own rules reject are **skipped and counted**,
+  never scored, so they cannot rank above real losers;
+- an evaluation that raises is skipped, not scored zero;
+- **only the winner is re-scored out of sample** — validating every candidate
+  and picking the best validation score turns the holdout into a second training
+  set with a reassuring name;
+- the split is chronological, matching the spec optimiser, so both report
+  overfitting on the same basis.
+
+`POST /strategies/installed/{key}/optimise` wires it to the real `Backtester`
+over live candles, ranking by net R with a minimum-trades floor — the same
+measure the existing spec optimiser uses, so two optimisers cannot disagree
+about which configuration is better. It returns `available: false` with the
+fetch error when candles cannot be retrieved, which is the normal outcome from a
+datacenter IP.
+
+**Not done, and deliberately:** `sr_rejection` is installed and optimisable but
+is **not** added to the hub's discovery packages, so the bot builder still
+offers exactly `ema`, `rsi`, `smc`. Adding a fourth live option is a product
+decision, not a refactor. Including it is one entry in `BUILTIN_PACKAGE`.
+
+**Verification.** Root 556 → **579** passed. Backend **1504** passed, unchanged.

@@ -37,8 +37,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from bot.strategies.base import Strategy
 from bot.types import Bar, Signal, SignalType
+from tradexa.strategy import (
+    BaseStrategy, Maturity, ParamType, Parameter, StrategyMeta,
+)
 
 
 @dataclass
@@ -51,8 +53,75 @@ class Zone:
     last_touch_idx: int = 0
 
 
-class SupportResistanceRejection(Strategy):
+class SupportResistanceRejection(BaseStrategy):
+    """Trades rejection candles at clustered support and resistance zones.
+
+    Swing highs and lows within ``cluster_pct`` of each other are merged into
+    zones; an entry needs price to pierce a zone and close back through it on a
+    pin bar or engulfing candle. The stop sits beyond the rejection wick.
+    """
+
     name = "sr_rejection"
+
+    meta = StrategyMeta(
+        key="sr_rejection", name="Support/Resistance Rejection", version="0.3.0",
+        description=("Rejection candles at clustered support and resistance "
+                     "zones, with optional trend, volatility and volume filters."),
+        author="Tradexa", maturity=Maturity.STABLE,
+        tags=("price-action", "levels", "reversal"),
+        asset_classes=("crypto", "stocks", "forex"),
+        timeframes=("15m", "1h", "4h"),
+        changelog=(
+            "0.3.0 - trend / ATR-floor / volume filters added, all defaulting "
+            "OFF so existing configurations behave exactly as before.",
+            "0.2.0 - zone clustering by cluster_pct.",
+            "0.1.0 - first version.",
+        ))
+    parameters = (
+        Parameter("pivot", ParamType.INT, default=3, minimum=1, maximum=50,
+                  unit="bars", tunable=True, optimise=(2, 3, 5),
+                  description="Bars each side of a swing pivot."),
+        Parameter("lookback", ParamType.INT, default=100, minimum=1, maximum=2000,
+                  unit="bars", description="Window scanned for swing points."),
+        Parameter("cluster_pct", ParamType.FLOAT, default=0.0025, minimum=1e-6,
+                  maximum=0.5, unit="fraction", tunable=True,
+                  optimise=(0.001, 0.0025, 0.005),
+                  description="Swings within this distance merge into one zone."),
+        Parameter("max_zone_age", ParamType.INT, default=300, minimum=1,
+                  maximum=10_000, unit="bars",
+                  description="Zones older than this are dropped."),
+        Parameter("rr_target", ParamType.FLOAT, default=2.0, minimum=0.1,
+                  maximum=20.0, step=0.1, unit="R", tunable=True,
+                  optimise=(1.5, 2.0, 3.0),
+                  description="Take-profit as a multiple of the risk taken."),
+        Parameter("sl_buffer_pct", ParamType.FLOAT, default=0.0005, minimum=0.0,
+                  maximum=0.1, unit="fraction",
+                  description="Buffer beyond the rejection wick for the stop."),
+        Parameter("min_touches", ParamType.INT, default=2, minimum=1, maximum=50,
+                  unit="touches", tunable=True, optimise=(1, 2, 3),
+                  description="Touches before a zone is tradeable."),
+        Parameter("trend_filter", ParamType.BOOL, default=False,
+                  description="Require the EMA slope to agree with the entry."),
+        Parameter("trend_ema_period", ParamType.INT, default=50, minimum=2,
+                  maximum=500, unit="bars", description="EMA for the trend filter."),
+        Parameter("trend_min_slope_bps", ParamType.FLOAT, default=0.0, minimum=0.0,
+                  maximum=1000.0, unit="bps/bar",
+                  description="Minimum absolute EMA slope to count as a trend."),
+        Parameter("atr_floor_pct", ParamType.FLOAT, default=0.0, minimum=0.0,
+                  maximum=1.0, unit="fraction",
+                  description="Skip entries when ATR/price is below this."),
+        Parameter("atr_floor_period", ParamType.INT, default=14, minimum=2,
+                  maximum=500, unit="bars", description="ATR period for the floor."),
+        Parameter("vol_confirm", ParamType.BOOL, default=False,
+                  description="Require volume above its moving average."),
+        Parameter("vol_sma_n", ParamType.INT, default=20, minimum=2, maximum=500,
+                  unit="bars", description="Volume moving-average window."),
+        Parameter("vol_mult", ParamType.FLOAT, default=1.2, minimum=0.01,
+                  maximum=20.0, step=0.1, unit="x",
+                  description="Volume must exceed this multiple of its average."),
+        Parameter("longs_only_in_uptrend", ParamType.BOOL, default=False,
+                  description="Skip shorts while the EMA slope is positive."),
+    )
 
     def __init__(
         self,

@@ -343,6 +343,36 @@ DELIBERATE_TRADEXA_CONSUMERS = {
     # mathematics out of the execution engine. Adding a venue touches this file
     # and no arithmetic.
     "automation-hub/services/portfolio_view.py",
+    # Phase 5: the catalog is now BUILT from tradexa.strategy's registry rather
+    # than hand-maintained here. This is the file that used to be edited to add
+    # a strategy, so the dependency is the whole point of the phase.
+    "automation-hub/bots/registry.py",
+    # Phase 5: the plugin endpoints — list, describe, validate, optimise.
+    "automation-hub/routers/bots.py",
+    # Phase 5: the engine's own strategy is a plugin like any other. This is the
+    # first import of tradexa from `bot/`, and the direction is worth noting:
+    # tradexa.strategy.BaseStrategy subclasses bot.strategies.base.Strategy, so
+    # the arrow that looks reversed here is a subclass reaching for its own base
+    # class's plugin layer, not the engine depending on an application service.
+    # It forced bot/strategies/__init__.py to re-export lazily; see the module.
+    "bot/strategies/support_resistance.py",
+    # Phase 5: a config's strategy name resolves through the plugin registry
+    # when it is not one of the historical aliases, so a YAML file can name an
+    # installed plugin without this module being edited. The import is lazy —
+    # bot/ must keep starting when only the engine is installed.
+    "bot/config.py",
+}
+
+#: Directories where importing tradexa is expected of EVERY file, listed as a
+#: prefix rather than one entry per file. Used sparingly: a prefix hides how
+#: many files depend on tradexa, which is exactly what the per-file list exists
+#: to show. It earns its place only where the dependency is the directory's
+#: defining property — every strategy is a plugin, and a plugin is a thing that
+#: declares tradexa.strategy metadata. Listing eight strategies individually
+#: would say nothing the prefix does not, and would need a ninth line every time
+#: someone adds a strategy, which is the ceremony this phase removed.
+DELIBERATE_TRADEXA_DIRECTORIES = {
+    "automation-hub/strategies/",
 }
 
 
@@ -367,11 +397,27 @@ def test_only_deliberately_migrated_modules_import_tradexa():
             if "__pycache__" in p.parts or "tests" in p.parts or p.name == "conftest.py":
                 continue
             rel = p.relative_to(root).as_posix()
-            if "tradexa" in _imports(p) and rel not in DELIBERATE_TRADEXA_CONSUMERS:
+            allowed = (rel in DELIBERATE_TRADEXA_CONSUMERS
+                       or any(rel.startswith(d) for d in DELIBERATE_TRADEXA_DIRECTORIES))
+            if "tradexa" in _imports(p) and not allowed:
                 offenders.append(rel)
     assert not offenders, (
         f"undeclared dependency on tradexa: {offenders}. If the import is "
         "intended, add it to DELIBERATE_TRADEXA_CONSUMERS with the reason.")
+
+
+def test_an_allowlisted_directory_actually_contains_such_imports():
+    """A prefix exemption that covers nothing is a hole with no reason left in
+    it. If the strategies package stopped depending on tradexa, the entry must
+    go — otherwise the next accidental import into that tree passes unseen."""
+    root = CORE.parents[1]
+    for prefix in DELIBERATE_TRADEXA_DIRECTORIES:
+        base = root / prefix
+        assert base.is_dir(), f"allowlisted directory no longer exists: {prefix}"
+        assert any("tradexa" in _imports(p) for p in base.rglob("*.py")
+                   if "__pycache__" not in p.parts), (
+            f"{prefix} is allowlisted but nothing in it imports tradexa — "
+            "remove the entry")
 
 
 def test_the_allowlist_has_no_stale_entries():
