@@ -648,3 +648,68 @@ engine was unreachable by the caller.
 `automation-hub/tests/test_paper_venue.py` (11).
 
 **Verification.** Root 579 → **650** passed. Backend 1504 → **1515** passed.
+
+---
+
+## Phase 7 — Backtesting realism (`tradexa/backtest/`)
+
+An audit against the brief first, because most of it already existed:
+
+| Asked for | Status before |
+|---|---|
+| Candle simulation | ✅ `bot/backtester.py`, with same-bar `sl_first` tie-break |
+| Slippage, commission, spread | ✅ `services/fill_model.RealisticFill`, `bot/tradecore/costs` |
+| Walk-forward | ✅ twice — `bot/walkforward.py` and `services/backtest_lab` |
+| Monte Carlo | ✅ `services/backtest_lab.monte_carlo` |
+| Multi-asset | ✅ `bot/multi_backtester.py` |
+| HTML report | ✅ `bot/reporting.py` |
+| **Tick simulation** | ❌ |
+| **Order queue** | ❌ |
+| **Latency simulation** | ❌ |
+| **Benchmark comparison** | ❌ |
+| **PDF report** | ❌ |
+
+So this phase builds the five gaps and reuses the rest rather than restating it.
+
+**The brief's last line is the design.** "Results must closely match live
+trading" is not achieved by adding cost basis points — the platform already had
+those. It is achieved by modelling the things that decide **whether** you
+traded: a queue you were behind, a bar whose volume you exceeded, a price that
+moved during your latency. A strategy whose edge comes from being first in the
+queue backtests beautifully and cannot be traded.
+
+**Tick simulation is honest about its ticks.** `synthesise` expands a bar into a
+deterministic path visiting the adverse extreme first — matching the bar
+engine's `sl_first`, so both resolve the same ambiguity the same way — and every
+tick it produces carries `synthetic=True`. Only `RecordedTickStream` may report
+`is_synthetic = False`. A test asserts the path re-aggregates to the exact
+original OHLC, because if it does not, the path is not a decomposition of the
+bar and any difference in results belongs to the synthesiser.
+
+**Latency is time, not a price penalty.** The two differ whenever the market
+moves during the delay, which is the entire point: a fixed penalty charges the
+same in a dead market as in a fast one.
+
+**The queue is pessimistic by construction.** An order starts at the back of
+whatever was resting, only a fraction of traded volume is attributed to its
+price level, and only a sweep guarantees a fill. Assuming front-of-queue is what
+makes a mean-reversion backtest look free.
+
+**The PDF is written by hand, and that is a deliberate trade.** ReportLab,
+WeasyPrint and wkhtmltopdf all work; none is installed, and each adds a compiled
+dependency or a headless browser to an image that currently builds from
+`python:3.11-slim` in under a minute. ~150 lines producing valid PDF 1.4 —
+multi-page, selectable text, Flate-compressed — is a smaller and more auditable
+cost. It is typographic, not graphical: charts live in the HTML report, which
+has SVG and a browser, and a PDF with chart-shaped rectangles would be worse
+than one without.
+
+**Every report prints its assumptions.** Spread, latency, commission,
+participation and impact appear on the page, because a backtest result without
+its execution assumptions is a number without units.
+
+**Files added.** `tradexa/backtest/{ticks,microstructure,benchmark,report}.py`,
+`tests/test_backtest_realism.py` (42).
+
+**Verification.** Root 650 → **692** passed. Backend **1515** passed, unchanged
+— this phase is purely additive.

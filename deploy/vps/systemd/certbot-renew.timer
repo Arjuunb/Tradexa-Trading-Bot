@@ -1,0 +1,14 @@
+# Runs the renewal check twice daily, at a randomised minute so every certbot
+# user on the internet does not hit Let's Encrypt at the same second. This is
+# the cadence certbot itself recommends; `certbot renew` only acts inside the
+# 30-day pre-expiry window, so most runs do nothing and exit 0.
+[Unit]
+Description=Twice-daily Let's Encrypt renewal for trade-logx.com
+
+[Timer]
+OnCalendar=*-*-* 03,15:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

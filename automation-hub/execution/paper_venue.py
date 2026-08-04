@@ -10,12 +10,15 @@ It is an **adapter, not a rewrite**. Every call goes to the existing
 the same object the signal pipeline uses. Two execution paths for one account is
 how a position appears in one view and not the other.
 
-**This does not put the execution engine on the live path.** The paper pipeline
-still calls the paper engine directly. Routing production through
-``ExecutionEngine`` is a separate, deliberate step with its own verification;
-what this file buys today is that the port is real, the health and latency
-numbers describe an actual executor, and reconciliation has something true to
-compare against.
+**This IS the live path.** ``SignalPipeline`` submits through
+``ExecutionEngine``, which routes here, which calls the same
+``PaperExecutionEngine.open`` with the same arguments it always did. The engine
+is around the fill, not in it: what production gains is an intent-derived client
+id, an order record with its fills, per-venue latency percentiles and a book
+reconciliation can check — not a different execution.
+
+Live VENUE execution remains locked. This is the paper executor; the keyed
+brokers still refuse orders by design.
 """
 from __future__ import annotations
 
@@ -38,7 +41,8 @@ class PaperVenue:
         self._orders: dict[str, dict] = {}
 
     # ------------------------------------------------------------------ port
-    def submit(self, order: Order, *, client_id: str) -> ExecutionReport:
+    def submit(self, order: Order, *, client_id: str,
+               maker: bool = False, **_ignored) -> ExecutionReport:
         """Route an order to the paper executor.
 
         The paper engine fills or rejects immediately — it has no resting book —
@@ -51,7 +55,7 @@ class PaperVenue:
             symbol=order.symbol, side=side, size=float(order.qty),
             entry=float(order.limit_price or 0.0),
             stop=float(order.stop_loss) if order.stop_loss is not None else 0.0,
-            alert_id=client_id)
+            alert_id=client_id, maker=bool(maker))
         if getattr(fill, "action", "") == "rejected":
             return ExecutionReport(
                 status=ExecutionStatus.REJECTED, order=order,

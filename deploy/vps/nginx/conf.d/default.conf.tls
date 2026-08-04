@@ -1,0 +1,85 @@
+# ── PHASE B: TLS (HTTP → HTTPS redirect + HTTPS) ─────────────────────────────
+# Activate this ONLY after the certificate exists on disk, by copying it over
+# default.conf and reloading nginx (see docs/DEPLOYMENT_VPS.md). The filename
+# ends in `.tls`, not `.conf`, on purpose: nginx loads `conf.d/*.conf`, so this
+# file is inert until you rename it into place. If it were a second `.conf`
+# while default.conf is still active, nginx would see two servers on :80 for the
+# same names and fail to start.
+#
+# References exactly the paths the requirement names:
+#   /etc/letsencrypt/live/trade-logx.com/fullchain.pem
+#   /etc/letsencrypt/live/trade-logx.com/privkey.pem
+
+# HTTP :80 — redirect to HTTPS, but keep the ACME challenge reachable over HTTP,
+# because renewal uses HTTP-01 and a blanket 301 would break it (requirement 7).
+server {
+    listen 80;
+    listen [::]:80;
+    server_name trade-logx.com www.trade-logx.com;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    location = /nginx-health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS :443
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name trade-logx.com www.trade-logx.com;
+
+    ssl_certificate     /etc/letsencrypt/live/trade-logx.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/trade-logx.com/privkey.pem;
+
+    # Modern, broadly-compatible TLS. TLS 1.2 + 1.3 only; no SSLv3/TLS1.0/1.1.
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # Security headers (requirement 9 — preserve). HSTS is added here, on the
+    # HTTPS server only: sending it over plain HTTP is meaningless and sending
+    # it before HTTPS works can lock users out of a site that is still on HTTP.
+    # Match this set to whatever your existing HTTP config already sends.
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff"                              always;
+    add_header X-Frame-Options           "SAMEORIGIN"                           always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin"      always;
+
+    # Renewal challenge stays served over HTTPS too — harmless, and it means a
+    # renewal never depends on the redirect above behaving.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    location = /nginx-health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+
+    location / {
+        proxy_pass http://app:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+}

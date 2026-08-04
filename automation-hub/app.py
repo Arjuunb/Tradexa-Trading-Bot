@@ -411,9 +411,43 @@ hub_events = HubEventHub()
 _sessions: dict[str, str] = {}
 COOKIE = "hub_session"
 SESSION_DAYS = 7
+#: "Remember me" session length. 30 days is the common SaaS choice — long
+#: enough to be the point of the tick box, short enough that a forgotten
+#: session on a shared machine expires within a month.
+REMEMBER_DAYS = 30
 
 
-def _cookie_kwargs() -> dict:
+def _session_days(remember: bool) -> int:
+    return REMEMBER_DAYS if remember else SESSION_DAYS
+
+
+def _start_session(resp, username: str, request=None, *, remember: bool = False):
+    """Issue a session cookie AND record the device it belongs to.
+
+    The row is what makes the session revocable and listable; the cookie carries
+    its id so the two are the same session. Recording is best-effort — a failure
+    here must not turn a valid sign-in into a failed one, and the cookie alone
+    still authenticates exactly as it did before this existed.
+    """
+    import uuid
+    days = _session_days(remember)
+    session_id = uuid.uuid4().hex
+    try:
+        store.create_session(
+            username, session_id, ttl_days=days, remembered=remember,
+            user_agent=(request.headers.get("user-agent", "") if request else ""),
+            ip=((request.client.host if request and request.client else "") or ""))
+        store.touch_login(username)
+    except Exception:  # noqa: BLE001 — never block a login on bookkeeping
+        session_id = ""
+    from services.session_auth import sign
+    token = sign(username, settings.secret_key, ttl_days=days,
+                 session_id=session_id)
+    resp.set_cookie(COOKIE, token, **_cookie_kwargs(days))
+    return resp
+
+
+def _cookie_kwargs(days: int = SESSION_DAYS) -> dict:
     """Session-cookie attributes. Default SameSite=Lax (same-origin dashboard).
     Set HUB_COOKIE_SAMESITE=none to allow the dashboard to be embedded in an
     iframe on another site (e.g. the Tradexa app) — SameSite=None requires
@@ -423,10 +457,27 @@ def _cookie_kwargs() -> dict:
     if samesite not in ("lax", "none", "strict"):
         samesite = "lax"
     kw = {"httponly": True, "samesite": samesite,
-          "max_age": SESSION_DAYS * 86400}
+          "max_age": int(days) * 86400}
     if samesite == "none":
         kw["secure"] = True
     return kw
+
+
+
+def _wants_remember(form) -> bool:
+    """Whether the sign-in form ticked "Remember me".
+
+    Browsers submit a checked box as "on" and omit it entirely when unchecked,
+    so presence is the signal; the value is only checked for explicit falsey
+    strings a JSON client might send.
+    """
+    try:
+        raw = form.get("remember") if form is not None else None
+    except Exception:  # noqa: BLE001
+        return False
+    if raw is None:
+        return False
+    return str(raw).strip().lower() not in ("", "0", "false", "off", "no")
 
 
 # --------------------------------------------------------------- auth helpers
@@ -441,9 +492,24 @@ def _sign_session(username: str) -> str:
 def _verify_session(token: str):
     """Authentic + unexpired + still a real account. session_auth answers the
     first two; the user store answers the third."""
-    from services.session_auth import verify
-    username = verify(token, settings.secret_key)
-    return username if username and store.get_user(username) else None
+    from services.session_auth import split_session
+    username, session_id = split_session(token, settings.secret_key)
+    if not username:
+        return None
+    user = store.get_user(username)
+    # A soft-deleted account holds a signature that is still cryptographically
+    # valid. Authenticity is not authorisation: the token proves who issued it,
+    # the store decides whether that account may still act.
+    if not user or not getattr(user, "active", True):
+        return None
+    if session_id:
+        # Only tokens that CARRY an id are checked against the table, so cookies
+        # issued before the sessions migration keep working (see
+        # store.session_is_valid).
+        if not store.session_is_valid(session_id):
+            return None
+        store.touch_session(session_id)
+    return username
 
 
 # --------------------------------------------------------------- JWT (Sprint 1)
@@ -803,18 +869,20 @@ def _pending_2fa_user(request: Request) -> Optional[str]:
     return name if name and store.get_user(name) else None
 
 
-def _grant_session(user, destination: str = "/"):
+def _grant_session(user, destination: str = "/", request=None, *,
+                   remember: bool = False):
     resp = RedirectResponse(destination, status_code=303)
     # Sign the STORED username, not the typed one — otherwise a case-variant
     # sign-in mints a session under a name whose per-user settings namespace
     # is empty.
-    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
+    _start_session(resp, user.username, request, remember=remember)
     resp.delete_cookie(PENDING_2FA_COOKIE)
     return resp
 
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(request: Request, username: str = Form(...),
+          password: str = Form(...), remember: str = Form("")):
     # verify against hashed credentials; signed cookie survives restarts
     user = store.authenticate(username, password)
     if user is not None:
@@ -826,7 +894,8 @@ def login(username: str = Form(...), password: str = Form(...)):
             kw["max_age"] = PENDING_2FA_TTL_S
             resp.set_cookie(PENDING_2FA_COOKIE, _pending_2fa_token(user.username), **kw)
             return resp
-        return _grant_session(user)
+        return _grant_session(user, request=request,
+                              remember=_wants_remember({"remember": remember}))
     err = _login_failure_message(username).replace(" ", "+")
     return RedirectResponse(f"/login?error={err}", status_code=303)
 
@@ -877,12 +946,13 @@ def _create_owner(username: str, password: str, confirm: str):
 
 
 @app.post("/signup")
-def signup(username: str = Form(...), password: str = Form(...), confirm: str = Form(...)):
+def signup(request: Request, username: str = Form(...),
+           password: str = Form(...), confirm: str = Form(...)):
     user, err = _create_owner(username, password, confirm)
     if err:
         return RedirectResponse(f"/signup?error={err.replace(' ', '+')}", status_code=303)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE, _sign_session(user), **_cookie_kwargs())
+    _start_session(resp, user, request)
     return resp
 
 
@@ -896,7 +966,8 @@ def logout(request: Request):
 
 # ------------------------------------------------------------- auth JSON API
 @app.post("/auth/login")
-def auth_login(username: str = Form(...), password: str = Form(...)):
+def auth_login(request: Request, username: str = Form(...),
+               password: str = Form(...), remember: str = Form("")):
     """JSON login for API clients: returns a JWT access token AND sets the
     session cookie, so callers can use `Authorization: Bearer` while browsers
     keep the cookie. Same credential check as the form /login."""
@@ -919,7 +990,8 @@ def auth_login(username: str = Form(...), password: str = Form(...)):
     token = issue_access(user.username)
     resp = JSONResponse({"ok": True, "user": user.username, "token": token,
                          "token_type": "bearer", "expires_in": SESSION_DAYS * 86400})
-    resp.set_cookie(COOKIE, _sign_session(user.username), **_cookie_kwargs())
+    _start_session(resp, user.username, request,
+                   remember=_wants_remember({"remember": remember} if remember else None))
     return resp
 
 
@@ -1089,7 +1161,7 @@ def two_factor_submit(request: Request, code: str = Form(...)):
     if not result["ok"]:
         return RedirectResponse("/auth/two-factor?error=" + _q(result["error"]),
                                 status_code=303)
-    return _grant_session(store.get_user(pending))
+    return _grant_session(store.get_user(pending), request=request)
 
 
 @app.get("/auth/2fa/status")
@@ -1144,8 +1216,22 @@ def oauth_start(provider: str):
     return RedirectResponse(_oauth.authorize_url(p, state), status_code=303)
 
 
+@app.post("/auth/oauth/{provider}/callback")
 @app.get("/auth/oauth/{provider}/callback")
-def oauth_callback(provider: str, code: str = "", state: str = "", error: str = ""):
+async def oauth_callback(request: Request, provider: str, code: str = "",
+                         state: str = "", error: str = ""):
+    # Apple posts the callback as a form (response_mode=form_post) when the
+    # scope includes name or email; Google and GitHub use query parameters.
+    # Reading the body only when the query is empty keeps the GET path
+    # byte-identical to what it was.
+    if request.method == "POST" and not code:
+        try:
+            form = await request.form()
+            code = str(form.get("code") or "")
+            state = str(form.get("state") or "")
+            error = str(form.get("error") or "")
+        except Exception:  # noqa: BLE001 — fall through to the "no code" branch
+            pass
     p = _oauth.get_provider(provider)
     if p is None:
         raise HTTPException(status_code=404, detail="Unknown provider")
@@ -1162,8 +1248,13 @@ def oauth_callback(provider: str, code: str = "", state: str = "", error: str = 
         return RedirectResponse("/login?error=" + _q(f"{p.label} returned no code."),
                                 status_code=303)
 
-    token = _oauth.exchange_code(p, code)
-    profile = _oauth.fetch_profile(p, token) if token else None
+    if p.key == "apple":
+        # Apple has no userinfo endpoint — the identity arrives inside the
+        # id_token from the token exchange, so this is one call, not two.
+        profile = _oauth.exchange_apple_code(code)
+    else:
+        token = _oauth.exchange_code(p, code)
+        profile = _oauth.fetch_profile(p, token) if token else None
     if profile is None:
         return RedirectResponse(
             "/login?error=" + _q(f"Could not read your {p.label} account. Try again."),
@@ -2013,3 +2104,190 @@ def health():
 def version():
     """The deployed build's commit/branch — match commit_short to `git log`."""
     return {"app": settings.app_name, **_deploy_info()}
+
+
+# ─────────────────────────────────────────────────────────── account page
+@app.get("/account", response_class=HTMLResponse)
+def account_page(request: Request):
+    """Profile, devices and account deletion, in one page.
+
+    Server-rendered like /login and /settings rather than added to the React
+    dashboard: this page must work when the dashboard bundle does not, because
+    "sign out my other devices" is exactly what someone reaches for when
+    something is wrong.
+
+    It renders from the same /account/* JSON the API exposes, so the page and an
+    API client cannot disagree about what the account looks like.
+    """
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    user = store.get_user(u) or store.get_user(str(u))
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    from services.session_auth import split_session
+    _who, current_sid = split_session(request.cookies.get(COOKIE, ""),
+                                      settings.secret_key)
+    sessions = store.list_sessions(user.username)
+
+    def esc(x):
+        return w.esc(str(x or ""))
+
+    rows = []
+    for s in sessions:
+        is_current = bool(current_sid) and s["id"] == current_sid
+        agent = esc(s["user_agent"] or "unknown device")
+        # Truncated for the table; the full string is in the title attribute so
+        # nothing is hidden, just not shouted.
+        short = agent if len(agent) <= 48 else agent[:45] + "…"
+        badge = ('<span class="pill pill-ok">this device</span>' if is_current
+                 else '<span class="pill">%s</span>' % ("remembered" if s["remembered"] else "session"))
+        action = ("" if is_current else
+                  f'<form method="post" action="/account/sessions/{esc(s["id"])}/revoke-form" '
+                  f'style="margin:0"><button class="btn btn-sm">Sign out</button></form>')
+        rows.append(
+            f'<tr><td title="{agent}">{short}</td><td>{esc(s["ip"])}</td>'
+            f'<td>{esc((s["last_seen"] or "")[:16].replace("T", " "))}</td>'
+            f'<td>{badge}</td><td style="text-align:right">{action}</td></tr>')
+    if not rows:
+        rows.append('<tr><td colspan="5" class="muted">No recorded devices yet — '
+                    'sessions started before this release are not listed. Sign out '
+                    'and back in to record this one.</td></tr>')
+
+    two_fa = "On" if user.totp_enabled else "Off"
+    verified = "Verified" if user.email_verified else "Not verified"
+    # The form handlers report failure by redirecting back here with ?error=.
+    # Without rendering it, a rejected password on the delete form looks exactly
+    # like a page that did nothing — the worst possible feedback on the one form
+    # where the user needs to know why it refused.
+    flash = ""
+    if request.query_params.get("error"):
+        flash = ('<div class="card danger" style="margin-bottom:16px">%s</div>'
+                 % esc(request.query_params["error"]))
+    elif request.query_params.get("saved"):
+        flash = ('<div class="card" style="margin-bottom:16px">Profile saved.</div>')
+    inner = f"""
+{flash}
+<div class="grid2">
+  <section class="card">
+    <h3>Profile</h3>
+    <form method="post" action="/account/profile-form" class="stack">
+      <label>Full name
+        <input name="full_name" value="{esc(user.full_name)}" placeholder="Your name" maxlength="120">
+      </label>
+      <label>Time zone
+        <input name="timezone" value="{esc(user.timezone)}" placeholder="Europe/London" maxlength="64">
+      </label>
+      <label>Avatar URL
+        <input name="avatar_url" value="{esc(user.avatar_url)}" placeholder="https://…" maxlength="500">
+      </label>
+      <button class="btn btn-primary">Save changes</button>
+    </form>
+    <dl class="kv">
+      <dt>Signed in as</dt><dd>{esc(user.username)}</dd>
+      <dt>Email</dt><dd>{esc(user.email) or "—"} <span class="muted">({verified})</span></dd>
+      <dt>Role</dt><dd>{esc(user.role)}</dd>
+      <dt>Two-factor</dt><dd>{two_fa}</dd>
+      <dt>Last sign-in</dt>
+      <dd>{esc((user.last_login.isoformat()[:16].replace("T", " ")) if user.last_login else "—")}</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h3>Devices</h3>
+    <p class="muted">Everywhere this account is signed in. Revoking takes effect
+      on that device's next request, not when its cookie expires.</p>
+    <table class="tbl">
+      <thead><tr><th>Device</th><th>IP</th><th>Last seen</th><th></th><th></th></tr></thead>
+      <tbody>{''.join(rows)}</tbody>
+    </table>
+    <form method="post" action="/account/sessions/revoke-others-form" style="margin-top:12px">
+      <button class="btn">Sign out all other devices</button>
+    </form>
+  </section>
+</div>
+
+<section class="card danger" style="margin-top:16px">
+  <h3>Delete account</h3>
+  <p class="muted">Your account is disabled immediately and every session is
+    revoked. It can be restored by an administrator for 30 days, after which it
+    is permanently removed along with its trades and journal.</p>
+  <form method="post" action="/account/delete-form" class="stack"
+        onsubmit="return confirm('Delete this account? Sessions end immediately.')">
+    <label>Confirm your password
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <label>Type DELETE to confirm
+      <input name="confirm" required placeholder="DELETE" autocomplete="off">
+    </label>
+    <button class="btn btn-danger">Delete my account</button>
+  </form>
+</section>
+"""
+    return _simple_page(request, "Account", "account", inner)
+
+
+# Form counterparts to the JSON API. A browser <form> cannot send PATCH or a
+# JSON body, and requiring JavaScript for "sign out my stolen laptop" would put
+# the security control behind the thing most likely to be broken.
+@app.post("/account/profile-form")
+def account_profile_form(request: Request, full_name: str = Form(""),
+                         timezone: str = Form(""), avatar_url: str = Form("")):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    store.update_profile(str(u), full_name=full_name, timezone=timezone,
+                         avatar_url=avatar_url)
+    return RedirectResponse("/account?saved=1", status_code=303)
+
+
+@app.post("/account/sessions/{session_id}/revoke-form")
+def account_revoke_form(session_id: str, request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    store.revoke_session(str(u), session_id)
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/sessions/revoke-others-form")
+def account_revoke_others_form(request: Request):
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    from services.session_auth import split_session
+    _who, current = split_session(request.cookies.get(COOKIE, ""), settings.secret_key)
+    store.revoke_all_sessions(str(u), except_id=current)
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/delete-form")
+def account_delete_form(request: Request, password: str = Form(...),
+                        confirm: str = Form("")):
+    """Same two guards as the JSON endpoint — a form must not be the weaker door."""
+    u = _require(request)
+    if isinstance(u, RedirectResponse):
+        return u
+    username = str(u)
+    if confirm.strip().upper() != "DELETE":
+        return RedirectResponse("/account?error=" + _q("Type DELETE to confirm."),
+                                status_code=303)
+    if store.authenticate(username, password) is None:
+        return RedirectResponse("/account?error=" + _q("That password is incorrect."),
+                                status_code=303)
+    user = store.get_user(username)
+    if getattr(user, "role", "") == "owner":
+        others = [x for x in store.list_users()
+                  if x.role == "owner" and x.active and x.username != username]
+        if not others:
+            return RedirectResponse(
+                "/account?error=" + _q("You are the only owner — promote another "
+                                       "owner first, or this deployment would be "
+                                       "left with no administrator."),
+                status_code=303)
+    store.soft_delete_user(username)
+    resp = RedirectResponse("/login?error=" + _q("Your account has been deleted."),
+                            status_code=303)
+    resp.delete_cookie(COOKIE)
+    return resp

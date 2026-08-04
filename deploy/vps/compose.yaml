@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Tradexa VPS deployment — TLS-enabled reference stack.
+#
+# This is a COMPLETE, working reference for the `app + nginx + certbot` stack
+# described in docs/DEPLOYMENT_VPS.md. Your live file lives at
+# /opt/VPS-productn/compose.yaml and this repo cannot see it — so treat this as
+# the target to RECONCILE against, not a drop-in replacement. `docker compose
+# config` is validated against this file in CI-style before you ever apply it.
+#
+# What to line up with your existing file (mismatches here are what break a
+# working site):
+#   • service name `app` and its internal port 8000 — nginx proxies to `app:8000`
+#   • your persistent trading-data volume — keep YOUR name; do not rename it or
+#     the ledger's history is orphaned
+#   • the `nginx` service's OTHER existing mounts (your static build, etc.)
+#
+# Everything TLS-specific — the 443 port, the `letsencrypt` + `certbot_webroot`
+# volumes, and the whole `certbot` service — is additive and safe to copy across
+# verbatim.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  app:
+    build:
+      context: ../..            # repo root holds the Dockerfile
+      dockerfile: Dockerfile
+    # Never published to the host. Only nginx reaches it, over the internal
+    # docker network as `app:8000`. Exposing 8000 to the host is what a public
+    # TLS front-end exists to make unnecessary.
+    expose:
+      - "8000"
+    environment:
+      # Persistent storage lives on a named volume so trades survive a redeploy.
+      HUB_DATA_DIR: /var/hubdata
+      # Set your real secret via an .env file next to this compose (git-ignored).
+      HUB_WEBHOOK_SECRET: ${HUB_WEBHOOK_SECRET:?set HUB_WEBHOOK_SECRET in .env}
+    volumes:
+      - hubdata:/var/hubdata     # ← reconcile with YOUR existing data volume
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }   # bounded logs (req 9)
+    networks: [web]
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"                  # keep HTTP (bootstrap + ACME + redirect)
+      - "443:443"                # NEW — TLS
+    volumes:
+      # Config, read-only. Switching bootstrap → TLS is editing files on the
+      # host here, then reloading — the container never writes its own config.
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      # Certificates. Read-only for nginx; certbot owns the writes.
+      - letsencrypt:/etc/letsencrypt:ro
+      # ACME webroot. Read-only for nginx (it only serves the challenge files);
+      # certbot writes them.
+      - certbot_webroot:/var/www/certbot:ro
+      # ← add your existing nginx mounts (static build, etc.) here too.
+    # Read-only root filesystem + tmpfs for the paths nginx must write at
+    # runtime. Mounted named volumes above stay writable to their owner
+    # regardless; this only hardens the image's own filesystem.
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    networks: [web]
+
+  # One-shot helper: issues and renews certificates. `profiles` keeps it OUT of
+  # `docker compose up` — you invoke it explicitly with `run` for issuance, and
+  # the systemd timer (deploy/vps/systemd/) invokes it for renewal. It shares
+  # the same two volumes as nginx, so a cert it writes is a cert nginx serves.
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["certbot"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt          # rw — certbot owns this
+      - certbot_webroot:/var/www/certbot       # rw — writes the challenge here
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    networks: [web]
+
+volumes:
+  letsencrypt:        # /etc/letsencrypt — certs + renewal config. NEVER in git.
+  certbot_webroot:    # shared ACME challenge webroot
+  hubdata:            # ← reconcile with YOUR persistent trading-data volume
+
+networks:
+  web:
+    driver: bridge

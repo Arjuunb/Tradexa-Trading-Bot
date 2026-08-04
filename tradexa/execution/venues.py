@@ -49,8 +49,15 @@ class Venue(Protocol):
 
     name: str
 
-    def submit(self, order: Order, *, client_id: str) -> ExecutionReport:
+    def submit(self, order: Order, *, client_id: str,
+               **params: Any) -> ExecutionReport:
         """Place an order. ``client_id`` MUST be forwarded to the venue.
+
+        ``**params`` carries venue-specific flags the domain ``Order`` has no
+        field for — post-only, reduce-only, margin mode, the paper engine's
+        maker flag. Passed through rather than modelled: every venue has a
+        different set, and a union of all of them on the core Order type would
+        make it the place every integration goes to add a field.
 
         Forwarding it is what makes a retry safe across a process boundary: a
         venue that honours client ids rejects the duplicate itself, which is the
