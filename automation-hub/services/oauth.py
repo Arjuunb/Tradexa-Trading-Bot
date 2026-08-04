@@ -77,7 +77,125 @@ GITHUB = Provider(
     client_id_env="GITHUB_CLIENT_ID", client_secret_env="GITHUB_CLIENT_SECRET",
 )
 
-PROVIDERS = {p.key: p for p in (GOOGLE, GITHUB)}
+
+# Apple differs from Google and GitHub in three ways, and all three are handled
+# below rather than bolted onto the generic path:
+#
+#   1. The client SECRET is not a static string — it is an ES256 JWT you sign
+#      yourself with a .p8 private key, valid for at most 6 months. There is no
+#      value to paste into an env var; there is a key to sign with.
+#   2. There is no userinfo endpoint. The identity arrives in the `id_token`
+#      returned by the token exchange.
+#   3. The user's name is sent ONCE, in the first authorization POST, and never
+#      again. If you do not capture it then, it is gone for that Apple ID.
+APPLE = Provider(
+    key="apple", label="Apple",
+    authorize_endpoint="https://appleid.apple.com/auth/authorize",
+    token_endpoint="https://appleid.apple.com/auth/token",
+    # No profile endpoint: the identity is inside the id_token. Empty rather
+    # than a plausible-looking URL, so a caller that reaches for it fails
+    # loudly instead of GETting something that does not exist.
+    profile_endpoint="",
+    scope="name email",
+    # `client_id` is the Services ID (e.g. com.tradelogx.web), not the App ID.
+    client_id_env="APPLE_CLIENT_ID",
+    # Unused for Apple — the secret is derived, see apple_client_secret(). Named
+    # for the dataclass contract; is_configured() overrides the check.
+    client_secret_env="APPLE_PRIVATE_KEY",
+)
+
+
+def apple_client_secret(*, now: Optional[float] = None) -> Optional[str]:
+    """Mint Apple's client secret: an ES256 JWT signed with the .p8 key.
+
+    Returns None when Apple is not fully configured or the key cannot be used —
+    never a partial or unsigned token, because a malformed client secret fails
+    at Apple with an opaque error that is very hard to diagnose from this side.
+
+    The 6-month lifetime is Apple's hard maximum. Minting per request rather
+    than caching keeps it simple and costs one signature; the alternative is a
+    cache that silently serves an expired secret months from now.
+    """
+    team = _env("APPLE_TEAM_ID")
+    key_id = _env("APPLE_KEY_ID")
+    client_id = _env("APPLE_CLIENT_ID")
+    private_key = _env("APPLE_PRIVATE_KEY").replace("\\n", "\n")
+    if not (team and key_id and client_id and private_key):
+        return None
+    try:
+        import jwt  # PyJWT
+        issued = int(now if now is not None else time.time())
+        return jwt.encode(
+            {"iss": team, "iat": issued,
+             # 180 days — just inside Apple's 6-month ceiling.
+             "exp": issued + 86400 * 180,
+             "aud": "https://appleid.apple.com", "sub": client_id},
+            private_key, algorithm="ES256", headers={"kid": key_id})
+    except Exception:  # noqa: BLE001 — a bad key is "not configured", not a crash
+        return None
+
+
+def parse_apple_identity(id_token: str) -> Optional["Profile"]:
+    """Read the identity out of Apple's id_token.
+
+    The signature is NOT verified here, and that is safe for this flow only
+    because the token arrived directly from Apple's token endpoint over TLS in
+    response to our authenticated exchange — it is not a token a caller handed
+    us. A token received any other way MUST be verified against Apple's JWKS
+    before it is trusted; do not reuse this function for one.
+
+    `email` may be a private relay address (…@privaterelay.appleid.com) when the
+    user chose "Hide My Email". That is a real, deliverable address and is
+    stored as-is — rewriting or rejecting it would break Sign in with Apple's
+    headline feature.
+    """
+    try:
+        import jwt
+        claims = jwt.decode(id_token, options={"verify_signature": False})
+    except Exception:  # noqa: BLE001
+        return None
+    subject = str(claims.get("sub") or "").strip()
+    if not subject:
+        return None
+    return Profile(provider="apple", subject=subject,
+                   email=(claims.get("email") or None),
+                   # Apple's `email_verified` arrives as a bool OR the strings
+                   # "true"/"false" depending on the flow. Compared as text so
+                   # both shapes land on the same answer.
+                   email_verified=str(claims.get("email_verified", "")).lower()
+                   in ("true", "1"),
+                   # Apple sends the name ONCE, in the first authorization
+                   # POST — never in the id_token. It is not available here,
+                   # and inventing one from the email would be a guess.
+                   name=None)
+
+
+def exchange_apple_code(code: str, base: Optional[str] = None
+                        ) -> Optional["Profile"]:
+    """Apple's token exchange. Returns the profile, not an access token.
+
+    Apple hands back the identity in the same response, so there is no second
+    call — and no access token worth keeping.
+    """
+    secret = apple_client_secret()
+    if not secret:
+        return None
+    try:
+        payload = _post_form(APPLE.token_endpoint, {
+            "client_id": _env("APPLE_CLIENT_ID"),
+            "client_secret": secret,
+            "code": code,
+            "redirect_uri": redirect_uri(APPLE, base),
+            "grant_type": "authorization_code",
+        }, {"Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded"})
+    except (urllib.error.URLError, ValueError, TimeoutError):
+        return None
+    id_token = payload.get("id_token")
+    return parse_apple_identity(id_token) if id_token else None
+
+
+PROVIDERS = {p.key: p for p in (GOOGLE, GITHUB, APPLE)}
 
 
 def _env(name: str) -> str:
@@ -89,6 +207,11 @@ def get_provider(key: str) -> Optional[Provider]:
 
 
 def is_configured(p: Provider) -> bool:
+    if p.key == "apple":
+        # Apple needs four pieces to mint its secret, and a key that actually
+        # signs. Checking the env vars alone would advertise a button that
+        # fails at Apple with an opaque error.
+        return apple_client_secret() is not None
     return bool(_env(p.client_id_env) and _env(p.client_secret_env))
 
 
@@ -106,7 +229,17 @@ def available() -> dict:
     out = {}
     public = _env("HUB_PUBLIC_URL")
     for key, p in PROVIDERS.items():
-        missing = [e for e in (p.client_id_env, p.client_secret_env) if not _env(e)]
+        if p.key == "apple":
+            # Apple's four, named individually — "set APPLE_PRIVATE_KEY" would
+            # be useless advice when what is actually missing is the team id.
+            missing = [e for e in ("APPLE_CLIENT_ID", "APPLE_TEAM_ID",
+                                   "APPLE_KEY_ID", "APPLE_PRIVATE_KEY")
+                       if not _env(e)]
+            if not missing and apple_client_secret() is None:
+                missing.append("a valid APPLE_PRIVATE_KEY (.p8, ES256)")
+        else:
+            missing = [e for e in (p.client_id_env, p.client_secret_env)
+                       if not _env(e)]
         if not public:
             missing.append("HUB_PUBLIC_URL")
         out[key] = {
