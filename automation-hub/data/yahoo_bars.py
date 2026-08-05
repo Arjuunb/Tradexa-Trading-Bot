@@ -26,8 +26,29 @@ _INDEX_MAP = {"SPX": "^GSPC", "NDX": "^NDX", "DJI": "^DJI", "UKX": "^FTSE",
               "DAX": "^GDAXI", "NKY": "^N225", "RUT": "^RUT", "VIX": "^VIX"}
 _COMMODITY_MAP = {"XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTIUSD": "CL=F", "BCOUSD": "BZ=F",
                   "NGUSD": "NG=F", "XPTUSD": "PL=F", "HGUSD": "HG=F"}
-# Yahoo interval + a range wide enough for a few hundred bars of that interval.
-_INTERVALS = {"15m": ("15m", "1mo"), "1h": ("1h", "3mo"), "4h": ("1h", "6mo"), "1d": ("1d", "2y")}
+# Yahoo interval + a range wide enough for a few hundred bars of that interval,
+# plus how many of those to fold into one returned bar.
+#
+# Yahoo caps intraday history hard (1m: 7 days, anything finer than 1h: 60 days),
+# so the ranges here are the widest that actually return data rather than the
+# widest we would like.
+#
+# The `fold` column is what keeps a timeframe HONEST. Yahoo has no 4h bar, and
+# the previous version answered a 4h request with raw 1h bars — a strategy would
+# compute a 4h Supertrend from hourly candles and never know. Where Yahoo lacks
+# the interval we request the next one down and aggregate, so a "4h" bar really
+# spans four hours.
+_INTERVALS = {
+    "1m":  ("1m",  "5d",  1),
+    "5m":  ("5m",  "1mo", 1),
+    "15m": ("15m", "1mo", 1),
+    "30m": ("30m", "1mo", 1),
+    "1h":  ("1h",  "3mo", 1),
+    "2h":  ("1h",  "6mo", 2),    # aggregated — Yahoo has no 2h
+    "4h":  ("1h",  "6mo", 4),    # aggregated — Yahoo has no 4h
+    "1d":  ("1d",  "2y",  1),
+    "1w":  ("1wk", "5y",  1),
+}
 
 _lookup: Optional[dict] = None
 
@@ -83,15 +104,60 @@ def _to_bars(payload: dict) -> Optional[list[Bar]]:
         return None
 
 
+def _fold(bars: list[Bar], factor: int) -> list[Bar]:
+    """Aggregate ``factor`` consecutive bars into one — open first, close last,
+    high/low the extremes, volume summed.
+
+    Folded from the END so the most recent bar is the one that closes on the
+    latest data. Folding from the start would leave the newest (partial) group
+    at an arbitrary offset, and the newest bar is the one a live strategy acts
+    on. A trailing group with fewer than ``factor`` bars is dropped rather than
+    emitted short: a 4h bar built from one hour of trading is not a 4h bar.
+    """
+    if factor <= 1 or not bars:
+        return bars
+    out: list[Bar] = []
+    # Walk backwards in whole groups, then restore chronological order.
+    for end in range(len(bars), factor - 1, -factor):
+        group = bars[end - factor:end]
+        out.append(Bar(timestamp=group[0].timestamp,
+                       open=group[0].open,
+                       high=max(b.high for b in group),
+                       low=min(b.low for b in group),
+                       close=group[-1].close,
+                       volume=sum(b.volume for b in group)))
+    out.reverse()
+    return out
+
+
+def supported_timeframes() -> tuple[str, ...]:
+    """Timeframes this source can serve honestly. Anything else is refused."""
+    return tuple(_INTERVALS)
+
+
 def fetch_yahoo_bars(symbol: str, timeframe: str = "1d", n: int = 500,
                      *, get_json=None) -> Optional[list[Bar]]:
     """Real OHLCV bars for a non-crypto symbol, newest last, trimmed to ``n``.
-    None when the symbol isn't a non-crypto catalog entry or Yahoo is
-    unreachable. Cached ~5 min so repeated analyses don't hammer the source."""
+
+    None when the symbol isn't a non-crypto catalog entry, the timeframe cannot
+    be served, or Yahoo is unreachable. Cached ~5 min so repeated analyses don't
+    hammer the source.
+
+    An unknown timeframe returns None rather than falling back to daily. The
+    fallback was the more dangerous behaviour by a wide margin: a 5m engine
+    silently received DAILY candles and ran its strategy on them, reporting the
+    timeframe it asked for. Nothing downstream could detect the substitution —
+    the bars were real, just not the ones requested. Refusing is loud; a wrong
+    timeframe is silent, and this module already refuses rather than invents
+    everywhere else.
+    """
     ysym = yahoo_symbol_for(symbol)
     if not ysym:
         return None
-    iv, rng = _INTERVALS.get(timeframe, _INTERVALS["1d"])
+    spec = _INTERVALS.get(timeframe)
+    if spec is None:
+        return None
+    iv, rng, fold = spec
     if get_json is None:
         from services.sentiment import _get_json as get_json  # fail-closed fetcher
 
@@ -105,4 +171,10 @@ def fetch_yahoo_bars(symbol: str, timeframe: str = "1d", n: int = 500,
 
     out = cached(key, 300.0, _run)
     bars = out.get("bars")
+    if not bars:
+        return None
+    # Fold AFTER the cache, so 1h / 2h / 4h all share one upstream request.
+    # Trim after folding — `n` is a count of the bars the caller asked for, not
+    # of the raw ones they were built from.
+    bars = _fold(bars, fold)
     return bars[-n:] if bars else None
